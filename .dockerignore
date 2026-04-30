@@ -1,0 +1,38 @@
+# VCS / project metadata
+.git
+.github
+.gitignore
+.commitlintrc.yml
+
+# Editor / IDE / agent caches
+.claude
+.vscode
+.idea
+
+# Local build output
+bin/
+*.exe
+*.test
+coverage.*
+
+# Node / UI local artifacts — Dockerfile rebuilds them inside the image
+# from ui/package.json + ui/src. Excluding these avoids sending a huge
+# context and avoids leaking a host-built dist into the Go stage.
+ui/node_modules
+ui/dist
+
+# Env files
+.env
+.env.*
+
+# Human-facing docs aren't shipped in the image.
+docs/
+
+# License and README stay out of the image (unless we need them for
+# compliance; easy to re-include later).
+LICENSE
+README.md
+
+# Dockerfile / dockerignore themselves.
+Dockerfile
+.dockerignore

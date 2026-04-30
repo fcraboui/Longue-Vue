@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint, vet, build, test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: argos
+          POSTGRES_PASSWORD: argos
+          POSTGRES_DB: argos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd=pg_isready
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      PGX_TEST_DATABASE: postgres://argos:argos@localhost:5432/argos_test?sslmode=disable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # Produce ui/dist so //go:embed all:dist in ui/embed.go finds a bundle.
+      # Every downstream Go step (vet, build, test) compiles the ui package.
+      - name: Build UI bundle
+        run: |
+          cd ui
+          npm ci
+          npm run build
+
+      - name: Verify generated code is current
+        run: |
+          go generate ./...
+          if ! git diff --exit-code; then
+            echo "::error::Generated code is stale. Run 'make generate' and commit the result."
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test (race + cover)
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: ignore
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.11
+          args: --timeout=5m
+
+  helm:
+    name: helm lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Add Bitnami repository
+        run: helm repo add bitnami https://charts.bitnami.com/bitnami
+
+      - name: Build dependencies
+        run: helm dependency build charts/argos
+
+      - name: Lint chart (default values — bundled PG)
+        run: helm lint charts/argos
+
+      - name: Lint chart (external database — no PG)
+        run: |
+          helm lint charts/argos \
+            --set postgresql.enabled=false \
+            --set externalDatabase.url="postgres://argos:test@pg:5432/argos"
+
+      - name: Template renders cleanly (bundled PG)
+        run: helm template argos charts/argos > /dev/null
+
+      - name: Template renders cleanly (external database)
+        run: |
+          helm template argos charts/argos \
+            --set postgresql.enabled=false \
+            --set externalDatabase.url="postgres://argos:test@pg:5432/argos" > /dev/null
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build argosd image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          tags: argos:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=ci-${{ github.sha }}
