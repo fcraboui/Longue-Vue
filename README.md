@@ -171,4 +171,4 @@ Integration tests require `PGX_TEST_DATABASE` pointing at a PostgreSQL instance.
 
 ## License
 
-GPL-3.0 -- see [LICENSE](LICENSE).
+Apache-2.0 -- see [LICENSE](LICENSE).
