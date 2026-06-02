@@ -107,7 +107,8 @@ containerSecurityContext:
       - ALL
 
 # ── ServiceAccount + RBAC ─────────────────────────────────────────────
-# Default: chart creates the SA and the read-only ClusterRole binding.
+# Default: chart creates the SA. Cluster-scoped objects (ClusterRole +
+# ClusterRoleBinding) are opt-in via rbac.cluster — see below.
 # Set rbac.create=false when the cluster manages RBAC out-of-band.
 serviceAccount:
   create: true
@@ -115,9 +116,32 @@ serviceAccount:
   annotations: {}
 
 rbac:
-  # When true, install the ClusterRole + ClusterRoleBinding.
+  # Outer guard. When false, the chart emits no RBAC objects regardless
+  # of rbac.cluster.
   create: true
-  # Override the ClusterRole/Binding name; defaults to the chart fullname.
+  # Whether the chart installs the cluster-scoped ClusterRole +
+  # ClusterRoleBinding. Pair with kubeconfig.mode:
+  #
+  #   kubeconfig.mode: in-cluster  →  rbac.cluster: true
+  #     The pod uses its mounted ServiceAccount token to talk to the
+  #     local API server; it needs cluster-scoped list permissions on
+  #     the 11 resources the collector ingests.
+  #
+  #   kubeconfig.mode: secret      →  rbac.cluster: false (default)
+  #     The pod talks to an external target cluster via a kubeconfig
+  #     Secret. It needs zero host-cluster permissions; the pod
+  #     should run with automountServiceAccountToken: false.
+  #
+  # Default is false so a stray install in a new namespace cannot
+  # silently create global RBAC the operator did not ask for. When
+  # rbac.cluster is true, the ClusterRole / ClusterRoleBinding names
+  # embed .Release.Namespace, so two host-profile releases in two
+  # namespaces do not overwrite each other.
+  cluster: false
+  # Override the ClusterRole/Binding name. Defaults to
+  # "<fullname>-<release-namespace>". Override at your own risk —
+  # picking a fixed string across releases re-creates the collision
+  # pattern this chart is designed to avoid.
   clusterRoleName: ""
 
 # ── NetworkPolicy ─────────────────────────────────────────────────────

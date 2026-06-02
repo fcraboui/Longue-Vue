@@ -26,5 +26,23 @@ before the collector pod starts pushing, e.g.:
     --from-literal=LONGUE_VUE_API_TOKEN=lv_pat_...
 {{- end }}
 
-See ADR-0009 (push-mode collector) and ADR-0016 (DMZ ingest gateway) for
-the security model.
+Install profile:
+
+{{- if and .Values.rbac.create .Values.rbac.cluster }}
+  host-cluster profile — chart installed a ClusterRole + ClusterRoleBinding
+  named "{{ include "longue-vue-collector.clusterRoleName" . }}" granting the
+  pod cluster-scoped list access on the 11 resources the collector ingests.
+  This profile is only correct when kubeconfig.mode=in-cluster (current:
+  {{ .Values.kubeconfig.mode }}); the pod's mounted ServiceAccount token
+  is what talks to the local API server.
+{{- else }}
+  cross-cluster profile — no cluster-scoped RBAC was installed. The pod
+  is expected to authenticate against a target cluster via the
+  kubeconfig Secret (kubeconfig.mode=secret, current: {{ .Values.kubeconfig.mode }})
+  and should run with automountServiceAccountToken: false. Set
+  rbac.cluster=true only if the pod actually needs to read this cluster's
+  API via its own ServiceAccount token.
+{{- end }}
+
+See ADR-0009 (push-mode collector), ADR-0016 (DMZ ingest gateway), and
+ADR-0033 (collector RBAC profiles) for the security model.
