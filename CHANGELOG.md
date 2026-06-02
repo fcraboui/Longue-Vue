@@ -6,6 +6,17 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.0.0](https://github.com/sthalbert/Longue-Vue/compare/v0.34.0...v1.0.0) (2026-06-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **charts/longue-vue-collector:** existing in-cluster-mode installs must set rbac.cluster=true on upgrade to keep their permissions. The ClusterRole/ClusterRoleBinding objects are also renamed from <fullname> to <fullname>-<namespace>; Helm replaces them atomically during the upgrade transaction.
+
+### Features
+
+* **charts/longue-vue-collector:** opt-in cluster RBAC + namespace-suffixed cluster-scoped names ([97e8296](https://github.com/sthalbert/Longue-Vue/commit/97e82961938b8c05581125a4db3d9adf216a8377))
+
 ## [0.34.0](https://github.com/sthalbert/Longue-Vue/compare/v0.33.0...v0.34.0) (2026-06-02)
 
 
