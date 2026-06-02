@@ -52,8 +52,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{/*
+Cluster-scoped object name. Embeds the release namespace so two
+releases that both opt into cluster-scoped RBAC cannot collide on the
+single global ClusterRole / ClusterRoleBinding name. An explicit
+rbac.clusterRoleName override still wins.
+*/}}
 {{- define "longue-vue-collector.clusterRoleName" -}}
-{{- default (include "longue-vue-collector.fullname" .) .Values.rbac.clusterRoleName }}
+{{- if .Values.rbac.clusterRoleName -}}
+{{- .Values.rbac.clusterRoleName | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-%s" (include "longue-vue-collector.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 {{- end }}
 
 {{- define "longue-vue-collector.image" -}}
