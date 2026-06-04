@@ -17,6 +17,10 @@ jobs:
   commits:
     name: Conventional Commits
     runs-on: ubuntu-latest
+    # Skip body/footer line-length checks on Dependabot PRs: its auto-generated
+    # bodies include long release-note URLs that can't be wrapped. The PR-title
+    # job below still enforces conventional-commit format on the squash subject.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@v5
         with:
