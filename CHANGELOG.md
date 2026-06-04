@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.0.1](https://github.com/sthalbert/Longue-Vue/compare/v1.0.0...v1.0.1) (2026-06-04)
+
+
+### Bug Fixes
+
+* **ui:** resolve cluster/namespace names in search via denormalized f… ([5e5967d](https://github.com/sthalbert/Longue-Vue/commit/5e5967d57b6a7082ac4f8aa57862f57c5050eb65))
+* **ui:** resolve cluster/namespace names in search via denormalized fields ([4ff0a59](https://github.com/sthalbert/Longue-Vue/commit/4ff0a595e39dc9a61089d02d4c243c9b0761cab1))
+
 ## [1.0.0](https://github.com/sthalbert/Longue-Vue/compare/v0.34.0...v1.0.0) (2026-06-02)
 
 
