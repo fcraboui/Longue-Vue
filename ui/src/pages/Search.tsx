@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as api from '../api';
 import { useResource } from '../hooks';
-import { AsyncView, Dash, IdLink, SectionTitle, Empty } from '../components';
+import { AsyncView, Dash, NamespaceLink, WorkloadLink, SectionTitle, Empty } from '../components';
 import { useEntityTable } from '../components/column_filters';
 import { isAdmin, useMe } from '../me';
 import { ExtractButton } from '../components/ExtractButton';
@@ -94,12 +94,10 @@ function Results({ q }: { q: string }) {
         // whose AMI name AND applications both match isn't counted twice.
         api.listVirtualMachines({ image: q }),
         api.listVirtualMachines({ application: q }),
-        api.listNamespaces(),
-        api.listClusters(),
         // Cloud accounts are admin-only; non-admins fall back to the UUID
         // prefix in the rendered table.
         canListAccounts ? api.listCloudAccounts() : Promise.resolve(null),
-      ]).then(([wls, pods, vmsByImage, vmsByApp, ns, cl, accounts]) => {
+      ]).then(([wls, pods, vmsByImage, vmsByApp, accounts]) => {
         const vmsById = new Map<string, api.VirtualMachine>();
         for (const vm of vmsByImage.items) vmsById.set(vm.id, vm);
         for (const vm of vmsByApp.items) vmsById.set(vm.id, vm);
@@ -107,8 +105,6 @@ function Results({ q }: { q: string }) {
           workloads: wls.items,
           pods: pods.items,
           vms: Array.from(vmsById.values()),
-          namespacesById: new Map(ns.items.map((n) => [n.id, n])),
-          clustersById: new Map(cl.items.map((c) => [c.id, c])),
           accountsById: new Map((accounts?.items ?? []).map((a) => [a.id, a])),
         };
       }),
@@ -117,7 +113,7 @@ function Results({ q }: { q: string }) {
 
   return (
     <AsyncView state={state}>
-      {({ workloads, pods, vms, namespacesById, clustersById, accountsById }) => {
+      {({ workloads, pods, vms, accountsById }) => {
         // Unique namespace count across the union of workload + pod hits —
         // the top-line "affected apps" number shown in the callout.
         const affectedNamespaces = new Set<string>();
@@ -168,10 +164,11 @@ function Results({ q }: { q: string }) {
                         <span className="pill">{w.kind}</span>
                       </td>
                       <td>
-                        <NamespaceCrumb
+                        <NamespaceLink
                           namespaceId={w.namespace_id}
-                          namespacesById={namespacesById}
-                          clustersById={clustersById}
+                          namespaceName={w.namespace_name}
+                          clusterId={w.cluster_id}
+                          clusterName={w.cluster_name}
                         />
                       </td>
                       <td>{renderMatchedImages(w.containers, q)}</td>
@@ -212,18 +209,18 @@ function Results({ q }: { q: string }) {
                       </td>
                       <td>{p.phase || <Dash />}</td>
                       <td>
-                        <NamespaceCrumb
+                        <NamespaceLink
                           namespaceId={p.namespace_id}
-                          namespacesById={namespacesById}
-                          clustersById={clustersById}
+                          namespaceName={p.namespace_name}
+                          clusterId={p.cluster_id}
+                          clusterName={p.cluster_name}
                         />
                       </td>
                       <td>
-                        {p.workload_id ? (
-                          <IdLink to={`/workloads/${p.workload_id}`} id={p.workload_id} />
-                        ) : (
-                          <Dash />
-                        )}
+                        <WorkloadLink
+                          workloadId={p.workload_id}
+                          workloadName={p.workload_name}
+                        />
                       </td>
                       <td>{renderMatchedImages(p.containers, q)}</td>
                     </tr>
@@ -357,31 +354,6 @@ function renderMatchedImages(containers: api.Container[] | null | undefined, q: 
         .map((c) => (c.init ? `${c.image} (init)` : c.image))
         .join(', ')}
     </code>
-  );
-}
-
-function NamespaceCrumb({
-  namespaceId,
-  namespacesById,
-  clustersById,
-}: {
-  namespaceId: string;
-  namespacesById: Map<string, api.Namespace>;
-  clustersById: Map<string, api.Cluster>;
-}) {
-  const ns = namespacesById.get(namespaceId);
-  if (!ns) return <IdLink to={`/namespaces/${namespaceId}`} id={namespaceId} />;
-  const cluster = clustersById.get(ns.cluster_id);
-  return (
-    <>
-      {cluster && (
-        <Link to={`/clusters/${cluster.id}`} className="muted">
-          {cluster.name}
-        </Link>
-      )}
-      {cluster && <span className="muted"> / </span>}
-      <Link to={`/namespaces/${ns.id}`}>{ns.name}</Link>
-    </>
   );
 }
 
