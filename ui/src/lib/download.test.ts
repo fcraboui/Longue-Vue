@@ -29,7 +29,7 @@ describe('downloadExtract', () => {
       'Content-Disposition': 'attachment; filename="out.csv"',
       'X-Longue-Vue-Truncated': 'true',
     });
-    vi.spyOn(global, 'fetch').mockResolvedValue(new Response('data', { status: 200, headers }));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('data', { status: 200, headers }));
     const result = await downloadExtract('/v1/eol/extract?format=csv', 'fallback.csv');
     expect(result.truncated).toBe(true);
     expect(result.filename).toBe('out.csv');
@@ -37,7 +37,7 @@ describe('downloadExtract', () => {
 
   it('treats absent truncation header as false', async () => {
     const headers = new Headers({ 'Content-Type': 'text/csv' });
-    vi.spyOn(global, 'fetch').mockResolvedValue(
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('x', { status: 200, headers }),
     );
     const result = await downloadExtract('/url', 'fallback.csv');
@@ -45,7 +45,7 @@ describe('downloadExtract', () => {
   });
 
   it('throws on non-2xx responses', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue(
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('{"detail":"bad"}', { status: 400, headers: { 'Content-Type': 'application/problem+json' } }),
     );
     await expect(downloadExtract('/url', 'fallback.csv')).rejects.toThrow();
