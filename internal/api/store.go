@@ -738,6 +738,26 @@ type Store interface {
 	// effective-DICT source bucket (application | workload | none), feeding
 	// the longue_vue_dict_coverage gauge (ADR-0029 §6).
 	DICTCoverageCounts(ctx context.Context) (application, workload, none int, err error)
+
+	// --- Security groups (flow-matrix P1) ---------------------------------
+
+	// UpsertSecurityGroup inserts or updates by (cloud_account_id,
+	// provider_sg_id). Returns the stable row UUID. Called on every
+	// collector tick; idempotent.
+	UpsertSecurityGroup(ctx context.Context, in SecurityGroupRow) (uuid.UUID, error)
+
+	// ReplaceSecurityGroupRules atomically replaces every rule for the
+	// given security_group_id. Delete+insert in one transaction; rule
+	// sets are small enough that a finer diff is over-engineering.
+	ReplaceSecurityGroupRules(ctx context.Context, sgID uuid.UUID, rules []SecurityGroupRuleRow) error
+
+	// ListSecurityGroupsByAccount returns a page of security groups for
+	// the given account, ordered by (reconcile_seen_at DESC, id DESC).
+	ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, limit int, cursor string) ([]SecurityGroupRow, string, error)
+
+	// ListSecurityGroupRules returns all rules for a single security
+	// group, in stable insertion order.
+	ListSecurityGroupRules(ctx context.Context, sgID uuid.UUID) ([]SecurityGroupRuleRow, error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by

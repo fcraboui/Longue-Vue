@@ -1006,3 +1006,88 @@ func resetMemOriginMappings() {
 	defer memOriginMappingsMu.Unlock()
 	memOriginMappings = map[string]ImageOriginMapping{}
 }
+
+// --- Security groups stubs (flow-matrix P1) ---
+//
+// memSGState is a minimal in-memory SG store for tests that exercise the VM
+// ingest handler's best-effort SG persistence path. Not threadsafe beyond the
+// lock inherited from cloudFake.mu; tests are not parallel here.
+
+type memSGState struct {
+	mu    sync.Mutex
+	sgs   map[uuid.UUID]SecurityGroupRow    // keyed by stable ID
+	rules map[uuid.UUID][]SecurityGroupRuleRow // keyed by sgID
+	// byAccountProv allows lookup by (cloudAccountID, providerSGID)
+	byAccountProv map[[2]string]uuid.UUID
+}
+
+var sgFake = &memSGState{
+	sgs:           make(map[uuid.UUID]SecurityGroupRow),
+	rules:         make(map[uuid.UUID][]SecurityGroupRuleRow),
+	byAccountProv: make(map[[2]string]uuid.UUID),
+}
+
+func resetSGFake() {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	sgFake.sgs = make(map[uuid.UUID]SecurityGroupRow)
+	sgFake.rules = make(map[uuid.UUID][]SecurityGroupRuleRow)
+	sgFake.byAccountProv = make(map[[2]string]uuid.UUID)
+}
+
+func (m *memStore) UpsertSecurityGroup(_ context.Context, in SecurityGroupRow) (uuid.UUID, error) {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	key := [2]string{in.CloudAccountID.String(), in.ProviderSGID}
+	if id, ok := sgFake.byAccountProv[key]; ok {
+		// Update existing.
+		sg := sgFake.sgs[id]
+		sg.Name = in.Name
+		sg.VPCID = in.VPCID
+		sg.Tags = in.Tags
+		sgFake.sgs[id] = sg
+		return id, nil
+	}
+	id := uuid.New()
+	in.ID = id
+	sgFake.sgs[id] = in
+	sgFake.byAccountProv[key] = id
+	return id, nil
+}
+
+func (m *memStore) ReplaceSecurityGroupRules(_ context.Context, sgID uuid.UUID, rules []SecurityGroupRuleRow) error {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	sgFake.rules[sgID] = rules
+	return nil
+}
+
+func (m *memStore) ListSecurityGroupsByAccount(_ context.Context, accountID uuid.UUID, limit int, _ string) ([]SecurityGroupRow, string, error) {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	out := make([]SecurityGroupRow, 0)
+	for _, sg := range sgFake.sgs { //nolint:gocritic // rangeValCopy: test fake
+		if sg.CloudAccountID == accountID {
+			out = append(out, sg)
+		}
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, "", nil
+}
+
+func (m *memStore) ListSecurityGroupRules(_ context.Context, sgID uuid.UUID) ([]SecurityGroupRuleRow, error) {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	rules, ok := sgFake.rules[sgID]
+	if !ok {
+		return nil, nil
+	}
+	out := make([]SecurityGroupRuleRow, len(rules))
+	copy(out, rules)
+	return out, nil
+}

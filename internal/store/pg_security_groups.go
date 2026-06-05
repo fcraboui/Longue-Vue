@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,21 +13,17 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
-// SecurityGroup is the in-store shape of a cloud provider security group.
-type SecurityGroup struct {
-	ID             uuid.UUID
-	CloudAccountID uuid.UUID
-	ProviderSGID   string
-	Name           string
-	VPCID          string
-	Tags           json.RawMessage
-}
+// SecurityGroup and SecurityGroupRule are type aliases so that store-internal
+// test helpers (pg_security_groups_test.go) can continue using the short name
+// while the api.Store interface uses api.SecurityGroupRow / api.SecurityGroupRuleRow.
+type SecurityGroup = api.SecurityGroupRow
+type SecurityGroupRule = api.SecurityGroupRuleRow
 
 const sgSelect = `id, cloud_account_id, provider_sg_id, name, COALESCE(vpc_id,''), tags`
 
 // UpsertSecurityGroup inserts or updates by (cloud_account_id, provider_sg_id).
 // Returns the stable row ID. Collector callers use this on every tick.
-func (p *PG) UpsertSecurityGroup(ctx context.Context, sg SecurityGroup) (uuid.UUID, error) {
+func (p *PG) UpsertSecurityGroup(ctx context.Context, sg api.SecurityGroupRow) (uuid.UUID, error) {
 	const q = `
 		INSERT INTO security_groups
 			(cloud_account_id, provider_sg_id, name, vpc_id, tags, reconcile_seen_at)
@@ -49,39 +44,24 @@ func (p *PG) UpsertSecurityGroup(ctx context.Context, sg SecurityGroup) (uuid.UU
 }
 
 // GetSecurityGroup returns ErrNotFound on miss.
-func (p *PG) GetSecurityGroup(ctx context.Context, id uuid.UUID) (SecurityGroup, error) {
+func (p *PG) GetSecurityGroup(ctx context.Context, id uuid.UUID) (api.SecurityGroupRow, error) {
 	const q = `SELECT ` + sgSelect + ` FROM security_groups WHERE id = $1`
-	var sg SecurityGroup
+	var sg api.SecurityGroupRow
 	err := p.pool.QueryRow(ctx, q, id).Scan(
 		&sg.ID, &sg.CloudAccountID, &sg.ProviderSGID, &sg.Name, &sg.VPCID, &sg.Tags,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return SecurityGroup{}, api.ErrNotFound
+		return api.SecurityGroupRow{}, api.ErrNotFound
 	}
 	if err != nil {
-		return SecurityGroup{}, fmt.Errorf("get security_group: %w", err)
+		return api.SecurityGroupRow{}, fmt.Errorf("get security_group: %w", err)
 	}
 	return sg, nil
 }
 
-// SecurityGroupRule is the in-store shape of a cloud provider security group rule.
-type SecurityGroupRule struct {
-	ID               uuid.UUID
-	SecurityGroupID  uuid.UUID
-	Direction        string
-	Protocol         string
-	FromPort         *int
-	ToPort           *int
-	PeerKind         string
-	PeerCIDR         string
-	PeerSGProviderID string
-	PeerPrefixID     string
-	Description      string
-}
-
 // ReplaceSecurityGroupRules deletes then inserts in one transaction.
 // Rule sets are small + atomic; finer diff is over-engineering.
-func (p *PG) ReplaceSecurityGroupRules(ctx context.Context, sgID uuid.UUID, rules []SecurityGroupRule) error {
+func (p *PG) ReplaceSecurityGroupRules(ctx context.Context, sgID uuid.UUID, rules []api.SecurityGroupRuleRow) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin replace security_group_rules: %w", err)
@@ -117,7 +97,7 @@ func (p *PG) ReplaceSecurityGroupRules(ctx context.Context, sgID uuid.UUID, rule
 
 // ListSecurityGroupRules returns every rule for a single security group, in
 // stable insertion order.
-func (p *PG) ListSecurityGroupRules(ctx context.Context, sgID uuid.UUID) ([]SecurityGroupRule, error) {
+func (p *PG) ListSecurityGroupRules(ctx context.Context, sgID uuid.UUID) ([]api.SecurityGroupRuleRow, error) {
 	const q = `
 		SELECT id, security_group_id, direction, protocol, from_port, to_port,
 		       peer_kind, COALESCE(host(peer_cidr), ''),
@@ -134,9 +114,9 @@ func (p *PG) ListSecurityGroupRules(ctx context.Context, sgID uuid.UUID) ([]Secu
 	}
 	defer rows.Close()
 
-	var out []SecurityGroupRule
+	var out []api.SecurityGroupRuleRow
 	for rows.Next() {
-		var r SecurityGroupRule
+		var r api.SecurityGroupRuleRow
 		if err := rows.Scan(
 			&r.ID, &r.SecurityGroupID, &r.Direction, &r.Protocol,
 			&r.FromPort, &r.ToPort,
@@ -174,7 +154,7 @@ func (p *PG) SweepSecurityGroupsByAccount(ctx context.Context, accountID uuid.UU
 // ListSecurityGroupsByAccount returns a page + next_cursor, ordered by
 // (reconcile_seen_at DESC, id DESC). Cursor format identical to
 // ListNetworkPoliciesByCluster — REUSE encodeCursor/decodeCursor.
-func (p *PG) ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, limit int, cursor string) ([]SecurityGroup, string, error) {
+func (p *PG) ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, limit int, cursor string) ([]api.SecurityGroupRow, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -216,7 +196,7 @@ func (p *PG) ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUI
 	defer rows.Close()
 
 	type sgWithTS struct {
-		sg     SecurityGroup
+		sg     api.SecurityGroupRow
 		seenAt time.Time
 	}
 	raw := make([]sgWithTS, 0, limit+1)
@@ -241,7 +221,7 @@ func (p *PG) ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUI
 		next = encodeCursor(last.seenAt, last.sg.ID)
 		raw = raw[:limit]
 	}
-	items := make([]SecurityGroup, len(raw))
+	items := make([]api.SecurityGroupRow, len(raw))
 	for i, r := range raw {
 		items[i] = r.sg
 	}
