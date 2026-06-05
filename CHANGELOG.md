@@ -6,6 +6,46 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.1.0](https://github.com/sthalbert/Longue-Vue/compare/v1.0.1...v1.1.0) (2026-06-05)
+
+
+### Features
+
+* **api:** get /v1/{workloads,virtual-machines}/{id}/network-rules ([d02b796](https://github.com/sthalbert/Longue-Vue/commit/d02b796f7a1d4b186f5c2bf1d56ae12b7e4ba858))
+* **api:** get /v1/network-policies + /{id} with embedded rules ([b17abb5](https://github.com/sthalbert/Longue-Vue/commit/b17abb5d90f442ca2ed59a3b113cedd499d9b688))
+* **api:** get /v1/security-groups + /{id} with embedded rules ([7397bc8](https://github.com/sthalbert/Longue-Vue/commit/7397bc8feb6bd42a3c3dd8afeea2716e5b46d46f))
+* **collector:** kubesource.listnetworkpolicies + networkpolicyinfo types ([c30b0f0](https://github.com/sthalbert/Longue-Vue/commit/c30b0f08b38101af2196316c2e27c9dab7da9d19))
+* **collector:** networkpolicy resource handler with reconcile sweep ([1925a93](https://github.com/sthalbert/Longue-Vue/commit/1925a937faadc57088e97b3ed0fde6b002fe7274))
+* **flow-matrix:** phase 1 inventory — netpols + canonical SG model ([d7cfa0b](https://github.com/sthalbert/Longue-Vue/commit/d7cfa0bd365d81b4e30261afd4660eb0e9e2c9fe))
+* **ingest:** account-level SG sweep endpoint + vm-collector tick wiring ([4964b7c](https://github.com/sthalbert/Longue-Vue/commit/4964b7ca9e9670a6f39f9769fa47f67b9045298f))
+* **ingest:** persist canonical SGs into security_groups + security_group_rules ([c4cac6e](https://github.com/sthalbert/Longue-Vue/commit/c4cac6e578f284f396e2d3e15ea7188d93267a97))
+* **migrate:** network_policies + network_policy_rules tables ([8e63a7c](https://github.com/sthalbert/Longue-Vue/commit/8e63a7c7979c073432b4434aa1010213336d3391))
+* **migrate:** security_groups + security_group_rules tables ([18f50b2](https://github.com/sthalbert/Longue-Vue/commit/18f50b20ff83cb13fb99e612c8cc323b4f3f734c))
+* **openapi:** p1 flow-matrix read endpoints + schemas ([2b2ec69](https://github.com/sthalbert/Longue-Vue/commit/2b2ec699669d66ceb227cd6f7c18c2d45e7636de))
+* **provider:** aws provider skeleton + native sg fixture ([37a637a](https://github.com/sthalbert/Longue-Vue/commit/37a637ae50ce528ddb9cae2a1524f24777a78309))
+* **provider:** canonical SG schema (sgmodel.go) ([1ab47d8](https://github.com/sthalbert/Longue-Vue/commit/1ab47d868ddc1dc55cf21070cafe010fb9732f19))
+* **provider:** outscale GetSecurityGroups returns canonical []SecurityGroup ([f312481](https://github.com/sthalbert/Longue-Vue/commit/f3124814e78ff6546922bcc0747b505f7cac388c))
+* **provider:** outscale SG normalizer to canonical schema ([4322a03](https://github.com/sthalbert/Longue-Vue/commit/4322a03ecc93a4b5a61370961747cb103eaae842))
+* **provider:** ovh provider skeleton + native sg fixture ([90449fa](https://github.com/sthalbert/Longue-Vue/commit/90449fa89e74750b676db49b0f609baa16f4fb7a))
+* **provider:** scaleway provider skeleton + native sg fixture ([9ea04da](https://github.com/sthalbert/Longue-Vue/commit/9ea04daf48690174e41a056bfe3befdc9f880cd1))
+* **store:** network_policy_rules + reconcile sweep + cursor list ([2916aa8](https://github.com/sthalbert/Longue-Vue/commit/2916aa87dae1c473b0520dab49a987c47489da42))
+* **store:** security_group_rules + reconcile sweep + cursor list ([1c421c3](https://github.com/sthalbert/Longue-Vue/commit/1c421c30fce6f9353c8089748169d38fbbfb261a))
+* **store:** upsert + get on network_policies ([ce410e0](https://github.com/sthalbert/Longue-Vue/commit/ce410e07ea9183b72f11450b015a493b71a0d693))
+* **store:** upsert + get on security_groups ([e48d63f](https://github.com/sthalbert/Longue-Vue/commit/e48d63f310b01ffc56c446648b9226a4f5249201))
+* **ui:** network-rules tab + rule-row + day-one wide-open banner ([d899f67](https://github.com/sthalbert/Longue-Vue/commit/d899f67262d612dca84d96854b28e7991ba70aa1))
+* **ui:** network-rules tab on workload + vm detail pages ([50649aa](https://github.com/sthalbert/Longue-Vue/commit/50649aa0f910b2087e3652a4982bac4a5d239526))
+* **ui:** typed client for /v1/{workloads,virtual-machines}/{id}/network-rules ([6524e07](https://github.com/sthalbert/Longue-Vue/commit/6524e07be2242b7baf81c22cdbb99ce93fe17939))
+
+
+### Bug Fixes
+
+* **api:** add snake_case JSON tags to SecurityGroup{,Rule}Row ([5e50ad1](https://github.com/sthalbert/Longue-Vue/commit/5e50ad16375ef247bf5ff23f9924f5b7fd44c858))
+* **lint:** close outscale http responses + nolint maintidx on buildhttpserver ([1af7ff4](https://github.com/sthalbert/Longue-Vue/commit/1af7ff4f3fce5e092f0fc1ebfc2378fba0d2d17a))
+* **lint:** nolint gocyclo on resolveimagenames bumped by bodyclose defer ([ce920be](https://github.com/sthalbert/Longue-Vue/commit/ce920be6cd865b6f3b685ebf1bf8f891080f9d1c))
+* **migrate:** align network_policies index names with project convention ([a4d8a97](https://github.com/sthalbert/Longue-Vue/commit/a4d8a97aa334c980d1d581d86e21f7d9afcd6553))
+* **openapi:** add operationIds + codegen excludes for flow-matrix p1 endpoints ([148c35a](https://github.com/sthalbert/Longue-Vue/commit/148c35af07aa073b18d5c4efea777cbec649985e))
+* **test:** add ListNetworkPolicies stub to integration fakeKubeSource ([94e2ef9](https://github.com/sthalbert/Longue-Vue/commit/94e2ef9a9a187ac4bc913b8594d30efa71cda9d8))
+
 ## [1.0.1](https://github.com/sthalbert/Longue-Vue/compare/v1.0.0...v1.0.1) (2026-06-04)
 
 
