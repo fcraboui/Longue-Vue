@@ -9,6 +9,7 @@ import (
 	"github.com/sthalbert/longue-vue/internal/vmcollector/provider"
 )
 
+//nolint:gocyclo // test covers many rules and edge cases from the fixture; complexity is intentional
 func TestNormalizeOutscaleSecurityGroups(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("testdata", "outscale_sg_native.json"))
 	if err != nil {

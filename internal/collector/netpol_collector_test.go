@@ -32,6 +32,7 @@ func newFakeNetPolStore() *fakeNetPolStore {
 	}
 }
 
+//nolint:gocritic // hugeParam: store.NetworkPolicy must match the NetPolStore interface signature
 func (f *fakeNetPolStore) UpsertNetworkPolicy(_ context.Context, np store.NetworkPolicy) (uuid.UUID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -1036,6 +1036,7 @@ func resetSGFake() {
 	sgFake.byAccountProv = make(map[[2]string]uuid.UUID)
 }
 
+//nolint:gocritic // hugeParam: SecurityGroupRow must match the Store interface signature
 func (m *memStore) UpsertSecurityGroup(_ context.Context, in SecurityGroupRow) (uuid.UUID, error) {
 	sgFake.mu.Lock()
 	defer sgFake.mu.Unlock()
@@ -1189,6 +1190,8 @@ func (m *memStore) ListNetworkPoliciesForWorkload(_ context.Context, namespaceID
 // upsertNetworkPolicyFake inserts or updates a network policy in the fake
 // store. Keyed on (clusterID, namespaceID, name). Returns the stable UUID.
 // Used by handler tests to seed the in-memory store.
+//
+//nolint:gocritic // hugeParam: NetworkPolicyRow matches the store interface; test helper accepts by value for simplicity
 func upsertNetworkPolicyFake(np NetworkPolicyRow) uuid.UUID {
 	npFake.mu.Lock()
 	defer npFake.mu.Unlock()
@@ -1211,7 +1214,7 @@ func replaceNetworkPolicyRulesFake(policyID uuid.UUID, rules []NetworkPolicyRule
 	npFake.mu.Lock()
 	defer npFake.mu.Unlock()
 	out := make([]NetworkPolicyRuleRow, len(rules))
-	for i, r := range rules {
+	for i, r := range rules { //nolint:gocritic // rangeValCopy: test fake; copy is intentional for mutation isolation
 		if r.ID == uuid.Nil {
 			r.ID = uuid.New()
 		}

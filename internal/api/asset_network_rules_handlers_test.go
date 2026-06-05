@@ -178,6 +178,8 @@ func TestWorkloadNetworkRules_K8sDefaultAllowFlag(t *testing.T) {
 // TestVMNetworkRules_UnionsAcrossSGs seeds a VM with canonical SG payload
 // referencing two security groups, each with rules. The response should
 // contain both SGs with stale=false.
+//
+//nolint:gocyclo // test exercises multiple assertions across two SGs; complexity is inherent to the scenario
 func TestVMNetworkRules_UnionsAcrossSGs(t *testing.T) {
 	resetSGFake()
 	resetCloudFake()

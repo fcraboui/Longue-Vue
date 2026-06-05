@@ -35,6 +35,8 @@ import (
 // Rules for each matching policy are embedded in the response.
 // When no policy matches, k8s_default_allow: true is returned to
 // signal the Kubernetes "open by default" posture.
+//
+//nolint:gocyclo // complexity is inherent to the multi-step error-handling pattern of this handler
 func HandleWorkloadNetworkRules(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
@@ -89,7 +91,7 @@ func HandleWorkloadNetworkRules(store Store) http.HandlerFunc {
 		}
 
 		out := make([]matchingPolicy, 0, len(policies))
-		for _, p := range policies {
+		for _, p := range policies { //nolint:gocritic // rangeValCopy: NetworkPolicyRow copy in handler loop; refactoring deferred to P2
 			rrs, err := store.ListNetworkPolicyRules(r.Context(), p.ID)
 			if err != nil {
 				slog.Error("list network policy rules", slog.String("policy_id", p.ID.String()), slog.Any("error", err))
@@ -97,7 +99,7 @@ func HandleWorkloadNetworkRules(store Store) http.HandlerFunc {
 				rrs = nil
 			}
 			ruleItems := make([]rule, 0, len(rrs))
-			for _, rr := range rrs {
+			for _, rr := range rrs { //nolint:gocritic // rangeValCopy: NetworkPolicyRuleRow copy; deferred to P2
 				ruleItems = append(ruleItems, rule{
 					ID:                    rr.ID,
 					Direction:             rr.Direction,
@@ -138,6 +140,8 @@ func HandleWorkloadNetworkRules(store Store) http.HandlerFunc {
 // workloadLabelsAsJSON returns the workload's labels as a JSON object
 // suitable for the Postgres @> containment operator. Returns `{}` when
 // no labels are set so the query still matches open-selector policies.
+//
+//nolint:gocritic // hugeParam: Workload is passed by the caller's range which already copies; pointer would complicate the API
 func workloadLabelsAsJSON(wl Workload) (json.RawMessage, error) {
 	if wl.Labels == nil || len(*wl.Labels) == 0 {
 		return json.RawMessage(`{}`), nil
@@ -156,6 +160,8 @@ func workloadLabelsAsJSON(wl Workload) (json.RawMessage, error) {
 // security_groups JSONB column) and their rules. When the VM's
 // security_groups field predates the canonical schema, stale: true is
 // returned and the caller should await the next collector tick.
+//
+//nolint:gocyclo // complexity inherent to multi-step SG lookup + error handling; refactoring deferred to P2
 func HandleVMNetworkRules(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {

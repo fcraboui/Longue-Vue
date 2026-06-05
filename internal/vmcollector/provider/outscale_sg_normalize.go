@@ -106,6 +106,7 @@ func canonicalOutscaleProtocol(p string) string {
 	}
 }
 
+//nolint:gocritic // unnamedResult: from/to make the two *int return values self-evident; naming would be redundant
 func canonicalOutscalePortRange(from, to int) (*int, *int) {
 	if from < 0 && to < 0 {
 		return nil, nil

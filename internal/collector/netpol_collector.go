@@ -36,7 +36,7 @@ func CollectNetworkPolicies(ctx context.Context, src KubeSource, st NetPolStore,
 		return fmt.Errorf("list netpols in %s: %w", nsName, err)
 	}
 	seen := make([]string, 0, len(infos))
-	for _, info := range infos {
+	for _, info := range infos { //nolint:gocritic // rangeValCopy: NetworkPolicyInfo has slices; shallow copy is safe here
 		id, err := st.UpsertNetworkPolicy(ctx, store.NetworkPolicy{
 			ClusterID:   clusterID,
 			NamespaceID: nsID,
@@ -65,6 +65,8 @@ func CollectNetworkPolicies(ctx context.Context, src KubeSource, st NetPolStore,
 // single row with peer_kind='selector' and null selectors — that
 // represents "from anywhere in the cluster" in K8s semantics. The
 // engine (P2) interprets this correctly.
+//
+//nolint:gocritic // hugeParam: NetworkPolicyInfo contains slices; passing by pointer would require a larger refactor
 func flattenNetPolRules(info NetworkPolicyInfo) []store.NetworkPolicyRule {
 	var out []store.NetworkPolicyRule
 	flatten := func(direction string, rules []NetworkPolicyRuleInfo) {

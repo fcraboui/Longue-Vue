@@ -34,6 +34,8 @@ import (
 // Required query param: cloud_account_id (UUID).
 // Optional: vpc_id (exact), name (substring), limit (default 50, max 500),
 // cursor (opaque).
+//
+//nolint:gocognit,gocyclo // handler includes pagination + two optional client-side filters; complexity is inherent to the endpoint
 func HandleListSecurityGroups(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {

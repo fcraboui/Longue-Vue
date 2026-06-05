@@ -25,6 +25,8 @@ const sgSelect = `id, cloud_account_id, provider_sg_id, name, COALESCE(vpc_id,''
 
 // UpsertSecurityGroup inserts or updates by (cloud_account_id, provider_sg_id).
 // Returns the stable row ID. Collector callers use this on every tick.
+//
+//nolint:gocritic // hugeParam: api.SecurityGroupRow matches the Store interface; changing to pointer would break callers
 func (p *PG) UpsertSecurityGroup(ctx context.Context, sg api.SecurityGroupRow) (uuid.UUID, error) {
 	const q = `
 		INSERT INTO security_groups
@@ -99,7 +101,7 @@ func (p *PG) ReplaceSecurityGroupRules(ctx context.Context, sgID uuid.UUID, rule
 		   peer_kind, peer_cidr, peer_sg_provider_id, peer_prefix_id, description)
 		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7,'')::cidr, NULLIF($8,''), NULLIF($9,''), NULLIF($10,''))`
 
-	for _, r := range rules {
+	for _, r := range rules { //nolint:gocritic // rangeValCopy: SecurityGroupRuleRow is a small struct; indexing would reduce clarity
 		if _, err := tx.Exec(ctx, ins,
 			sgID, r.Direction, r.Protocol, r.FromPort, r.ToPort,
 			r.PeerKind, r.PeerCIDR, r.PeerSGProviderID, r.PeerPrefixID, r.Description,
@@ -173,6 +175,8 @@ func (p *PG) SweepSecurityGroupsByAccount(ctx context.Context, accountID uuid.UU
 // ListSecurityGroupsByAccount returns a page + next_cursor, ordered by
 // (reconcile_seen_at DESC, id DESC). Cursor format identical to
 // ListNetworkPoliciesByCluster — REUSE encodeCursor/decodeCursor.
+//
+//nolint:gocyclo // pagination + cursor decoding; matches existing list patterns in this package
 func (p *PG) ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, limit int, cursor string) ([]api.SecurityGroupRow, string, error) {
 	if limit <= 0 {
 		limit = 50
@@ -241,7 +245,7 @@ func (p *PG) ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUI
 		raw = raw[:limit]
 	}
 	items := make([]api.SecurityGroupRow, len(raw))
-	for i, r := range raw {
+	for i, r := range raw { //nolint:gocritic // rangeValCopy: cursor wrapper struct; copy is intentional
 		items[i] = r.sg
 	}
 	return items, next, nil

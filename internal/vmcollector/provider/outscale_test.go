@@ -74,6 +74,8 @@ func TestDeriveRegionFromZone(t *testing.T) {
 // ReadSecurityGroups, marshals the response through
 // NormalizeOutscaleSecurityGroups, and returns a canonical []SecurityGroup.
 // The fixture is the same outscale_sg_native.json used by the normalize unit test.
+//
+//nolint:gocyclo // test exercises the full HTTP mock + normalization pipeline; assertions are necessarily numerous
 func TestGetSecurityGroups(t *testing.T) {
 	t.Parallel()
 	fixture, err := os.ReadFile(filepath.Join("testdata", "outscale_sg_native.json"))

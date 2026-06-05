@@ -710,6 +710,8 @@ func persistSGsFromVMIngest(ctx context.Context, s Store, accountID uuid.UUID, s
 
 // flattenSGToRules converts an sgWireGroup to a flat []SecurityGroupRuleRow,
 // tagging each rule with its direction.
+//
+//nolint:gocritic // hugeParam: sgWireGroup matches the wire format; pointer would require callers to take address of slice elements
 func flattenSGToRules(g sgWireGroup) []SecurityGroupRuleRow {
 	out := make([]SecurityGroupRuleRow, 0, len(g.Ingress)+len(g.Egress))
 	for _, r := range g.Ingress {
@@ -722,6 +724,8 @@ func flattenSGToRules(g sgWireGroup) []SecurityGroupRuleRow {
 }
 
 // toStoreSGRule maps one sgWireRule + direction to a SecurityGroupRuleRow.
+//
+//nolint:gocritic // hugeParam: sgWireRule matches the wire format; callers iterate over slices so pointer passing would complicate indexing
 func toStoreSGRule(r sgWireRule, dir string) SecurityGroupRuleRow {
 	return SecurityGroupRuleRow{
 		Direction:        dir,

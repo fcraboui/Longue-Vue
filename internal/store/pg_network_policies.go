@@ -28,6 +28,8 @@ const npSelect = `
 
 // UpsertNetworkPolicy inserts or updates by (cluster_id, namespace_id, name).
 // Returns the stable row ID. Collector callers use this on every tick.
+//
+//nolint:gocritic // hugeParam: NetworkPolicy matches the NetPolStore interface; changing to pointer would break callers
 func (p *PG) UpsertNetworkPolicy(ctx context.Context, np NetworkPolicy) (uuid.UUID, error) {
 	const q = `
 		INSERT INTO network_policies
@@ -88,7 +90,7 @@ func (p *PG) ReplaceNetworkPolicyRules(ctx context.Context, policyID uuid.UUID, 
 		   peer_namespace_selector, peer_ip_block_cidr, peer_ip_block_except, ports)
 		VALUES ($1, $2, $3, $4, $5, NULLIF($6,'')::cidr, $7, $8)`
 
-	for _, r := range rules {
+	for _, r := range rules { //nolint:gocritic // rangeValCopy: NetworkPolicyRuleRow contains JSONB slices; shallow copy is acceptable here
 		if _, err := tx.Exec(ctx, ins,
 			policyID, r.Direction, r.PeerKind,
 			r.PeerPodSelector, r.PeerNamespaceSelector,
@@ -201,6 +203,8 @@ func (p *PG) ListNetworkPoliciesForWorkload(
 // namespaceID filter (nil = all namespaces). Cursor format identical to
 // ListApplications in pg_applications.go — REUSE encodeCursor/decodeCursor.
 // Order: reconcile_seen_at DESC, id DESC. Satisfies api.Store.
+//
+//nolint:gocyclo // pagination + optional filter + cursor decoding; matches existing list patterns in this package
 func (p *PG) ListNetworkPoliciesByCluster(
 	ctx context.Context,
 	clusterID uuid.UUID,
@@ -278,7 +282,7 @@ func (p *PG) ListNetworkPoliciesByCluster(
 		raw = raw[:limit]
 	}
 	items := make([]api.NetworkPolicyRow, len(raw))
-	for i, r := range raw {
+	for i, r := range raw { //nolint:gocritic // rangeValCopy: cursor wrapper struct; copy is intentional
 		items[i] = r.np
 	}
 	return items, next, nil

@@ -25,6 +25,8 @@ import (
 //  3. One SecurityGroupRuleRow for that SG with Protocol="tcp".
 //
 // Failure to persist SGs must NOT fail the VM upsert (best-effort contract).
+//
+//nolint:gocyclo // test verifies multiple conditions (HTTP status, SG count, rule protocol, direction); complexity is intentional
 func TestIngest_VMUpsert_PersistsSGs(t *testing.T) {
 	t.Parallel()
 

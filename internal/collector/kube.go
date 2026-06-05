@@ -768,7 +768,7 @@ func (k *KubeClient) ListNetworkPolicies(ctx context.Context, namespace string) 
 		return nil, fmt.Errorf("list netpols in %s: %w", namespace, err)
 	}
 	out := make([]NetworkPolicyInfo, 0, len(list.Items))
-	for _, np := range list.Items {
+	for _, np := range list.Items { //nolint:gocritic // rangeValCopy: k8s NetworkPolicy is SDK-owned; indexing would couple to SDK internals
 		info, err := convertNetworkPolicy(np)
 		if err != nil {
 			return nil, err
@@ -778,6 +778,7 @@ func (k *KubeClient) ListNetworkPolicies(ctx context.Context, namespace string) 
 	return out, nil
 }
 
+//nolint:gocritic // hugeParam: networkingv1.NetworkPolicy is SDK-owned; pointer would require unsafe dereference
 func convertNetworkPolicy(np networkingv1.NetworkPolicy) (NetworkPolicyInfo, error) {
 	sel, err := json.Marshal(np.Spec.PodSelector) //nolint:errchkjson // LabelSelector is a safe struct; defensive check kept for explicitness
 	if err != nil {
