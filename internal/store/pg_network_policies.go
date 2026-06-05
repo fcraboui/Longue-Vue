@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -67,4 +69,189 @@ func (p *PG) GetNetworkPolicy(ctx context.Context, id uuid.UUID) (NetworkPolicy,
 		return NetworkPolicy{}, fmt.Errorf("get network_policy: %w", err)
 	}
 	return np, nil
+}
+
+// NetworkPolicyRule is the in-store row. Direction ∈ {ingress,egress};
+// PeerKind ∈ {selector,ip_block}. Non-applicable fields are zero-valued.
+type NetworkPolicyRule struct {
+	ID                    uuid.UUID
+	NetworkPolicyID       uuid.UUID
+	Direction             string
+	PeerKind              string
+	PeerPodSelector       json.RawMessage
+	PeerNamespaceSelector json.RawMessage
+	PeerIPBlockCIDR       string
+	PeerIPBlockExcept     json.RawMessage
+	Ports                 json.RawMessage
+}
+
+// ReplaceNetworkPolicyRules deletes then inserts in one transaction.
+// Rule sets are small + atomic; finer diff is over-engineering.
+func (p *PG) ReplaceNetworkPolicyRules(ctx context.Context, policyID uuid.UUID, rules []NetworkPolicyRule) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin replace network_policy_rules: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM network_policy_rules WHERE network_policy_id = $1`, policyID,
+	); err != nil {
+		return fmt.Errorf("delete network_policy_rules: %w", err)
+	}
+
+	const ins = `
+		INSERT INTO network_policy_rules
+		  (network_policy_id, direction, peer_kind, peer_pod_selector,
+		   peer_namespace_selector, peer_ip_block_cidr, peer_ip_block_except, ports)
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6,'')::cidr, $7, $8)`
+
+	for _, r := range rules {
+		if _, err := tx.Exec(ctx, ins,
+			policyID, r.Direction, r.PeerKind,
+			r.PeerPodSelector, r.PeerNamespaceSelector,
+			r.PeerIPBlockCIDR, r.PeerIPBlockExcept, r.Ports,
+		); err != nil {
+			return fmt.Errorf("insert network_policy_rule: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit replace network_policy_rules: %w", err)
+	}
+	return nil
+}
+
+// ListNetworkPolicyRules returns every rule for a single policy, in
+// stable insertion order.
+func (p *PG) ListNetworkPolicyRules(ctx context.Context, policyID uuid.UUID) ([]NetworkPolicyRule, error) {
+	const q = `
+		SELECT id, network_policy_id, direction, peer_kind,
+		       peer_pod_selector, peer_namespace_selector,
+		       COALESCE(host(peer_ip_block_cidr), ''),
+		       peer_ip_block_except, ports
+		FROM network_policy_rules
+		WHERE network_policy_id = $1
+		ORDER BY id`
+
+	rows, err := p.pool.Query(ctx, q, policyID)
+	if err != nil {
+		return nil, fmt.Errorf("query network_policy_rules: %w", err)
+	}
+	defer rows.Close()
+
+	var out []NetworkPolicyRule
+	for rows.Next() {
+		var r NetworkPolicyRule
+		if err := rows.Scan(
+			&r.ID, &r.NetworkPolicyID, &r.Direction, &r.PeerKind,
+			&r.PeerPodSelector, &r.PeerNamespaceSelector,
+			&r.PeerIPBlockCIDR,
+			&r.PeerIPBlockExcept, &r.Ports,
+		); err != nil {
+			return nil, fmt.Errorf("scan network_policy_rule: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate network_policy_rules: %w", err)
+	}
+	return out, nil
+}
+
+// SweepNetworkPoliciesByNamespace deletes any policy in the namespace
+// whose Name is NOT in seenNames. CASCADE removes its rules. Caller MUST
+// only invoke after a successful List (CLAUDE.md reconcile contract).
+func (p *PG) SweepNetworkPoliciesByNamespace(ctx context.Context, namespaceID uuid.UUID, seenNames []string) error {
+	_, err := p.pool.Exec(ctx,
+		`DELETE FROM network_policies
+		  WHERE namespace_id = $1
+		    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))`,
+		namespaceID, seenNames,
+	)
+	if err != nil {
+		return fmt.Errorf("sweep network_policies: %w", err)
+	}
+	return nil
+}
+
+// ListNetworkPoliciesByCluster returns a page + next_cursor. Optional
+// namespaceID filter (nil = all namespaces). Cursor format identical to
+// ListApplications in pg_applications.go — REUSE encodeCursor/decodeCursor.
+// Order: reconcile_seen_at DESC, id DESC.
+func (p *PG) ListNetworkPoliciesByCluster(ctx context.Context, clusterID uuid.UUID, namespaceID *uuid.UUID, limit int, cursor string) ([]NetworkPolicy, string, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	conds := make([]string, 0, 3)
+	args := make([]any, 0, 5)
+
+	args = append(args, clusterID)
+	conds = append(conds, fmt.Sprintf("cluster_id = $%d", len(args)))
+
+	args = append(args, namespaceID)
+	conds = append(conds, fmt.Sprintf("($%d::uuid IS NULL OR namespace_id = $%d)", len(args), len(args)))
+
+	if cursor != "" {
+		ts, cid, err := decodeCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		args = append(args, ts)
+		tsIdx := len(args)
+		args = append(args, cid)
+		idIdx := len(args)
+		conds = append(conds, fmt.Sprintf("(reconcile_seen_at, id) < ($%d, $%d)", tsIdx, idIdx))
+	}
+
+	where := "WHERE " + strings.Join(conds, " AND ")
+	args = append(args, limit+1)
+	// Include reconcile_seen_at in the projection so we can encode the cursor
+	// from the last returned row without a second round-trip.
+	q := fmt.Sprintf(
+		`SELECT `+npSelect+`, reconcile_seen_at FROM network_policies %s ORDER BY reconcile_seen_at DESC, id DESC LIMIT $%d`,
+		where, len(args),
+	)
+
+	rows, err := p.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("query network_policies by cluster: %w", err)
+	}
+	defer rows.Close()
+
+	type npWithTS struct {
+		np      NetworkPolicy
+		seenAt  time.Time
+	}
+	raw := make([]npWithTS, 0, limit+1)
+	for rows.Next() {
+		var r npWithTS
+		if err := rows.Scan(
+			&r.np.ID, &r.np.ClusterID, &r.np.NamespaceID, &r.np.Name,
+			&r.np.PodSelector, &r.np.PolicyTypes, &r.np.SpecRaw,
+			&r.seenAt,
+		); err != nil {
+			return nil, "", fmt.Errorf("scan network_policy: %w", err)
+		}
+		raw = append(raw, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("iterate network_policies: %w", err)
+	}
+
+	var next string
+	if len(raw) > limit {
+		last := raw[limit-1]
+		next = encodeCursor(last.seenAt, last.np.ID)
+		raw = raw[:limit]
+	}
+	items := make([]NetworkPolicy, len(raw))
+	for i, r := range raw {
+		items[i] = r.np
+	}
+	return items, next, nil
 }
