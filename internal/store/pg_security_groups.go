@@ -59,6 +59,23 @@ func (p *PG) GetSecurityGroup(ctx context.Context, id uuid.UUID) (api.SecurityGr
 	return sg, nil
 }
 
+// GetSecurityGroupByProviderID fetches a security group by
+// (cloud_account_id, provider_sg_id). Returns ErrNotFound on miss.
+func (p *PG) GetSecurityGroupByProviderID(ctx context.Context, accountID uuid.UUID, providerSGID string) (api.SecurityGroupRow, error) {
+	const q = `SELECT ` + sgSelect + ` FROM security_groups WHERE cloud_account_id = $1 AND provider_sg_id = $2 LIMIT 1`
+	var sg api.SecurityGroupRow
+	err := p.pool.QueryRow(ctx, q, accountID, providerSGID).Scan(
+		&sg.ID, &sg.CloudAccountID, &sg.ProviderSGID, &sg.Name, &sg.VPCID, &sg.Tags,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return api.SecurityGroupRow{}, api.ErrNotFound
+	}
+	if err != nil {
+		return api.SecurityGroupRow{}, fmt.Errorf("get security_group by provider id: %w", err)
+	}
+	return sg, nil
+}
+
 // ReplaceSecurityGroupRules deletes then inserts in one transaction.
 // Rule sets are small + atomic; finer diff is over-engineering.
 func (p *PG) ReplaceSecurityGroupRules(ctx context.Context, sgID uuid.UUID, rules []api.SecurityGroupRuleRow) error {

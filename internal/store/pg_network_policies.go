@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -152,6 +153,39 @@ func (p *PG) SweepNetworkPoliciesByNamespace(ctx context.Context, namespaceID uu
 		return fmt.Errorf("sweep network_policies: %w", err)
 	}
 	return nil
+}
+
+// ListNetworkPoliciesForWorkload returns every NetworkPolicy in the
+// workload's namespace whose pod_selector matches the workload's labels.
+// Matching is done in Postgres with @> on the matchLabels subobject —
+// the simple case that covers ~95% of real policies. matchExpressions
+// support is deferred to P2 (where the engine does full selector eval).
+func (p *PG) ListNetworkPoliciesForWorkload(ctx context.Context, namespaceID uuid.UUID, workloadLabels json.RawMessage) ([]api.NetworkPolicyRow, error) {
+	const q = `
+		SELECT id, cluster_id, namespace_id, name, pod_selector, policy_types, spec_raw
+		FROM network_policies
+		WHERE namespace_id = $1
+		  AND (
+		    pod_selector = '{}'::jsonb
+		    OR (pod_selector->'matchLabels') IS NULL
+		    OR (pod_selector->'matchLabels') @> ($2::jsonb)
+		  )
+		ORDER BY name`
+	rows, err := p.pool.Query(ctx, q, namespaceID, workloadLabels)
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+	var out []api.NetworkPolicyRow
+	for rows.Next() {
+		var np api.NetworkPolicyRow
+		if err := rows.Scan(&np.ID, &np.ClusterID, &np.NamespaceID, &np.Name,
+			&np.PodSelector, &np.PolicyTypes, &np.SpecRaw); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		out = append(out, np)
+	}
+	return out, rows.Err()
 }
 
 // ListNetworkPoliciesByCluster returns a page + next_cursor. Optional

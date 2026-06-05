@@ -768,6 +768,10 @@ type Store interface {
 	// per account refresh tick after all VM upserts are done.
 	SweepSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, seenProviderIDs []string) error
 
+	// GetSecurityGroupByProviderID fetches a security group by
+	// (cloud_account_id, provider_sg_id). Returns ErrNotFound on miss.
+	GetSecurityGroupByProviderID(ctx context.Context, accountID uuid.UUID, providerSGID string) (SecurityGroupRow, error)
+
 	// --- Network policies (flow-matrix P1) ---------------------------------
 
 	// ListNetworkPoliciesByCluster returns a page of network policies for
@@ -782,6 +786,13 @@ type Store interface {
 	// ListNetworkPolicyRules returns all rules for a single network
 	// policy, in stable insertion order.
 	ListNetworkPolicyRules(ctx context.Context, policyID uuid.UUID) ([]NetworkPolicyRuleRow, error)
+
+	// ListNetworkPoliciesForWorkload returns every NetworkPolicy in the
+	// workload's namespace whose pod_selector matchLabels @> workloadLabels.
+	// The empty pod_selector (`{}`) and a missing matchLabels key are treated
+	// as "select everything" per the Kubernetes semantics. matchExpressions
+	// support is deferred to P2.
+	ListNetworkPoliciesForWorkload(ctx context.Context, namespaceID uuid.UUID, workloadLabels json.RawMessage) ([]NetworkPolicyRow, error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by

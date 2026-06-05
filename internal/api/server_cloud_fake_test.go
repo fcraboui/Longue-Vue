@@ -6,6 +6,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -1166,6 +1167,19 @@ func (m *memStore) ListNetworkPolicyRules(_ context.Context, policyID uuid.UUID)
 	return out, nil
 }
 
+func (m *memStore) ListNetworkPoliciesForWorkload(_ context.Context, namespaceID uuid.UUID, _ json.RawMessage) ([]NetworkPolicyRow, error) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	// The fake returns all policies in the namespace — close enough for handler tests.
+	out := make([]NetworkPolicyRow, 0)
+	for _, np := range npFake.nps { //nolint:gocritic // rangeValCopy: test fake
+		if np.NamespaceID == namespaceID {
+			out = append(out, np)
+		}
+	}
+	return out, nil
+}
+
 // upsertNetworkPolicyFake inserts or updates a network policy in the fake
 // store. Keyed on (clusterID, namespaceID, name). Returns the stable UUID.
 // Used by handler tests to seed the in-memory store.
@@ -1199,6 +1213,21 @@ func replaceNetworkPolicyRulesFake(policyID uuid.UUID, rules []NetworkPolicyRule
 		out[i] = r
 	}
 	npFake.rules[policyID] = out
+}
+
+func (m *memStore) GetSecurityGroupByProviderID(_ context.Context, accountID uuid.UUID, providerSGID string) (SecurityGroupRow, error) {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	key := [2]string{accountID.String(), providerSGID}
+	id, ok := sgFake.byAccountProv[key]
+	if !ok {
+		return SecurityGroupRow{}, ErrNotFound
+	}
+	sg, ok := sgFake.sgs[id]
+	if !ok {
+		return SecurityGroupRow{}, ErrNotFound
+	}
+	return sg, nil
 }
 
 func (m *memStore) SweepSecurityGroupsByAccount(_ context.Context, accountID uuid.UUID, seenProviderIDs []string) error {

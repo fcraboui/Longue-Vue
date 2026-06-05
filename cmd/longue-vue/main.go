@@ -592,6 +592,12 @@ func buildHTTPServer(
 	mux.Handle("GET /v1/network-policies/{id}",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetNetworkPolicy(pg)))))
 
+	// Per-asset derived network-rules (flow-matrix P1, Tasks 20 + 21).
+	mux.Handle("GET /v1/workloads/{id}/network-rules",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleWorkloadNetworkRules(pg)))))
+	mux.Handle("GET /v1/virtual-machines/{id}/network-rules",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleVMNetworkRules(pg)))))
+
 	// Application + ApplicationBlock routes (ADR-0029) — extracted to keep
 	// buildHTTPServer within the maintainability-index ceiling.
 	mountApplicationRoutes(mux, pg, requireScope, cloudAuth, auditWrap, cfg.extractMaxRows)
