@@ -314,6 +314,7 @@ type CmdbStore interface {
 // a single tick are logged and the loop continues to the next tick.
 type Collector struct {
 	store        CmdbStore
+	netpolStore  NetPolStore // nil when the store doesn't implement netpol ops
 	source       KubeSource
 	clusterName  string
 	interval     time.Duration
@@ -326,15 +327,22 @@ type Collector struct {
 // vanish from the Kubernetes listing are deleted from the CMDB so the stored
 // state always matches the live cluster — required for ANSSI cartography
 // fidelity.
-func New(store CmdbStore, source KubeSource, clusterName string, interval, fetchTimeout time.Duration, reconcile bool) *Collector {
-	return &Collector{
-		store:        store,
+//
+// If the supplied store also implements NetPolStore (i.e. it is *store.PG),
+// NetworkPolicy reconciliation is enabled automatically.
+func New(st CmdbStore, source KubeSource, clusterName string, interval, fetchTimeout time.Duration, reconcile bool) *Collector {
+	c := &Collector{
+		store:        st,
 		source:       source,
 		clusterName:  clusterName,
 		interval:     interval,
 		fetchTimeout: fetchTimeout,
 		reconcile:    reconcile,
 	}
+	if nps, ok := st.(NetPolStore); ok {
+		c.netpolStore = nps
+	}
+	return c
 }
 
 // Run polls until ctx is cancelled. A poll happens immediately on start and
@@ -417,6 +425,7 @@ func (c *Collector) poll(parent context.Context) {
 		c.ingestServices(ctx, namespaceIDsByName)
 		c.ingestIngresses(ctx, namespaceIDsByName)
 		c.ingestPersistentVolumeClaims(ctx, namespaceIDsByName, pvIDsByName)
+		c.ingestNetworkPolicies(ctx, *cluster.Id, namespaceIDsByName)
 	}
 }
 
@@ -1151,4 +1160,25 @@ func (c *Collector) ingestPersistentVolumeClaims(ctx context.Context, namespaceI
 	slog.Info("collector: ingested pvcs",
 		slog.Int("upserted", upserted), slog.Int("failed", failed), slog.Int("skipped", skipped),
 		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
+}
+
+// ingestNetworkPolicies runs one tick of NetworkPolicy reconciliation for
+// every namespace that was successfully ingested this tick. It is a no-op
+// when the store does not implement NetPolStore (e.g. the push-mode
+// apiclient.Store which reaches the server via REST, where netpol writes
+// go through the in-process path instead).
+func (c *Collector) ingestNetworkPolicies(ctx context.Context, clusterID uuid.UUID, namespaceIDsByName map[string]uuid.UUID) {
+	if c.netpolStore == nil {
+		return
+	}
+	for nsName, nsID := range namespaceIDsByName {
+		if err := CollectNetworkPolicies(ctx, c.source, c.netpolStore, clusterID, nsID, nsName); err != nil {
+			slog.Warn("collector: netpol tick failed",
+				slog.String("cluster", clusterID.String()),
+				slog.String("ns", nsName),
+				slog.Any("err", err),
+				slog.String("cluster_name", c.clusterName))
+			// per CLAUDE.md: do not return — other namespaces still need to land
+		}
+	}
 }
