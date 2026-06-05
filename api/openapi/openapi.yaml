@@ -535,6 +535,7 @@ paths:
 
   /v1/network-policies:
     get:
+      operationId: listNetworkPolicies
       summary: List NetworkPolicies
       parameters:
         - { in: query, name: cluster_id,   required: true,  schema: { type: string, format: uuid } }
@@ -554,6 +555,7 @@ paths:
 
   /v1/network-policies/{id}:
     get:
+      operationId: getNetworkPolicy
       summary: Get NetworkPolicy with embedded rules
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
@@ -853,6 +855,7 @@ paths:
 
   /v1/workloads/{id}/network-rules:
     get:
+      operationId: getWorkloadNetworkRules
       summary: NetworkPolicies selecting this workload
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
@@ -2731,6 +2734,7 @@ paths:
 
   /v1/security-groups:
     get:
+      operationId: listSecurityGroups
       summary: List Security Groups
       parameters:
         - { in: query, name: cloud_account_id, required: true,  schema: { type: string, format: uuid } }
@@ -2751,6 +2755,7 @@ paths:
 
   /v1/security-groups/{id}:
     get:
+      operationId: getSecurityGroup
       summary: Get Security Group with embedded rules
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
@@ -2768,6 +2773,7 @@ paths:
 
   /v1/virtual-machines/{id}/network-rules:
     get:
+      operationId: getVirtualMachineNetworkRules
       summary: Security-group rules attached to this VM
       parameters:
         - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
