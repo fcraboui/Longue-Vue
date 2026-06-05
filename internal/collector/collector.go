@@ -245,11 +245,15 @@ type NetworkPolicyInfo struct {
 	Egress      []NetworkPolicyRuleInfo
 }
 
+// NetworkPolicyRuleInfo holds one ingress or egress rule from a NetworkPolicy,
+// with its peers and JSON-encoded port list.
 type NetworkPolicyRuleInfo struct {
 	Peers []NetworkPolicyPeerInfo
 	Ports []byte // JSON-encoded []NetworkPolicyPort
 }
 
+// NetworkPolicyPeerInfo describes one network peer in a NetworkPolicy rule.
+// Kind is "selector" for pod/namespace selectors or "ip_block" for CIDR peers.
 type NetworkPolicyPeerInfo struct {
 	Kind              string // "selector" | "ip_block"
 	PodSelector       []byte

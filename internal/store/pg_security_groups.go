@@ -13,13 +13,13 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
-// SecurityGroup and SecurityGroupRule are type aliases so that store-internal
-// test helpers (pg_security_groups_test.go) can continue using the short name
-// while the api.Store interface uses api.SecurityGroupRow / api.SecurityGroupRuleRow.
-type (
-	SecurityGroup     = api.SecurityGroupRow
-	SecurityGroupRule = api.SecurityGroupRuleRow
-)
+// SecurityGroup is a type alias for api.SecurityGroupRow, allowing store-internal
+// test helpers to use the short name without the api. prefix.
+type SecurityGroup = api.SecurityGroupRow
+
+// SecurityGroupRule is a type alias for api.SecurityGroupRuleRow, allowing
+// store-internal test helpers to use the short name without the api. prefix.
+type SecurityGroupRule = api.SecurityGroupRuleRow
 
 const sgSelect = `id, cloud_account_id, provider_sg_id, name, COALESCE(vpc_id,''), tags`
 

@@ -25,7 +25,7 @@ func TestSecurityGroupRoundTripJSON(t *testing.T) {
 			},
 		},
 	}
-	buf, err := json.Marshal(want)
+	buf, err := json.Marshal(want) //nolint:errchkjson // test struct is safe; error check kept for test failure clarity
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}

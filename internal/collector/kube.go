@@ -779,7 +779,7 @@ func (k *KubeClient) ListNetworkPolicies(ctx context.Context, namespace string) 
 }
 
 func convertNetworkPolicy(np networkingv1.NetworkPolicy) (NetworkPolicyInfo, error) {
-	sel, err := json.Marshal(np.Spec.PodSelector)
+	sel, err := json.Marshal(np.Spec.PodSelector) //nolint:errchkjson // LabelSelector is a safe struct; defensive check kept for explicitness
 	if err != nil {
 		return NetworkPolicyInfo{}, fmt.Errorf("marshal selector: %w", err)
 	}
@@ -809,7 +809,7 @@ func convertNetworkPolicy(np networkingv1.NetworkPolicy) (NetworkPolicyInfo, err
 
 func convertNetPolRule(peers []networkingv1.NetworkPolicyPeer, ports []networkingv1.NetworkPolicyPort) NetworkPolicyRuleInfo {
 	out := NetworkPolicyRuleInfo{}
-	out.Ports, _ = json.Marshal(ports)
+	out.Ports, _ = json.Marshal(ports) //nolint:errchkjson // ports contains IntOrString which may not encode; nil Ports is handled by the consumer
 	for _, p := range peers {
 		switch {
 		case p.IPBlock != nil:

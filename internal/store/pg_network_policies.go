@@ -14,13 +14,13 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
-// NetworkPolicy and NetworkPolicyRule are type aliases so that store-internal
-// test helpers (pg_network_policies_test.go) can continue using the short name
-// while the api.Store interface uses api.NetworkPolicyRow / api.NetworkPolicyRuleRow.
-type (
-	NetworkPolicy     = api.NetworkPolicyRow
-	NetworkPolicyRule = api.NetworkPolicyRuleRow
-)
+// NetworkPolicy is a type alias for api.NetworkPolicyRow, allowing store-internal
+// test helpers to use the short name without the api. prefix.
+type NetworkPolicy = api.NetworkPolicyRow
+
+// NetworkPolicyRule is a type alias for api.NetworkPolicyRuleRow, allowing
+// store-internal test helpers to use the short name without the api. prefix.
+type NetworkPolicyRule = api.NetworkPolicyRuleRow
 
 const npSelect = `
 	id, cluster_id, namespace_id, name,

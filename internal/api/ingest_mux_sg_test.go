@@ -70,7 +70,7 @@ func TestIngest_VMUpsert_PersistsSGs(t *testing.T) {
 		Version: 1, // SGSchemaVersion
 		Groups:  []sgWireGroup{sg},
 	}
-	sgJSON, err := json.Marshal(sgPayload)
+	sgJSON, err := json.Marshal(sgPayload) //nolint:errchkjson // test struct is safe; error check kept for test failure clarity
 	if err != nil {
 		t.Fatalf("marshal SG payload: %v", err)
 	}

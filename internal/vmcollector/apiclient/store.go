@@ -230,7 +230,7 @@ type upsertVMBody struct {
 //
 //nolint:gocritic // hugeParam: provider.VM matches the CollectorStore interface; copying is acceptable on this path
 func (s *Store) UpsertVirtualMachine(ctx context.Context, accountID uuid.UUID, vm provider.VM) error {
-	sgJSON, err := json.Marshal(vm.SecurityGroups)
+	sgJSON, err := json.Marshal(vm.SecurityGroups) //nolint:errchkjson // VMSecurityGroupsPayload is a safe struct; defensive check with fallback below
 	if err != nil {
 		// Defensive: VMSecurityGroupsPayload is always marshalable; fall
 		// back to a minimal versioned payload rather than dropping the VM.

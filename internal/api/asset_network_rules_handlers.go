@@ -142,7 +142,7 @@ func workloadLabelsAsJSON(wl Workload) (json.RawMessage, error) {
 	if wl.Labels == nil || len(*wl.Labels) == 0 {
 		return json.RawMessage(`{}`), nil
 	}
-	b, err := json.Marshal(*wl.Labels)
+	b, err := json.Marshal(*wl.Labels) //nolint:errchkjson // map[string]string is a safe type; defensive check kept for explicitness
 	if err != nil {
 		return nil, fmt.Errorf("marshal labels: %w", err)
 	}

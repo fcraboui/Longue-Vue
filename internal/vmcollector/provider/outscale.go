@@ -327,10 +327,13 @@ func (o *Outscale) GetSecurityGroups(ctx context.Context) ([]SecurityGroup, erro
 		AccessKey: o.accessKey,
 		SecretKey: o.secretKey,
 	})
-	resp, _, err := o.client.SecurityGroupApi.
+	resp, httpResp, err := o.client.SecurityGroupApi.
 		ReadSecurityGroups(authCtx).
 		ReadSecurityGroupsRequest(osc.ReadSecurityGroupsRequest{}).
 		Execute()
+	if httpResp != nil {
+		_ = httpResp.Body.Close()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("outscale ReadSecurityGroups: %w", err)
 	}
