@@ -1016,7 +1016,7 @@ func resetMemOriginMappings() {
 
 type memSGState struct {
 	mu    sync.Mutex
-	sgs   map[uuid.UUID]SecurityGroupRow    // keyed by stable ID
+	sgs   map[uuid.UUID]SecurityGroupRow       // keyed by stable ID
 	rules map[uuid.UUID][]SecurityGroupRuleRow // keyed by sgID
 	// byAccountProv allows lookup by (cloudAccountID, providerSGID)
 	byAccountProv map[[2]string]uuid.UUID
@@ -1070,7 +1070,7 @@ func (m *memStore) ListSecurityGroupsByAccount(_ context.Context, accountID uuid
 		limit = 50
 	}
 	out := make([]SecurityGroupRow, 0)
-	for _, sg := range sgFake.sgs { //nolint:gocritic // rangeValCopy: test fake
+	for _, sg := range sgFake.sgs {
 		if sg.CloudAccountID == accountID {
 			out = append(out, sg)
 		}
@@ -1123,7 +1123,13 @@ func resetNPFake() {
 	npFake.rules = make(map[uuid.UUID][]NetworkPolicyRuleRow)
 }
 
-func (m *memStore) ListNetworkPoliciesByCluster(_ context.Context, clusterID uuid.UUID, namespaceID *uuid.UUID, limit int, _ string) ([]NetworkPolicyRow, string, error) {
+func (m *memStore) ListNetworkPoliciesByCluster(
+	_ context.Context,
+	clusterID uuid.UUID,
+	namespaceID *uuid.UUID,
+	limit int,
+	_ string,
+) ([]NetworkPolicyRow, string, error) {
 	npFake.mu.Lock()
 	defer npFake.mu.Unlock()
 	if limit <= 0 {
@@ -1237,7 +1243,7 @@ func (m *memStore) SweepSecurityGroupsByAccount(_ context.Context, accountID uui
 	for _, id := range seenProviderIDs {
 		seen[id] = struct{}{}
 	}
-	for sgID, sg := range sgFake.sgs { //nolint:gocritic // rangeValCopy: test fake; copy is intentional
+	for sgID, sg := range sgFake.sgs {
 		if sg.CloudAccountID != accountID {
 			continue
 		}

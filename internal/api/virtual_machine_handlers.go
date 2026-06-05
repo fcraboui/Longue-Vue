@@ -24,8 +24,8 @@ import (
 // decodes. Mirrors provider.VMSecurityGroupsPayload without importing the
 // vmcollector/provider package (which would add a cross-layer dependency).
 type sgWirePayload struct {
-	Version int             `json:"schema_version"`
-	Groups  []sgWireGroup   `json:"groups"`
+	Version int           `json:"schema_version"`
+	Groups  []sgWireGroup `json:"groups"`
 }
 
 type sgWireGroup struct {
@@ -38,11 +38,11 @@ type sgWireGroup struct {
 }
 
 type sgWireRule struct {
-	Protocol    string   `json:"protocol"`
-	FromPort    *int     `json:"from_port,omitempty"`
-	ToPort      *int     `json:"to_port,omitempty"`
+	Protocol    string     `json:"protocol"`
+	FromPort    *int       `json:"from_port,omitempty"`
+	ToPort      *int       `json:"to_port,omitempty"`
 	Peer        sgWirePeer `json:"peer"`
-	Description string   `json:"description,omitempty"`
+	Description string     `json:"description,omitempty"`
 }
 
 type sgWirePeer struct {
@@ -684,7 +684,7 @@ func persistSGsFromVMIngest(ctx context.Context, s Store, accountID uuid.UUID, s
 	var payload sgWirePayload
 	if err := json.Unmarshal(sgRaw, &payload); err != nil {
 		slog.Warn("vm ingest: bad canonical SG payload",
-			"cloud_account_id", accountID, "err", err)
+			slog.Any("cloud_account_id", accountID), slog.Any("err", err))
 		return
 	}
 	for _, g := range payload.Groups {
@@ -697,13 +697,13 @@ func persistSGsFromVMIngest(ctx context.Context, s Store, accountID uuid.UUID, s
 		})
 		if err != nil {
 			slog.Warn("vm ingest: UpsertSecurityGroup failed",
-				"sg", g.ProviderSGID, "cloud_account_id", accountID, "err", err)
+				slog.String("sg", g.ProviderSGID), slog.Any("cloud_account_id", accountID), slog.Any("err", err))
 			continue
 		}
 		rules := flattenSGToRules(g)
 		if err := s.ReplaceSecurityGroupRules(ctx, sgID, rules); err != nil {
 			slog.Warn("vm ingest: ReplaceSecurityGroupRules failed",
-				"sg", g.ProviderSGID, "sg_id", sgID, "err", err)
+				slog.String("sg", g.ProviderSGID), slog.Any("sg_id", sgID), slog.Any("err", err))
 		}
 	}
 }

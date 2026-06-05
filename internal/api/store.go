@@ -777,7 +777,13 @@ type Store interface {
 	// ListNetworkPoliciesByCluster returns a page of network policies for
 	// the given cluster, optionally filtered by namespace. Cursor-based
 	// pagination ordered by (reconcile_seen_at DESC, id DESC).
-	ListNetworkPoliciesByCluster(ctx context.Context, clusterID uuid.UUID, namespaceID *uuid.UUID, limit int, cursor string) ([]NetworkPolicyRow, string, error)
+	ListNetworkPoliciesByCluster(
+		ctx context.Context,
+		clusterID uuid.UUID,
+		namespaceID *uuid.UUID,
+		limit int,
+		cursor string,
+	) ([]NetworkPolicyRow, string, error)
 
 	// GetNetworkPolicy fetches a network policy by stable UUID.
 	// Returns ErrNotFound when the row is absent.

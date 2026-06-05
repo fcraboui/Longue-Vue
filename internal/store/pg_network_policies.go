@@ -17,8 +17,10 @@ import (
 // NetworkPolicy and NetworkPolicyRule are type aliases so that store-internal
 // test helpers (pg_network_policies_test.go) can continue using the short name
 // while the api.Store interface uses api.NetworkPolicyRow / api.NetworkPolicyRuleRow.
-type NetworkPolicy = api.NetworkPolicyRow
-type NetworkPolicyRule = api.NetworkPolicyRuleRow
+type (
+	NetworkPolicy     = api.NetworkPolicyRow
+	NetworkPolicyRule = api.NetworkPolicyRuleRow
+)
 
 const npSelect = `
 	id, cluster_id, namespace_id, name,
@@ -160,7 +162,11 @@ func (p *PG) SweepNetworkPoliciesByNamespace(ctx context.Context, namespaceID uu
 // Matching is done in Postgres with @> on the matchLabels subobject —
 // the simple case that covers ~95% of real policies. matchExpressions
 // support is deferred to P2 (where the engine does full selector eval).
-func (p *PG) ListNetworkPoliciesForWorkload(ctx context.Context, namespaceID uuid.UUID, workloadLabels json.RawMessage) ([]api.NetworkPolicyRow, error) {
+func (p *PG) ListNetworkPoliciesForWorkload(
+	ctx context.Context,
+	namespaceID uuid.UUID,
+	workloadLabels json.RawMessage,
+) ([]api.NetworkPolicyRow, error) {
 	const q = `
 		SELECT id, cluster_id, namespace_id, name, pod_selector, policy_types, spec_raw
 		FROM network_policies
@@ -185,14 +191,23 @@ func (p *PG) ListNetworkPoliciesForWorkload(ctx context.Context, namespaceID uui
 		}
 		out = append(out, np)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	return out, nil
 }
 
 // ListNetworkPoliciesByCluster returns a page + next_cursor. Optional
 // namespaceID filter (nil = all namespaces). Cursor format identical to
 // ListApplications in pg_applications.go — REUSE encodeCursor/decodeCursor.
 // Order: reconcile_seen_at DESC, id DESC. Satisfies api.Store.
-func (p *PG) ListNetworkPoliciesByCluster(ctx context.Context, clusterID uuid.UUID, namespaceID *uuid.UUID, limit int, cursor string) ([]api.NetworkPolicyRow, string, error) {
+func (p *PG) ListNetworkPoliciesByCluster(
+	ctx context.Context,
+	clusterID uuid.UUID,
+	namespaceID *uuid.UUID,
+	limit int,
+	cursor string,
+) ([]api.NetworkPolicyRow, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}

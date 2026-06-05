@@ -17,6 +17,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -143,7 +144,7 @@ func workloadLabelsAsJSON(wl Workload) (json.RawMessage, error) {
 	}
 	b, err := json.Marshal(*wl.Labels)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal labels: %w", err)
 	}
 	return b, nil
 }
@@ -198,9 +199,9 @@ func HandleVMNetworkRules(store Store) http.HandlerFunc {
 		}
 
 		type sgOut struct {
-			ID    uuid.UUID          `json:"id"`
-			Name  string             `json:"name"`
-			VPCID string             `json:"vpc_id,omitempty"`
+			ID    uuid.UUID              `json:"id"`
+			Name  string                 `json:"name"`
+			VPCID string                 `json:"vpc_id,omitempty"`
 			Rules []SecurityGroupRuleRow `json:"rules"`
 		}
 

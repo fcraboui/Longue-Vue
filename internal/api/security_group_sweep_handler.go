@@ -47,7 +47,7 @@ func HandleSweepSecurityGroups(store Store) http.HandlerFunc {
 			return
 		}
 		if err := store.SweepSecurityGroupsByAccount(r.Context(), id, body.SeenProviderSGIDs); err != nil {
-			slog.Error("sweep security groups", "cloud_account_id", id, "err", err)
+			slog.Error("sweep security groups", slog.Any("cloud_account_id", id), slog.Any("err", err))
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}

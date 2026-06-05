@@ -16,8 +16,10 @@ import (
 // SecurityGroup and SecurityGroupRule are type aliases so that store-internal
 // test helpers (pg_security_groups_test.go) can continue using the short name
 // while the api.Store interface uses api.SecurityGroupRow / api.SecurityGroupRuleRow.
-type SecurityGroup = api.SecurityGroupRow
-type SecurityGroupRule = api.SecurityGroupRuleRow
+type (
+	SecurityGroup     = api.SecurityGroupRow
+	SecurityGroupRule = api.SecurityGroupRuleRow
+)
 
 const sgSelect = `id, cloud_account_id, provider_sg_id, name, COALESCE(vpc_id,''), tags`
 
