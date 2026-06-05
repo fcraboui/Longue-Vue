@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -102,8 +103,11 @@ func netv1Backend(b *networkingv1.IngressBackend) map[string]interface{} {
 // KubeClient talks to a single Kubernetes cluster via client-go. It
 // satisfies KubeSource (ServerVersion + ListNodes). The target cluster is
 // whatever the loaded kubeconfig points at.
+//
+// clientset is stored as kubernetes.Interface so the fake clientset from
+// k8s.io/client-go/kubernetes/fake can be injected in tests.
 type KubeClient struct {
-	clientset *kubernetes.Clientset
+	clientset kubernetes.Interface
 }
 
 // Default client-go QPS/Burst for the collector. The upstream defaults
@@ -753,4 +757,77 @@ func (k *KubeClient) listDaemonSets(ctx context.Context) ([]WorkloadInfo, error)
 		})
 	}
 	return out, nil
+}
+
+// ListNetworkPolicies returns every NetworkPolicy in the given namespace.
+// Selectors and the full spec are JSON-encoded so the store keeps them as
+// JSONB for later engine queries (Phase 2).
+func (k *KubeClient) ListNetworkPolicies(ctx context.Context, namespace string) ([]NetworkPolicyInfo, error) {
+	list, err := k.clientset.NetworkingV1().NetworkPolicies(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list netpols in %s: %w", namespace, err)
+	}
+	out := make([]NetworkPolicyInfo, 0, len(list.Items))
+	for _, np := range list.Items {
+		info, err := convertNetworkPolicy(np)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+func convertNetworkPolicy(np networkingv1.NetworkPolicy) (NetworkPolicyInfo, error) {
+	sel, err := json.Marshal(np.Spec.PodSelector)
+	if err != nil {
+		return NetworkPolicyInfo{}, fmt.Errorf("marshal selector: %w", err)
+	}
+	spec, err := json.Marshal(np.Spec)
+	if err != nil {
+		return NetworkPolicyInfo{}, fmt.Errorf("marshal spec: %w", err)
+	}
+	pt := make([]string, 0, len(np.Spec.PolicyTypes))
+	for _, t := range np.Spec.PolicyTypes {
+		pt = append(pt, string(t))
+	}
+	info := NetworkPolicyInfo{
+		Name:        np.Name,
+		Namespace:   np.Namespace,
+		PodSelector: sel,
+		PolicyTypes: pt,
+		SpecRaw:     spec,
+	}
+	for _, rule := range np.Spec.Ingress {
+		info.Ingress = append(info.Ingress, convertNetPolRule(rule.From, rule.Ports))
+	}
+	for _, rule := range np.Spec.Egress {
+		info.Egress = append(info.Egress, convertNetPolRule(rule.To, rule.Ports))
+	}
+	return info, nil
+}
+
+func convertNetPolRule(peers []networkingv1.NetworkPolicyPeer, ports []networkingv1.NetworkPolicyPort) NetworkPolicyRuleInfo {
+	out := NetworkPolicyRuleInfo{}
+	out.Ports, _ = json.Marshal(ports)
+	for _, p := range peers {
+		switch {
+		case p.IPBlock != nil:
+			ex, _ := json.Marshal(p.IPBlock.Except)
+			out.Peers = append(out.Peers, NetworkPolicyPeerInfo{
+				Kind:          "ip_block",
+				IPBlockCIDR:   p.IPBlock.CIDR,
+				IPBlockExcept: ex,
+			})
+		default:
+			sel, _ := json.Marshal(p.PodSelector)
+			ns, _ := json.Marshal(p.NamespaceSelector)
+			out.Peers = append(out.Peers, NetworkPolicyPeerInfo{
+				Kind:              "selector",
+				PodSelector:       sel,
+				NamespaceSelector: ns,
+			})
+		}
+	}
+	return out
 }

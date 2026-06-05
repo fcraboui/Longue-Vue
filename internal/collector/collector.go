@@ -228,6 +228,42 @@ type PersistentVolumeClaimLister interface {
 	ListPersistentVolumeClaims(ctx context.Context) ([]PVCInfo, error)
 }
 
+// NetworkPolicyInfo is the subset of a K8s NetworkPolicy the collector
+// consumes. Selectors stay as raw JSON so the store keeps them as JSONB
+// and the engine (P2) can query them with -> / ->> operators.
+//
+// Each Ingress / Egress entry is a NetworkPolicyRuleInfo; the collector
+// flattens these into (rule, peer) rows when persisting (see
+// netpol_collector.go).
+type NetworkPolicyInfo struct {
+	Name        string
+	Namespace   string
+	PodSelector []byte // JSON-encoded LabelSelector
+	PolicyTypes []string
+	SpecRaw     []byte // JSON-encoded full Spec (forensic)
+	Ingress     []NetworkPolicyRuleInfo
+	Egress      []NetworkPolicyRuleInfo
+}
+
+type NetworkPolicyRuleInfo struct {
+	Peers []NetworkPolicyPeerInfo
+	Ports []byte // JSON-encoded []NetworkPolicyPort
+}
+
+type NetworkPolicyPeerInfo struct {
+	Kind              string // "selector" | "ip_block"
+	PodSelector       []byte
+	NamespaceSelector []byte
+	IPBlockCIDR       string
+	IPBlockExcept     []byte // JSON-encoded []string
+}
+
+// NetworkPolicyLister returns every NetworkPolicy visible to the configured
+// kubeconfig for a given namespace.
+type NetworkPolicyLister interface {
+	ListNetworkPolicies(ctx context.Context, namespace string) ([]NetworkPolicyInfo, error)
+}
+
 // KubeSource is the composite contract the Collector consumes.
 type KubeSource interface {
 	VersionFetcher
@@ -240,6 +276,7 @@ type KubeSource interface {
 	ReplicaSetOwnerLister
 	PersistentVolumeLister
 	PersistentVolumeClaimLister
+	NetworkPolicyLister
 }
 
 // CmdbStore is the subset of api.Store the collector consumes. Exported so
