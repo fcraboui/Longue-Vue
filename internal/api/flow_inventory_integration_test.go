@@ -303,9 +303,9 @@ func TestFlowInventoryEndToEnd(t *testing.T) {
 			AttachedSecurityGroups []struct {
 				Name  string `json:"name"`
 				Rules []struct {
-					Direction string `json:"Direction"`
-					Protocol  string `json:"Protocol"`
-					FromPort  *int   `json:"FromPort"`
+					Direction string `json:"direction"`
+					Protocol  string `json:"protocol"`
+					FromPort  *int   `json:"from_port"`
 				} `json:"rules"`
 			} `json:"attached_security_groups"`
 		}

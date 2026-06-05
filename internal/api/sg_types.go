@@ -20,12 +20,12 @@ import (
 // Tags is a JSONB map<string,string>. VPCID is empty-string when the provider
 // does not report a VPC.
 type SecurityGroupRow struct {
-	ID             uuid.UUID
-	CloudAccountID uuid.UUID
-	ProviderSGID   string
-	Name           string
-	VPCID          string
-	Tags           json.RawMessage
+	ID             uuid.UUID       `json:"id"`
+	CloudAccountID uuid.UUID       `json:"cloud_account_id"`
+	ProviderSGID   string          `json:"provider_sg_id"`
+	Name           string          `json:"name"`
+	VPCID          string          `json:"vpc_id,omitempty"`
+	Tags           json.RawMessage `json:"tags,omitempty"`
 }
 
 // SecurityGroupRuleRow is the persisted view of one ingress or egress rule.
@@ -34,17 +34,17 @@ type SecurityGroupRow struct {
 // FromPort / ToPort are nil when the protocol has no port concept.
 // PeerKind is "cidr", "sg_ref", "prefix_list_ref", or "self".
 type SecurityGroupRuleRow struct {
-	ID               uuid.UUID
-	SecurityGroupID  uuid.UUID
-	Direction        string
-	Protocol         string
-	FromPort         *int
-	ToPort           *int
-	PeerKind         string
-	PeerCIDR         string
-	PeerSGProviderID string
-	PeerPrefixID     string
-	Description      string
+	ID               uuid.UUID `json:"id"`
+	SecurityGroupID  uuid.UUID `json:"security_group_id"`
+	Direction        string    `json:"direction"`
+	Protocol         string    `json:"protocol"`
+	FromPort         *int      `json:"from_port,omitempty"`
+	ToPort           *int      `json:"to_port,omitempty"`
+	PeerKind         string    `json:"peer_kind"`
+	PeerCIDR         string    `json:"peer_cidr,omitempty"`
+	PeerSGProviderID string    `json:"peer_sg_provider_id,omitempty"`
+	PeerPrefixID     string    `json:"peer_prefix_id,omitempty"`
+	Description      string    `json:"description,omitempty"`
 }
 
 // IsCanonicalSGPayload returns true when the JSONB carries a schema_version
