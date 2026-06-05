@@ -45,9 +45,9 @@ type VM struct {
 	OperatingSystem      string // empty without an in-guest agent
 	CapacityCPU          string
 	CapacityMemory       string
-	NICs                 json.RawMessage // forwarded as opaque JSON
+	NICs                 json.RawMessage         // forwarded as opaque JSON
 	SecurityGroups       VMSecurityGroupsPayload // canonical SG payload (Version + Groups)
-	BlockDevices         json.RawMessage // forwarded as opaque JSON
+	BlockDevices         json.RawMessage         // forwarded as opaque JSON
 	RootDeviceType       string
 	RootDeviceName       string
 }

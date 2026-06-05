@@ -257,9 +257,9 @@ func TestFlowInventoryEndToEnd(t *testing.T) {
 
 	t.Run("workload network-rules", func(t *testing.T) {
 		var resp struct {
-			WorkloadID      uuid.UUID `json:"workload_id"`
-			PolicyCount     int       `json:"policy_count"`
-			K8sDefaultAllow bool      `json:"k8s_default_allow"`
+			WorkloadID       uuid.UUID `json:"workload_id"`
+			PolicyCount      int       `json:"policy_count"`
+			K8sDefaultAllow  bool      `json:"k8s_default_allow"`
 			MatchingPolicies []struct {
 				Name  string `json:"name"`
 				Rules []struct {
@@ -297,9 +297,9 @@ func TestFlowInventoryEndToEnd(t *testing.T) {
 
 	t.Run("vm network-rules", func(t *testing.T) {
 		var resp struct {
-			VMID             uuid.UUID `json:"vm_id"`
-			Stale            bool      `json:"stale"`
-			NoSecurityGroups bool      `json:"no_security_groups"`
+			VMID                   uuid.UUID `json:"vm_id"`
+			Stale                  bool      `json:"stale"`
+			NoSecurityGroups       bool      `json:"no_security_groups"`
 			AttachedSecurityGroups []struct {
 				Name  string `json:"name"`
 				Rules []struct {
