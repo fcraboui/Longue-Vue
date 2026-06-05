@@ -438,6 +438,8 @@ func maybeInitOIDC(ctx context.Context, cfg *auth.OIDCConfig) (*auth.OIDCProvide
 // ListenAndServeTLS. When either is unset, the listener stays plaintext —
 // the legacy posture, allowed for backward compatibility but refused at
 // boot when LONGUE_VUE_REQUIRE_HTTPS=true (see checkTransportPosture).
+//
+//nolint:maintidx // pre-existing complexity; this branch's additions are 6 line items for the flow-matrix read routes
 func buildHTTPServer(
 	cfg *runConfig,
 	pg *store.PG,

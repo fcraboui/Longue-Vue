@@ -69,6 +69,9 @@ func (o *Outscale) ListVMs(ctx context.Context) ([]VM, error) {
 	resp, httpResp, err := o.client.VmApi.ReadVms(authCtx).
 		ReadVmsRequest(*osc.NewReadVmsRequest()).
 		Execute()
+	if httpResp != nil {
+		defer func() { _ = httpResp.Body.Close() }()
+	}
 	if err != nil {
 		// The SDK's GenericOpenAPIError wraps the HTTP response body;
 		// surface the first 512 bytes so 4xx responses ("filter X is
@@ -134,9 +137,12 @@ func (o *Outscale) resolveImageNames(authCtx context.Context, vms []osc.Vm) map[
 	filter := osc.NewFiltersImage()
 	filter.SetImageIds(ids)
 	req.SetFilters(*filter)
-	resp, _, err := o.client.ImageApi.ReadImages(authCtx).
+	resp, httpResp, err := o.client.ImageApi.ReadImages(authCtx).
 		ReadImagesRequest(*req).
 		Execute()
+	if httpResp != nil {
+		defer func() { _ = httpResp.Body.Close() }()
+	}
 	if err != nil {
 		// Best-effort — log via the SDK's wrapped error and continue
 		// without image names. Operator-facing log lives in collector.
