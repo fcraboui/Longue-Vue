@@ -63,12 +63,12 @@ func TestCollectNetworkPolicies_SinglePolicy(t *testing.T) {
 	src := &fakeSource{
 		netpols: []NetworkPolicyInfo{
 			{
-				Name:        "api-allow",
-				Namespace:   "prod",
+				Name:        testNetPolName,
+				Namespace:   testNSProd,
 				PolicyTypes: []string{"Ingress"},
 				Ingress: []NetworkPolicyRuleInfo{
 					{
-						Peers: []NetworkPolicyPeerInfo{{Kind: "selector"}},
+						Peers: []NetworkPolicyPeerInfo{{Kind: peerKindSelector}},
 						Ports: []byte(`[{"port":8080}]`),
 					},
 				},
@@ -77,14 +77,14 @@ func TestCollectNetworkPolicies_SinglePolicy(t *testing.T) {
 	}
 	st := newFakeNetPolStore()
 
-	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, "prod"); err != nil {
+	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, testNSProd); err != nil {
 		t.Fatalf("CollectNetworkPolicies: %v", err)
 	}
 
 	if len(st.upserts) != 1 {
 		t.Fatalf("want 1 upsert, got %d", len(st.upserts))
 	}
-	if st.upserts[0].Name != "api-allow" {
+	if st.upserts[0].Name != testNetPolName {
 		t.Fatalf("upserted name: %q", st.upserts[0].Name)
 	}
 	if len(st.replaces) != 1 {
@@ -93,7 +93,7 @@ func TestCollectNetworkPolicies_SinglePolicy(t *testing.T) {
 	if len(st.sweeps) != 1 {
 		t.Fatalf("want 1 sweep call, got %d", len(st.sweeps))
 	}
-	if len(st.sweeps[0].names) != 1 || st.sweeps[0].names[0] != "api-allow" {
+	if len(st.sweeps[0].names) != 1 || st.sweeps[0].names[0] != testNetPolName {
 		t.Fatalf("sweep names: %v", st.sweeps[0].names)
 	}
 }
@@ -106,13 +106,13 @@ func TestCollectNetworkPolicies_SweepDropsGone(t *testing.T) {
 	// Round 1: two policies.
 	src := &fakeSource{
 		netpols: []NetworkPolicyInfo{
-			{Name: "pol-a", Namespace: "prod"},
-			{Name: "pol-b", Namespace: "prod"},
+			{Name: testNetPolPola, Namespace: testNSProd},
+			{Name: "pol-b", Namespace: testNSProd},
 		},
 	}
 	st := newFakeNetPolStore()
 
-	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, "prod"); err != nil {
+	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, testNSProd); err != nil {
 		t.Fatalf("round 1: %v", err)
 	}
 	if len(st.upserts) != 2 {
@@ -125,14 +125,14 @@ func TestCollectNetworkPolicies_SweepDropsGone(t *testing.T) {
 
 	// Round 2: only pol-a remains.
 	src.netpols = []NetworkPolicyInfo{
-		{Name: "pol-a", Namespace: "prod"},
+		{Name: testNetPolPola, Namespace: testNSProd},
 	}
 
-	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, "prod"); err != nil {
+	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, testNSProd); err != nil {
 		t.Fatalf("round 2: %v", err)
 	}
 	sweep2 := st.sweeps[1].names
-	if len(sweep2) != 1 || sweep2[0] != "pol-a" {
+	if len(sweep2) != 1 || sweep2[0] != testNetPolPola {
 		t.Fatalf("round 2 sweep should contain only pol-a, got %v", sweep2)
 	}
 }
@@ -145,7 +145,7 @@ func TestCollectNetworkPolicies_EmptyNamespace(t *testing.T) {
 	src := &fakeSource{netpols: nil}
 	st := newFakeNetPolStore()
 
-	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, "prod"); err != nil {
+	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, testNSProd); err != nil {
 		t.Fatalf("CollectNetworkPolicies: %v", err)
 	}
 
@@ -169,13 +169,13 @@ func TestCollectNetworkPolicies_IPBlockPeer(t *testing.T) {
 		netpols: []NetworkPolicyInfo{
 			{
 				Name:        "egress-ext",
-				Namespace:   "prod",
+				Namespace:   testNSProd,
 				PolicyTypes: []string{"Egress"},
 				Egress: []NetworkPolicyRuleInfo{
 					{
 						Peers: []NetworkPolicyPeerInfo{{
-							Kind:          "ip_block",
-							IPBlockCIDR:   "10.0.0.0/8",
+							Kind:          peerKindIPBlock,
+							IPBlockCIDR:   testNetCIDR10,
 							IPBlockExcept: []byte(`["10.1.0.0/16"]`),
 						}},
 					},
@@ -185,7 +185,7 @@ func TestCollectNetworkPolicies_IPBlockPeer(t *testing.T) {
 	}
 	st := newFakeNetPolStore()
 
-	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, "prod"); err != nil {
+	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, testNSProd); err != nil {
 		t.Fatalf("CollectNetworkPolicies: %v", err)
 	}
 
@@ -197,10 +197,10 @@ func TestCollectNetworkPolicies_IPBlockPeer(t *testing.T) {
 	if r.Direction != "egress" {
 		t.Fatalf("direction: %q", r.Direction)
 	}
-	if r.PeerKind != "ip_block" {
+	if r.PeerKind != peerKindIPBlock {
 		t.Fatalf("peer_kind: %q", r.PeerKind)
 	}
-	if r.PeerIPBlockCIDR != "10.0.0.0/8" {
+	if r.PeerIPBlockCIDR != testNetCIDR10 {
 		t.Fatalf("cidr: %q", r.PeerIPBlockCIDR)
 	}
 }

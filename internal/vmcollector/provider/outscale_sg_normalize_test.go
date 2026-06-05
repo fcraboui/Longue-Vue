@@ -37,7 +37,7 @@ func TestNormalizeOutscaleSecurityGroups(t *testing.T) {
 	// Ingress[0]: tcp 5432 from 10.0.0.0/16
 	r0 := sg.Ingress[0]
 	if r0.Protocol != "tcp" || r0.FromPort == nil || *r0.FromPort != 5432 ||
-		r0.Peer.Kind != "cidr" || r0.Peer.CIDR != "10.0.0.0/16" {
+		r0.Peer.Kind != provider.SGPeerKindCIDR || r0.Peer.CIDR != "10.0.0.0/16" {
 		t.Fatalf("rule[0]: %+v", r0)
 	}
 	// Ingress[1]: icmp from sg-87654321 (sg_ref); ports nil (FromPortRange = -1 → "any")
@@ -48,7 +48,7 @@ func TestNormalizeOutscaleSecurityGroups(t *testing.T) {
 	}
 	// Egress[0]: "-1" protocol → "any"; CIDR 0.0.0.0/0
 	r2 := sg.Egress[0]
-	if r2.Protocol != "any" || r2.Peer.Kind != "cidr" || r2.Peer.CIDR != "0.0.0.0/0" {
+	if r2.Protocol != "any" || r2.Peer.Kind != provider.SGPeerKindCIDR || r2.Peer.CIDR != "0.0.0.0/0" {
 		t.Fatalf("rule[2]: %+v", r2)
 	}
 	if sg.Tags["env"] != "prod" {

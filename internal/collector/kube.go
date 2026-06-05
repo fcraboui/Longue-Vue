@@ -815,7 +815,7 @@ func convertNetPolRule(peers []networkingv1.NetworkPolicyPeer, ports []networkin
 		case p.IPBlock != nil:
 			ex, _ := json.Marshal(p.IPBlock.Except)
 			out.Peers = append(out.Peers, NetworkPolicyPeerInfo{
-				Kind:          "ip_block",
+				Kind:          peerKindIPBlock,
 				IPBlockCIDR:   p.IPBlock.CIDR,
 				IPBlockExcept: ex,
 			})
@@ -823,7 +823,7 @@ func convertNetPolRule(peers []networkingv1.NetworkPolicyPeer, ports []networkin
 			sel, _ := json.Marshal(p.PodSelector)
 			ns, _ := json.Marshal(p.NamespaceSelector)
 			out.Peers = append(out.Peers, NetworkPolicyPeerInfo{
-				Kind:              "selector",
+				Kind:              peerKindSelector,
 				PodSelector:       sel,
 				NamespaceSelector: ns,
 			})

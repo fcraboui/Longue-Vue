@@ -10,6 +10,11 @@ import (
 	"github.com/sthalbert/longue-vue/internal/store"
 )
 
+const (
+	peerKindSelector = "selector"
+	peerKindIPBlock  = "ip_block"
+)
+
 // NetPolStore is the slice of the store interface the netpol resource
 // handler uses. Defined here so a test fake can stub without dragging
 // the full *store.PG. The in-process *store.PG satisfies this interface;
@@ -67,7 +72,7 @@ func flattenNetPolRules(info NetworkPolicyInfo) []store.NetworkPolicyRule {
 			if len(r.Peers) == 0 {
 				out = append(out, store.NetworkPolicyRule{
 					Direction: direction,
-					PeerKind:  "selector",
+					PeerKind:  peerKindSelector,
 					Ports:     json.RawMessage(r.Ports),
 				})
 				continue
@@ -79,10 +84,10 @@ func flattenNetPolRules(info NetworkPolicyInfo) []store.NetworkPolicyRule {
 					Ports:     json.RawMessage(r.Ports),
 				}
 				switch p.Kind {
-				case "selector":
+				case peerKindSelector:
 					row.PeerPodSelector = json.RawMessage(p.PodSelector)
 					row.PeerNamespaceSelector = json.RawMessage(p.NamespaceSelector)
-				case "ip_block":
+				case peerKindIPBlock:
 					row.PeerIPBlockCIDR = p.IPBlockCIDR
 					row.PeerIPBlockExcept = json.RawMessage(p.IPBlockExcept)
 				}

@@ -11,6 +11,14 @@ package provider
 // detects a missing or older value and renders the row as stale.
 const SGSchemaVersion = 1
 
+// SGPeerKind constants identify the peer type in an SGPeer.
+const (
+	SGPeerKindCIDR          = "cidr"
+	SGPeerKindSGRef         = "sg_ref"
+	SGPeerKindPrefixListRef = "prefix_list_ref"
+	SGPeerKindSelf          = "self"
+)
+
 // SecurityGroup is the canonical cloud security-group record. Provider
 // impls fill this in; the server reads it.
 type SecurityGroup struct {

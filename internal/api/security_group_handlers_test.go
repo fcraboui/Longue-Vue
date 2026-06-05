@@ -101,14 +101,21 @@ func TestGetSecurityGroup_EmbedsRules(t *testing.T) {
 
 	accountID := uuid.New()
 	sgID, err := store.UpsertSecurityGroup(t.Context(), SecurityGroupRow{
-		CloudAccountID: accountID, ProviderSGID: "sg-100", Name: "test-sg",
+		CloudAccountID: accountID, ProviderSGID: "sg-100", Name: testSGName,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ReplaceSecurityGroupRules(t.Context(), sgID, []SecurityGroupRuleRow{
-		{Direction: "ingress", Protocol: "tcp", FromPort: intPtr(443), ToPort: intPtr(443), PeerKind: "cidr", PeerCIDR: "0.0.0.0/0"},
-		{Direction: "egress", Protocol: "any", PeerKind: "cidr", PeerCIDR: "0.0.0.0/0"},
+		{
+			Direction: testDirIngress,
+			Protocol:  testProtocolTCP,
+			FromPort:  intPtr(443),
+			ToPort:    intPtr(443),
+			PeerKind:  testPeerKindCIDR,
+			PeerCIDR:  testCIDRAny,
+		},
+		{Direction: "egress", Protocol: "any", PeerKind: testPeerKindCIDR, PeerCIDR: testCIDRAny},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -126,8 +133,8 @@ func TestGetSecurityGroup_EmbedsRules(t *testing.T) {
 	if resp.ID != sgID {
 		t.Errorf("id mismatch: got %s want %s", resp.ID, sgID)
 	}
-	if resp.Name != "test-sg" {
-		t.Errorf("name: got %q want test-sg", resp.Name)
+	if resp.Name != testSGName {
+		t.Errorf("name: got %q want %s", resp.Name, testSGName)
 	}
 	if len(resp.Rules) != 2 {
 		t.Fatalf("want 2 rules, got %d", len(resp.Rules))

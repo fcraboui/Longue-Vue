@@ -20,7 +20,7 @@ func TestSecurityGroupRoundTripJSON(t *testing.T) {
 				Protocol:    "tcp",
 				FromPort:    &one,
 				ToPort:      &one,
-				Peer:        provider.SGPeer{Kind: "cidr", CIDR: "10.0.0.0/16"},
+				Peer:        provider.SGPeer{Kind: provider.SGPeerKindCIDR, CIDR: "10.0.0.0/16"},
 				Description: "app tier",
 			},
 		},
@@ -35,7 +35,7 @@ func TestSecurityGroupRoundTripJSON(t *testing.T) {
 	}
 	if got.ProviderSGID != want.ProviderSGID ||
 		len(got.Ingress) != 1 ||
-		got.Ingress[0].Peer.Kind != "cidr" ||
+		got.Ingress[0].Peer.Kind != provider.SGPeerKindCIDR ||
 		got.Ingress[0].FromPort == nil || *got.Ingress[0].FromPort != 5432 {
 		t.Fatalf("round-trip mismatch: %+v", got)
 	}

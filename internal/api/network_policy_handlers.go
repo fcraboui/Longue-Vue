@@ -20,6 +20,11 @@ import (
 	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
+const (
+	respKeyItems      = "items"
+	respKeyNextCursor = "next_cursor"
+)
+
 // HandleListNetworkPolicies — read scope. GET /v1/network-policies.
 //
 // Required query param: cluster_id (UUID). Optional: namespace_id (UUID),
@@ -67,8 +72,8 @@ func HandleListNetworkPolicies(store Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"items":       items,
-			"next_cursor": next,
+			respKeyItems:      items,
+			respKeyNextCursor: next,
 		})
 	}
 }
@@ -76,12 +81,12 @@ func HandleListNetworkPolicies(store Store) http.HandlerFunc {
 // netpolDetailResponse is the GET /v1/network-policies/{id} response shape.
 // Embeds the policy fields plus a rules array.
 type netpolDetailResponse struct {
-	ID          uuid.UUID            `json:"id"`
-	ClusterID   uuid.UUID            `json:"cluster_id"`
-	NamespaceID uuid.UUID            `json:"namespace_id"`
-	Name        string               `json:"name"`
-	PodSelector any                  `json:"pod_selector"`
-	PolicyTypes []string             `json:"policy_types"`
+	ID          uuid.UUID              `json:"id"`
+	ClusterID   uuid.UUID              `json:"cluster_id"`
+	NamespaceID uuid.UUID              `json:"namespace_id"`
+	Name        string                 `json:"name"`
+	PodSelector any                    `json:"pod_selector"`
+	PolicyTypes []string               `json:"policy_types"`
 	Rules       []NetworkPolicyRuleRow `json:"rules"`
 }
 

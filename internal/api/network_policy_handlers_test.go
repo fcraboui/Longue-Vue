@@ -37,7 +37,7 @@ func readCaller() *auth.Caller {
 	return &auth.Caller{
 		Kind:     auth.CallerKindUser,
 		UserID:   uuid.New(),
-		Username: "viewer",
+		Username: testViewerRole,
 		Role:     auth.RoleViewer,
 		Scopes:   auth.ScopesForRole(auth.RoleViewer),
 	}
@@ -56,7 +56,7 @@ func TestListNetworkPolicies_FilterByCluster_AndNamespace(t *testing.T) {
 	npA1 := upsertNetworkPolicyFake(NetworkPolicyRow{
 		ClusterID: clusterA, NamespaceID: nsX, Name: "allow-ingress",
 		PodSelector: json.RawMessage(`{}`),
-		PolicyTypes: []string{"Ingress"},
+		PolicyTypes: []string{testPolicyIngress},
 	})
 	_ = npA1
 	npA2 := upsertNetworkPolicyFake(NetworkPolicyRow{
@@ -68,7 +68,7 @@ func TestListNetworkPolicies_FilterByCluster_AndNamespace(t *testing.T) {
 	upsertNetworkPolicyFake(NetworkPolicyRow{
 		ClusterID: clusterB, NamespaceID: nsX, Name: "other",
 		PodSelector: json.RawMessage(`{}`),
-		PolicyTypes: []string{"Ingress"},
+		PolicyTypes: []string{testPolicyIngress},
 	})
 
 	h := buildNetworkPolicyMux(t, store, readCaller())
@@ -132,11 +132,11 @@ func TestGetNetworkPolicy_EmbedsRules(t *testing.T) {
 	policyID := upsertNetworkPolicyFake(NetworkPolicyRow{
 		ClusterID: clusterID, NamespaceID: nsID, Name: "test-policy",
 		PodSelector: json.RawMessage(`{}`),
-		PolicyTypes: []string{"Ingress"},
+		PolicyTypes: []string{testPolicyIngress},
 	})
 	replaceNetworkPolicyRulesFake(policyID, []NetworkPolicyRuleRow{
-		{Direction: "ingress", PeerKind: "selector", PeerPodSelector: json.RawMessage(`{"matchLabels":{"app":"web"}}`)},
-		{Direction: "ingress", PeerKind: "ip_block", PeerIPBlockCIDR: "10.0.0.0/8"},
+		{Direction: testDirIngress, PeerKind: "selector", PeerPodSelector: json.RawMessage(`{"matchLabels":{"app":"web"}}`)},
+		{Direction: testDirIngress, PeerKind: "ip_block", PeerIPBlockCIDR: testCIDR10},
 	})
 
 	h := buildNetworkPolicyMux(t, store, readCaller())

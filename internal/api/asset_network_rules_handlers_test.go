@@ -15,6 +15,28 @@ import (
 	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
+const (
+	testProviderOutscale  = "outscale"
+	testRegionEUWest2     = "eu-west-2"
+	testPowerRunning      = "running"
+	testPolicyIngress     = "Ingress"
+	testDirIngress        = "ingress"
+	testCIDR10            = "10.0.0.0/8"
+	testCIDRAny           = "0.0.0.0/0"
+	testAppLabelVal       = "api" // Kubernetes label value; distinct from AuditEventSourceApi type
+	testSGName            = "test-sg"
+	testProtocolTCP       = "tcp"
+	testPeerKindCIDR      = "cidr"
+	testFieldCloudAccID   = "cloud_account_id"
+	testFieldProviderVMID = "provider_vm_id"
+	testFieldName         = "name"
+	testFieldPowerState   = "power_state"
+	testFieldSGs          = "security_groups"
+	testFieldSeenSGIDs    = "seen_provider_sg_ids"
+	testSGIDKeep          = "sg-keep"
+	testViewerRole        = "viewer"
+)
+
 // buildNetworkRulesMux wires the two per-asset network-rules routes.
 func buildNetworkRulesMux(t *testing.T, store Store, caller *auth.Caller) http.Handler {
 	t.Helper()
@@ -51,7 +73,7 @@ func TestWorkloadNetworkRules_MatchesByLabelSelector(t *testing.T) {
 	store.nsByID[nsID] = Namespace{Id: &nsID, ClusterId: clusterID, Name: "prod"}
 
 	// Create a workload with labels {"app":"api"}.
-	appLabel := map[string]string{"app": "api"}
+	appLabel := map[string]string{"app": testAppLabelVal}
 	wl, err := store.CreateWorkload(t.Context(), WorkloadCreate{
 		NamespaceId: nsID,
 		Kind:        Deployment,
@@ -68,10 +90,10 @@ func TestWorkloadNetworkRules_MatchesByLabelSelector(t *testing.T) {
 		NamespaceID: nsID,
 		Name:        "allow-api",
 		PodSelector: json.RawMessage(`{"matchLabels":{"app":"api"}}`),
-		PolicyTypes: []string{"Ingress"},
+		PolicyTypes: []string{testPolicyIngress},
 	})
 	replaceNetworkPolicyRulesFake(matchID, []NetworkPolicyRuleRow{
-		{Direction: "ingress", PeerKind: "ip_block", PeerIPBlockCIDR: "10.0.0.0/8"},
+		{Direction: testDirIngress, PeerKind: "ip_block", PeerIPBlockCIDR: testCIDR10},
 	})
 
 	h := buildNetworkRulesMux(t, store, readCaller())
@@ -163,9 +185,9 @@ func TestVMNetworkRules_UnionsAcrossSGs(t *testing.T) {
 
 	// Create a cloud account.
 	acct, err := store.UpsertCloudAccount(t.Context(), CloudAccountUpsert{
-		Provider: "outscale",
+		Provider: testProviderOutscale,
 		Name:     "acct-sg-test",
-		Region:   "eu-west-2",
+		Region:   testRegionEUWest2,
 	})
 	if err != nil {
 		t.Fatalf("upsert account: %v", err)
@@ -183,7 +205,7 @@ func TestVMNetworkRules_UnionsAcrossSGs(t *testing.T) {
 		t.Fatalf("upsert sg1: %v", err)
 	}
 	if err := store.ReplaceSecurityGroupRules(t.Context(), sgID1, []SecurityGroupRuleRow{
-		{Direction: "ingress", Protocol: "tcp", PeerKind: "cidr", PeerCIDR: "0.0.0.0/0"},
+		{Direction: testDirIngress, Protocol: testProtocolTCP, PeerKind: testPeerKindCIDR, PeerCIDR: testCIDRAny},
 	}); err != nil {
 		t.Fatalf("replace sg1 rules: %v", err)
 	}
@@ -199,8 +221,8 @@ func TestVMNetworkRules_UnionsAcrossSGs(t *testing.T) {
 		t.Fatalf("upsert sg2: %v", err)
 	}
 	if err := store.ReplaceSecurityGroupRules(t.Context(), sgID2, []SecurityGroupRuleRow{
-		{Direction: "ingress", Protocol: "tcp", PeerKind: "cidr", PeerCIDR: "10.0.0.0/8"},
-		{Direction: "egress", Protocol: "any", PeerKind: "cidr", PeerCIDR: "0.0.0.0/0"},
+		{Direction: "ingress", Protocol: "tcp", PeerKind: "cidr", PeerCIDR: testCIDR10},
+		{Direction: "egress", Protocol: "any", PeerKind: "cidr", PeerCIDR: testCIDRAny},
 	}); err != nil {
 		t.Fatalf("replace sg2 rules: %v", err)
 	}
@@ -212,7 +234,7 @@ func TestVMNetworkRules_UnionsAcrossSGs(t *testing.T) {
 		CloudAccountID: acct.ID,
 		ProviderVMID:   "vm-sg-test",
 		Name:           "test-vm",
-		PowerState:     "running",
+		PowerState:     testPowerRunning,
 		Ready:          true,
 		Tags:           map[string]string{},
 		Labels:         map[string]string{},
@@ -237,8 +259,8 @@ func TestVMNetworkRules_UnionsAcrossSGs(t *testing.T) {
 	}
 
 	var resp struct {
-		VMID                  uuid.UUID `json:"vm_id"`
-		Stale                 bool      `json:"stale"`
+		VMID                   uuid.UUID `json:"vm_id"`
+		Stale                  bool      `json:"stale"`
 		AttachedSecurityGroups []struct {
 			Name  string `json:"name"`
 			Rules []any  `json:"rules"`
@@ -276,9 +298,9 @@ func TestVMNetworkRules_StaleWhenPrecanonical(t *testing.T) {
 	store := newMemStore()
 
 	acct, err := store.UpsertCloudAccount(t.Context(), CloudAccountUpsert{
-		Provider: "outscale",
+		Provider: testProviderOutscale,
 		Name:     "acct-stale-test",
-		Region:   "eu-west-2",
+		Region:   testRegionEUWest2,
 	})
 	if err != nil {
 		t.Fatalf("upsert account: %v", err)
@@ -290,7 +312,7 @@ func TestVMNetworkRules_StaleWhenPrecanonical(t *testing.T) {
 		CloudAccountID: acct.ID,
 		ProviderVMID:   "vm-stale",
 		Name:           "stale-vm",
-		PowerState:     "running",
+		PowerState:     testPowerRunning,
 		Ready:          true,
 		Tags:           map[string]string{},
 		Labels:         map[string]string{},
@@ -313,7 +335,7 @@ func TestVMNetworkRules_StaleWhenPrecanonical(t *testing.T) {
 	}
 
 	var resp struct {
-		Stale                 bool  `json:"stale"`
+		Stale                  bool  `json:"stale"`
 		AttachedSecurityGroups []any `json:"attached_security_groups"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {

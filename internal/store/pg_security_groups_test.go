@@ -17,7 +17,7 @@ func TestUpsertSecurityGroup_InsertThenUpdate(t *testing.T) {
 	ctx := context.Background()
 
 	acc, err := pg.UpsertCloudAccount(ctx, api.CloudAccountUpsert{
-		Provider: "outscale", Name: "sg-test-acc",
+		Provider: testStoreSGProvider, Name: "sg-test-acc",
 	})
 	if err != nil {
 		t.Fatalf("upsert cloud account: %v", err)
@@ -64,7 +64,7 @@ func TestReplaceSecurityGroupRules(t *testing.T) {
 	ctx := context.Background()
 
 	acc, err := pg.UpsertCloudAccount(ctx, api.CloudAccountUpsert{
-		Provider: "outscale", Name: "sg-rules-acc",
+		Provider: testStoreSGProvider, Name: "sg-rules-acc",
 	})
 	if err != nil {
 		t.Fatalf("upsert cloud account: %v", err)
@@ -84,7 +84,7 @@ func TestReplaceSecurityGroupRules(t *testing.T) {
 	// Replace with 2 rules: one tcp/5432 cidr, one any-protocol egress.
 	rules2 := []SecurityGroupRule{
 		{
-			Direction: "ingress",
+			Direction: testStoreDirIngress,
 			Protocol:  "tcp",
 			FromPort:  &port5432,
 			ToPort:    &port5432,
@@ -129,7 +129,7 @@ func TestSweepSecurityGroupsByAccount_DeletesUnseen(t *testing.T) {
 	ctx := context.Background()
 
 	acc, err := pg.UpsertCloudAccount(ctx, api.CloudAccountUpsert{
-		Provider: "outscale", Name: "sg-sweep-acc",
+		Provider: testStoreSGProvider, Name: "sg-sweep-acc",
 	})
 	if err != nil {
 		t.Fatalf("upsert cloud account: %v", err)
@@ -137,7 +137,7 @@ func TestSweepSecurityGroupsByAccount_DeletesUnseen(t *testing.T) {
 
 	keepID, err := pg.UpsertSecurityGroup(ctx, SecurityGroup{
 		CloudAccountID: acc.ID,
-		ProviderSGID:   "sg-keep",
+		ProviderSGID:   testStoreSGIDKeep,
 		Name:           "keep",
 		Tags:           json.RawMessage(`{}`),
 	})
@@ -154,7 +154,7 @@ func TestSweepSecurityGroupsByAccount_DeletesUnseen(t *testing.T) {
 		t.Fatalf("upsert sg-gone: %v", err)
 	}
 
-	if err := pg.SweepSecurityGroupsByAccount(ctx, acc.ID, []string{"sg-keep"}); err != nil {
+	if err := pg.SweepSecurityGroupsByAccount(ctx, acc.ID, []string{testStoreSGIDKeep}); err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
 
@@ -167,7 +167,7 @@ func TestSweepSecurityGroupsByAccount_DeletesUnseen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(remaining) != 1 || remaining[0].ProviderSGID != "sg-keep" {
+	if len(remaining) != 1 || remaining[0].ProviderSGID != testStoreSGIDKeep {
 		t.Fatalf("expected only 'sg-keep', got %d items: %+v", len(remaining), remaining)
 	}
 }
@@ -178,13 +178,13 @@ func TestListSecurityGroupsByAccount_PaginatesByLimit(t *testing.T) {
 	ctx := context.Background()
 
 	acc, err := pg.UpsertCloudAccount(ctx, api.CloudAccountUpsert{
-		Provider: "outscale", Name: "sg-paginate-acc",
+		Provider: testStoreSGProvider, Name: "sg-paginate-acc",
 	})
 	if err != nil {
 		t.Fatalf("upsert cloud account: %v", err)
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		provID := fmt.Sprintf("sg-page-%d", i)
 		if _, err := pg.UpsertSecurityGroup(ctx, SecurityGroup{
 			CloudAccountID: acc.ID,

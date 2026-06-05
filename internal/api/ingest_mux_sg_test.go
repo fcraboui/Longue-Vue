@@ -36,9 +36,9 @@ func TestIngest_VMUpsert_PersistsSGs(t *testing.T) {
 	cloudFake.mu.Lock()
 	cloudFake.accounts[accID] = CloudAccount{
 		ID:       accID,
-		Provider: "outscale",
+		Provider: testProviderOutscale,
 		Name:     "test-account",
-		Region:   "eu-west-2",
+		Region:   testRegionEUWest2,
 		Status:   CloudAccountStatusActive,
 	}
 	cloudFake.mu.Unlock()
@@ -51,16 +51,16 @@ func TestIngest_VMUpsert_PersistsSGs(t *testing.T) {
 	port := 5432
 	sg := sgWireGroup{
 		ProviderSGID: "sg-test",
-		Name:         "test-sg",
+		Name:         testSGName,
 		VPCID:        "vpc-abc",
 		Ingress: []sgWireRule{
 			{
-				Protocol: "tcp",
+				Protocol: testProtocolTCP,
 				FromPort: &port,
 				ToPort:   &port,
 				Peer: sgWirePeer{
-					Kind: "cidr",
-					CIDR: "10.0.0.0/8",
+					Kind: testPeerKindCIDR,
+					CIDR: testCIDR10,
 				},
 			},
 		},
@@ -76,11 +76,11 @@ func TestIngest_VMUpsert_PersistsSGs(t *testing.T) {
 	}
 
 	body := map[string]any{
-		"cloud_account_id": accID.String(),
-		"provider_vm_id":   "i-test-vm",
-		"name":             "test-vm",
-		"power_state":      "running",
-		"security_groups":  json.RawMessage(sgJSON),
+		testFieldCloudAccID:   accID.String(),
+		testFieldProviderVMID: "i-test-vm",
+		testFieldName:         "test-vm",
+		testFieldPowerState:   testPowerRunning,
+		testFieldSGs:          json.RawMessage(sgJSON),
 	}
 
 	rr := doReq(t, h, http.MethodPost, "/v1/virtual-machines", body)
@@ -111,11 +111,11 @@ func TestIngest_VMUpsert_PersistsSGs(t *testing.T) {
 	if len(rules) != 1 {
 		t.Fatalf("want 1 rule, got %d", len(rules))
 	}
-	if rules[0].Protocol != "tcp" {
-		t.Errorf("Protocol = %q, want %q", rules[0].Protocol, "tcp")
+	if rules[0].Protocol != testProtocolTCP {
+		t.Errorf("Protocol = %q, want %q", rules[0].Protocol, testProtocolTCP)
 	}
-	if rules[0].Direction != "ingress" {
-		t.Errorf("Direction = %q, want %q", rules[0].Direction, "ingress")
+	if rules[0].Direction != testDirIngress {
+		t.Errorf("Direction = %q, want %q", rules[0].Direction, testDirIngress)
 	}
 }
 
@@ -132,9 +132,9 @@ func TestIngest_VMUpsert_PreCanonical_SkipsSGs(t *testing.T) {
 	cloudFake.mu.Lock()
 	cloudFake.accounts[accID] = CloudAccount{
 		ID:       accID,
-		Provider: "outscale",
+		Provider: testProviderOutscale,
 		Name:     "test-account2",
-		Region:   "eu-west-2",
+		Region:   testRegionEUWest2,
 		Status:   CloudAccountStatusActive,
 	}
 	cloudFake.mu.Unlock()
@@ -150,11 +150,11 @@ func TestIngest_VMUpsert_PreCanonical_SkipsSGs(t *testing.T) {
 
 	// Payload with no schema_version (pre-deploy shape).
 	body := map[string]any{
-		"cloud_account_id": accID.String(),
-		"provider_vm_id":   "i-old-vm",
-		"name":             "old-vm",
-		"power_state":      "running",
-		"security_groups":  json.RawMessage(`[{"id":"sg-old","name":"old"}]`),
+		testFieldCloudAccID:   accID.String(),
+		testFieldProviderVMID: "i-old-vm",
+		testFieldName:         "old-vm",
+		testFieldPowerState:   testPowerRunning,
+		testFieldSGs:          json.RawMessage(`[{"id":"sg-old","name":"old"}]`),
 	}
 
 	rr := doReq(t, h, http.MethodPost, "/v1/virtual-machines", body)
@@ -182,9 +182,9 @@ func TestSweepSecurityGroups_RemovesUnseen(t *testing.T) {
 	cloudFake.mu.Lock()
 	cloudFake.accounts[accID] = CloudAccount{
 		ID:       accID,
-		Provider: "outscale",
+		Provider: testProviderOutscale,
 		Name:     "sweep-test-account",
-		Region:   "eu-west-2",
+		Region:   testRegionEUWest2,
 		Status:   CloudAccountStatusActive,
 	}
 	cloudFake.mu.Unlock()
@@ -204,7 +204,7 @@ func TestSweepSecurityGroups_RemovesUnseen(t *testing.T) {
 	h := buildCloudMux(t, store, nil, caller)
 
 	body := map[string]any{
-		"seen_provider_sg_ids": []string{"sg-other"},
+		testFieldSeenSGIDs: []string{"sg-other"},
 	}
 	rr := doReq(t, h, http.MethodPost,
 		"/v1/ingest/cloud-accounts/"+accID.String()+"/security-groups/sweep", body)
@@ -231,9 +231,9 @@ func TestSweepSecurityGroups_KeepsSeen(t *testing.T) {
 	cloudFake.mu.Lock()
 	cloudFake.accounts[accID] = CloudAccount{
 		ID:       accID,
-		Provider: "outscale",
+		Provider: testProviderOutscale,
 		Name:     "sweep-keep-account",
-		Region:   "eu-west-2",
+		Region:   testRegionEUWest2,
 		Status:   CloudAccountStatusActive,
 	}
 	cloudFake.mu.Unlock()
@@ -243,7 +243,7 @@ func TestSweepSecurityGroups_KeepsSeen(t *testing.T) {
 	// Seed two SGs; one will be seen, one will not.
 	if _, err := store.UpsertSecurityGroup(t.Context(), SecurityGroupRow{
 		CloudAccountID: accID,
-		ProviderSGID:   "sg-keep",
+		ProviderSGID:   testSGIDKeep,
 		Name:           "keep-sg",
 	}); err != nil {
 		t.Fatalf("seed sg-keep: %v", err)
@@ -260,7 +260,7 @@ func TestSweepSecurityGroups_KeepsSeen(t *testing.T) {
 	h := buildCloudMux(t, store, nil, caller)
 
 	body := map[string]any{
-		"seen_provider_sg_ids": []string{"sg-keep"},
+		testFieldSeenSGIDs: []string{testSGIDKeep},
 	}
 	rr := doReq(t, h, http.MethodPost,
 		"/v1/ingest/cloud-accounts/"+accID.String()+"/security-groups/sweep", body)
@@ -275,7 +275,7 @@ func TestSweepSecurityGroups_KeepsSeen(t *testing.T) {
 	if len(sgs) != 1 {
 		t.Fatalf("expected 1 SG after sweep, got %d", len(sgs))
 	}
-	if sgs[0].ProviderSGID != "sg-keep" {
+	if sgs[0].ProviderSGID != testSGIDKeep {
 		t.Errorf("surviving SG = %q, want sg-keep", sgs[0].ProviderSGID)
 	}
 }
@@ -289,8 +289,20 @@ func TestSweepSecurityGroups_ForbiddenForOtherAccount(t *testing.T) {
 	accA := uuid.New()
 	accB := uuid.New()
 	cloudFake.mu.Lock()
-	cloudFake.accounts[accA] = CloudAccount{ID: accA, Provider: "outscale", Name: "acct-a", Region: "eu-west-2", Status: CloudAccountStatusActive}
-	cloudFake.accounts[accB] = CloudAccount{ID: accB, Provider: "outscale", Name: "acct-b", Region: "eu-west-2", Status: CloudAccountStatusActive}
+	cloudFake.accounts[accA] = CloudAccount{
+		ID:       accA,
+		Provider: testProviderOutscale,
+		Name:     "acct-a",
+		Region:   testRegionEUWest2,
+		Status:   CloudAccountStatusActive,
+	}
+	cloudFake.accounts[accB] = CloudAccount{
+		ID:       accB,
+		Provider: testProviderOutscale,
+		Name:     "acct-b",
+		Region:   testRegionEUWest2,
+		Status:   CloudAccountStatusActive,
+	}
 	cloudFake.mu.Unlock()
 
 	store := newMemStore()
@@ -298,7 +310,7 @@ func TestSweepSecurityGroups_ForbiddenForOtherAccount(t *testing.T) {
 	caller := collectorCaller(&accA)
 	h := buildCloudMux(t, store, nil, caller)
 
-	body := map[string]any{"seen_provider_sg_ids": []string{}}
+	body := map[string]any{testFieldSeenSGIDs: []string{}}
 	rr := doReq(t, h, http.MethodPost,
 		"/v1/ingest/cloud-accounts/"+accB.String()+"/security-groups/sweep", body)
 	if rr.Code != http.StatusForbidden {
@@ -320,9 +332,9 @@ func TestIngest_VMUpsert_SGFailure_DoesNotFailVM(t *testing.T) {
 	cloudFake.mu.Lock()
 	cloudFake.accounts[accID] = CloudAccount{
 		ID:       accID,
-		Provider: "outscale",
+		Provider: testProviderOutscale,
 		Name:     "test-account3",
-		Region:   "eu-west-2",
+		Region:   testRegionEUWest2,
 		Status:   CloudAccountStatusActive,
 	}
 	cloudFake.mu.Unlock()
@@ -339,11 +351,11 @@ func TestIngest_VMUpsert_SGFailure_DoesNotFailVM(t *testing.T) {
 	// Deliberately malformed SG JSON inside a valid schema_version=1 envelope.
 	// The handler should log WARN and still return 200 for the VM.
 	body := map[string]any{
-		"cloud_account_id": accID.String(),
-		"provider_vm_id":   "i-malformed-sg-vm",
-		"name":             "malformed-vm",
-		"power_state":      "running",
-		"security_groups":  json.RawMessage(`{"schema_version":1,"groups":"not-an-array"}`),
+		testFieldCloudAccID:   accID.String(),
+		testFieldProviderVMID: "i-malformed-sg-vm",
+		testFieldName:         "malformed-vm",
+		testFieldPowerState:   testPowerRunning,
+		testFieldSGs:          json.RawMessage(`{"schema_version":1,"groups":"not-an-array"}`),
 	}
 
 	rr := doReq(t, h, http.MethodPost, "/v1/virtual-machines", body)

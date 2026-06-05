@@ -11,27 +11,35 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
+const (
+	testNSProd      = "prod"
+	testNetCIDR10   = "10.0.0.0/8"
+	testNetPolName  = "api-allow"
+	testNetPolPola  = "pol-a"
+	testLabelAppWeb = "web"
+)
+
 func TestKubeSourceListNetworkPolicies_FakeClient(t *testing.T) {
 	ctx := context.Background()
 	port := intstr.FromInt(8080)
 	proto := corev1.ProtocolTCP
 	cs := fake.NewSimpleClientset(&netv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "api-allow", Namespace: "prod"},
+		ObjectMeta: metav1.ObjectMeta{Name: testNetPolName, Namespace: testNSProd},
 		Spec: netv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
 			PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
 			Ingress: []netv1.NetworkPolicyIngressRule{{
-				From:  []netv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}}},
+				From:  []netv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": testLabelAppWeb}}}},
 				Ports: []netv1.NetworkPolicyPort{{Protocol: &proto, Port: &port}},
 			}},
 		},
 	})
 	src := &KubeClient{clientset: cs}
-	got, err := src.ListNetworkPolicies(ctx, "prod")
+	got, err := src.ListNetworkPolicies(ctx, testNSProd)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(got) != 1 || got[0].Name != "api-allow" {
+	if len(got) != 1 || got[0].Name != testNetPolName {
 		t.Fatalf("want 1 netpol api-allow, got %+v", got)
 	}
 	if len(got[0].PolicyTypes) != 1 || got[0].PolicyTypes[0] != "Ingress" {
@@ -40,7 +48,7 @@ func TestKubeSourceListNetworkPolicies_FakeClient(t *testing.T) {
 	if len(got[0].Ingress) != 1 || len(got[0].Ingress[0].Peers) != 1 {
 		t.Fatalf("ingress rules: %+v", got[0].Ingress)
 	}
-	if got[0].Ingress[0].Peers[0].Kind != "selector" {
+	if got[0].Ingress[0].Peers[0].Kind != peerKindSelector {
 		t.Fatalf("peer kind: %q", got[0].Ingress[0].Peers[0].Kind)
 	}
 }
@@ -48,19 +56,19 @@ func TestKubeSourceListNetworkPolicies_FakeClient(t *testing.T) {
 func TestKubeSourceListNetworkPolicies_IPBlock(t *testing.T) {
 	ctx := context.Background()
 	cs := fake.NewSimpleClientset(&netv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "egress-external", Namespace: "prod"},
+		ObjectMeta: metav1.ObjectMeta{Name: "egress-external", Namespace: testNSProd},
 		Spec: netv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{},
 			PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeEgress},
 			Egress: []netv1.NetworkPolicyEgressRule{{
 				To: []netv1.NetworkPolicyPeer{{
-					IPBlock: &netv1.IPBlock{CIDR: "10.0.0.0/8", Except: []string{"10.1.0.0/16"}},
+					IPBlock: &netv1.IPBlock{CIDR: testNetCIDR10, Except: []string{"10.1.0.0/16"}},
 				}},
 			}},
 		},
 	})
 	src := &KubeClient{clientset: cs}
-	got, err := src.ListNetworkPolicies(ctx, "prod")
+	got, err := src.ListNetworkPolicies(ctx, testNSProd)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -71,10 +79,10 @@ func TestKubeSourceListNetworkPolicies_IPBlock(t *testing.T) {
 		t.Fatalf("egress rules: %+v", got[0].Egress)
 	}
 	peer := got[0].Egress[0].Peers[0]
-	if peer.Kind != "ip_block" {
+	if peer.Kind != peerKindIPBlock {
 		t.Fatalf("peer kind: %q", peer.Kind)
 	}
-	if peer.IPBlockCIDR != "10.0.0.0/8" {
+	if peer.IPBlockCIDR != testNetCIDR10 {
 		t.Fatalf("CIDR: %q", peer.IPBlockCIDR)
 	}
 }
@@ -83,7 +91,7 @@ func TestKubeSourceListNetworkPolicies_EmptyNamespace(t *testing.T) {
 	ctx := context.Background()
 	cs := fake.NewSimpleClientset()
 	src := &KubeClient{clientset: cs}
-	got, err := src.ListNetworkPolicies(ctx, "prod")
+	got, err := src.ListNetworkPolicies(ctx, testNSProd)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

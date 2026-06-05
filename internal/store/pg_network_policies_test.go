@@ -12,6 +12,15 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+const (
+	testStoreNSProd        = "prod"
+	testStoreNSDefault     = "default"
+	testStoreDirIngress    = "ingress"
+	testStorePolicyIngress = "Ingress"
+	testStoreNameKept      = "kept"
+	testStoreSGProvider    = "outscale"
+	testStoreSGIDKeep      = "sg-keep"
+)
 
 func TestUpsertNetworkPolicy_InsertAndUpdate(t *testing.T) {
 	pg := newTestPG(t)
@@ -21,7 +30,7 @@ func TestUpsertNetworkPolicy_InsertAndUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure cluster: %v", err)
 	}
-	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "prod"})
+	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: testStoreNSProd})
 	if err != nil {
 		t.Fatalf("upsert namespace: %v", err)
 	}
@@ -31,7 +40,7 @@ func TestUpsertNetworkPolicy_InsertAndUpdate(t *testing.T) {
 		NamespaceID: *ns.Id,
 		Name:        "api-allow",
 		PodSelector: json.RawMessage(`{"matchLabels":{"app":"api"}}`),
-		PolicyTypes: []string{"Ingress"},
+		PolicyTypes: []string{testStorePolicyIngress},
 		SpecRaw:     json.RawMessage(`{"podSelector":{"matchLabels":{"app":"api"}},"policyTypes":["Ingress"]}`),
 	}
 	id1, err := pg.UpsertNetworkPolicy(ctx, np)
@@ -74,7 +83,7 @@ func TestReplaceNetworkPolicyRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure cluster: %v", err)
 	}
-	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: testStoreNSDefault})
 	if err != nil {
 		t.Fatalf("upsert namespace: %v", err)
 	}
@@ -83,7 +92,7 @@ func TestReplaceNetworkPolicyRules(t *testing.T) {
 		NamespaceID: *ns.Id,
 		Name:        "allow-web",
 		PodSelector: json.RawMessage(`{}`),
-		PolicyTypes: []string{"Ingress"},
+		PolicyTypes: []string{testStorePolicyIngress},
 		SpecRaw:     json.RawMessage(`{}`),
 	})
 	if err != nil {
@@ -93,7 +102,7 @@ func TestReplaceNetworkPolicyRules(t *testing.T) {
 	// Replace with 2 rules: one selector, one ip_block.
 	rules2 := []NetworkPolicyRule{
 		{
-			Direction:             "ingress",
+			Direction:             testStoreDirIngress,
 			PeerKind:              "selector",
 			PeerPodSelector:       json.RawMessage(`{"matchLabels":{"app":"api"}}`),
 			PeerNamespaceSelector: json.RawMessage(`null`),
@@ -102,7 +111,7 @@ func TestReplaceNetworkPolicyRules(t *testing.T) {
 			Ports:                 json.RawMessage(`[{"port":80,"protocol":"TCP"}]`),
 		},
 		{
-			Direction:             "ingress",
+			Direction:             testStoreDirIngress,
 			PeerKind:              "ip_block",
 			PeerPodSelector:       json.RawMessage(`null`),
 			PeerNamespaceSelector: json.RawMessage(`null`),
@@ -146,7 +155,7 @@ func TestSweepNetworkPoliciesByNamespace_DeletesUnseen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure cluster: %v", err)
 	}
-	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "prod"})
+	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: testStoreNSProd})
 	if err != nil {
 		t.Fatalf("upsert namespace: %v", err)
 	}
@@ -154,9 +163,9 @@ func TestSweepNetworkPoliciesByNamespace_DeletesUnseen(t *testing.T) {
 	keptID, err := pg.UpsertNetworkPolicy(ctx, NetworkPolicy{
 		ClusterID:   *cluster.Id,
 		NamespaceID: *ns.Id,
-		Name:        "kept",
+		Name:        testStoreNameKept,
 		PodSelector: json.RawMessage(`{}`),
-		PolicyTypes: []string{"Ingress"},
+		PolicyTypes: []string{testStorePolicyIngress},
 		SpecRaw:     json.RawMessage(`{}`),
 	})
 	if err != nil {
@@ -174,7 +183,7 @@ func TestSweepNetworkPoliciesByNamespace_DeletesUnseen(t *testing.T) {
 		t.Fatalf("upsert gone: %v", err)
 	}
 
-	if err := pg.SweepNetworkPoliciesByNamespace(ctx, *ns.Id, []string{"kept"}); err != nil {
+	if err := pg.SweepNetworkPoliciesByNamespace(ctx, *ns.Id, []string{testStoreNameKept}); err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
 
@@ -187,7 +196,7 @@ func TestSweepNetworkPoliciesByNamespace_DeletesUnseen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(all) != 1 || all[0].Name != "kept" {
+	if len(all) != 1 || all[0].Name != testStoreNameKept {
 		t.Fatalf("expected only 'kept', got %d items: %+v", len(all), all)
 	}
 }
@@ -201,19 +210,19 @@ func TestListNetworkPoliciesByCluster_PaginatesByLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure cluster: %v", err)
 	}
-	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: testStoreNSDefault})
 	if err != nil {
 		t.Fatalf("upsert namespace: %v", err)
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		name := fmt.Sprintf("policy-%d", i)
 		if _, err := pg.UpsertNetworkPolicy(ctx, NetworkPolicy{
 			ClusterID:   *cluster.Id,
 			NamespaceID: *ns.Id,
 			Name:        name,
 			PodSelector: json.RawMessage(`{}`),
-			PolicyTypes: []string{"Ingress"},
+			PolicyTypes: []string{testStorePolicyIngress},
 			SpecRaw:     json.RawMessage(`{}`),
 		}); err != nil {
 			t.Fatalf("upsert %s: %v", name, err)

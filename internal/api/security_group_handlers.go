@@ -98,8 +98,8 @@ func HandleListSecurityGroups(store Store) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"items":       raw,
-			"next_cursor": next,
+			respKeyItems:      raw,
+			respKeyNextCursor: next,
 		})
 	}
 }
@@ -107,12 +107,12 @@ func HandleListSecurityGroups(store Store) http.HandlerFunc {
 // sgDetailResponse is the GET /v1/security-groups/{id} response shape.
 // Embeds the security group fields plus a rules array.
 type sgDetailResponse struct {
-	ID             uuid.UUID            `json:"id"`
-	CloudAccountID uuid.UUID            `json:"cloud_account_id"`
-	ProviderSGID   string               `json:"provider_sg_id"`
-	Name           string               `json:"name"`
-	VPCID          string               `json:"vpc_id,omitempty"`
-	Tags           any                  `json:"tags,omitempty"`
+	ID             uuid.UUID              `json:"id"`
+	CloudAccountID uuid.UUID              `json:"cloud_account_id"`
+	ProviderSGID   string                 `json:"provider_sg_id"`
+	Name           string                 `json:"name"`
+	VPCID          string                 `json:"vpc_id,omitempty"`
+	Tags           any                    `json:"tags,omitempty"`
 	Rules          []SecurityGroupRuleRow `json:"rules"`
 }
 

@@ -9,13 +9,13 @@ import (
 // response we consume. Keep this struct private — it is an implementation
 // detail of the normalizer, not part of the canonical contract.
 type outscaleNativeSG struct {
-	SecurityGroupId   string                 `json:"SecurityGroupId"`
-	SecurityGroupName string                 `json:"SecurityGroupName"`
-	NetId             string                 `json:"NetId"`
-	Description       string                 `json:"Description"`
-	Tags              []outscaleNativeTag    `json:"Tags"`
-	InboundRules      []outscaleNativeRule   `json:"InboundRules"`
-	OutboundRules     []outscaleNativeRule   `json:"OutboundRules"`
+	SecurityGroupId   string               `json:"SecurityGroupId"`
+	SecurityGroupName string               `json:"SecurityGroupName"`
+	NetId             string               `json:"NetId"`
+	Description       string               `json:"Description"`
+	Tags              []outscaleNativeTag  `json:"Tags"`
+	InboundRules      []outscaleNativeRule `json:"InboundRules"`
+	OutboundRules     []outscaleNativeRule `json:"OutboundRules"`
 }
 
 type outscaleNativeTag struct {
@@ -81,7 +81,7 @@ func normalizeOutscaleRules(in []outscaleNativeRule, dir string) []SecurityGroup
 				Protocol:  proto,
 				FromPort:  from,
 				ToPort:    to,
-				Peer:      SGPeer{Kind: "cidr", CIDR: cidr},
+				Peer:      SGPeer{Kind: SGPeerKindCIDR, CIDR: cidr},
 			})
 		}
 		for _, m := range r.SecurityGroupsMembers {
@@ -90,7 +90,7 @@ func normalizeOutscaleRules(in []outscaleNativeRule, dir string) []SecurityGroup
 				Protocol:  proto,
 				FromPort:  from,
 				ToPort:    to,
-				Peer:      SGPeer{Kind: "sg_ref", ProviderSGID: m.SecurityGroupId},
+				Peer:      SGPeer{Kind: SGPeerKindSGRef, ProviderSGID: m.SecurityGroupId},
 			})
 		}
 	}
