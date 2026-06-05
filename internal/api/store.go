@@ -738,6 +738,67 @@ type Store interface {
 	// effective-DICT source bucket (application | workload | none), feeding
 	// the longue_vue_dict_coverage gauge (ADR-0029 §6).
 	DICTCoverageCounts(ctx context.Context) (application, workload, none int, err error)
+
+	// --- Security groups (flow-matrix P1) ---------------------------------
+
+	// UpsertSecurityGroup inserts or updates by (cloud_account_id,
+	// provider_sg_id). Returns the stable row UUID. Called on every
+	// collector tick; idempotent.
+	UpsertSecurityGroup(ctx context.Context, in SecurityGroupRow) (uuid.UUID, error)
+
+	// GetSecurityGroup fetches a security group by stable UUID.
+	// Returns ErrNotFound when the row is absent.
+	GetSecurityGroup(ctx context.Context, id uuid.UUID) (SecurityGroupRow, error)
+
+	// ReplaceSecurityGroupRules atomically replaces every rule for the
+	// given security_group_id. Delete+insert in one transaction; rule
+	// sets are small enough that a finer diff is over-engineering.
+	ReplaceSecurityGroupRules(ctx context.Context, sgID uuid.UUID, rules []SecurityGroupRuleRow) error
+
+	// ListSecurityGroupsByAccount returns a page of security groups for
+	// the given account, ordered by (reconcile_seen_at DESC, id DESC).
+	ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, limit int, cursor string) ([]SecurityGroupRow, string, error)
+
+	// ListSecurityGroupRules returns all rules for a single security
+	// group, in stable insertion order.
+	ListSecurityGroupRules(ctx context.Context, sgID uuid.UUID) ([]SecurityGroupRuleRow, error)
+
+	// SweepSecurityGroupsByAccount deletes every security group in the
+	// account whose provider_sg_id is NOT in seenProviderIDs. Called once
+	// per account refresh tick after all VM upserts are done.
+	SweepSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, seenProviderIDs []string) error
+
+	// GetSecurityGroupByProviderID fetches a security group by
+	// (cloud_account_id, provider_sg_id). Returns ErrNotFound on miss.
+	GetSecurityGroupByProviderID(ctx context.Context, accountID uuid.UUID, providerSGID string) (SecurityGroupRow, error)
+
+	// --- Network policies (flow-matrix P1) ---------------------------------
+
+	// ListNetworkPoliciesByCluster returns a page of network policies for
+	// the given cluster, optionally filtered by namespace. Cursor-based
+	// pagination ordered by (reconcile_seen_at DESC, id DESC).
+	ListNetworkPoliciesByCluster(
+		ctx context.Context,
+		clusterID uuid.UUID,
+		namespaceID *uuid.UUID,
+		limit int,
+		cursor string,
+	) ([]NetworkPolicyRow, string, error)
+
+	// GetNetworkPolicy fetches a network policy by stable UUID.
+	// Returns ErrNotFound when the row is absent.
+	GetNetworkPolicy(ctx context.Context, id uuid.UUID) (NetworkPolicyRow, error)
+
+	// ListNetworkPolicyRules returns all rules for a single network
+	// policy, in stable insertion order.
+	ListNetworkPolicyRules(ctx context.Context, policyID uuid.UUID) ([]NetworkPolicyRuleRow, error)
+
+	// ListNetworkPoliciesForWorkload returns every NetworkPolicy in the
+	// workload's namespace whose pod_selector matchLabels @> workloadLabels.
+	// The empty pod_selector (`{}`) and a missing matchLabels key are treated
+	// as "select everything" per the Kubernetes semantics. matchExpressions
+	// support is deferred to P2.
+	ListNetworkPoliciesForWorkload(ctx context.Context, namespaceID uuid.UUID, workloadLabels json.RawMessage) ([]NetworkPolicyRow, error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by

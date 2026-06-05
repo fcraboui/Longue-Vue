@@ -56,6 +56,17 @@ output-options:
     - deleteApplication
     - listApplicationMembers
     - getApplicationEOL
+    # Flow-matrix P1 (ADR-0034): hand-written read-only handlers on the
+    # main mux (network_policy_handlers.go, security_group_handlers.go,
+    # asset_network_rules_handlers.go). Documented in openapi.yaml so
+    # they appear in Swagger UI; excluded from the strict-server
+    # interface to avoid duplicate-type conflicts.
+    - listNetworkPolicies
+    - getNetworkPolicy
+    - listSecurityGroups
+    - getSecurityGroup
+    - getWorkloadNetworkRules
+    - getVirtualMachineNetworkRules
 generate:
   models: true
   std-http-server: true

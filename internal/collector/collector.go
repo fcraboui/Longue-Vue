@@ -228,6 +228,46 @@ type PersistentVolumeClaimLister interface {
 	ListPersistentVolumeClaims(ctx context.Context) ([]PVCInfo, error)
 }
 
+// NetworkPolicyInfo is the subset of a K8s NetworkPolicy the collector
+// consumes. Selectors stay as raw JSON so the store keeps them as JSONB
+// and the engine (P2) can query them with -> / ->> operators.
+//
+// Each Ingress / Egress entry is a NetworkPolicyRuleInfo; the collector
+// flattens these into (rule, peer) rows when persisting (see
+// netpol_collector.go).
+type NetworkPolicyInfo struct {
+	Name        string
+	Namespace   string
+	PodSelector []byte // JSON-encoded LabelSelector
+	PolicyTypes []string
+	SpecRaw     []byte // JSON-encoded full Spec (forensic)
+	Ingress     []NetworkPolicyRuleInfo
+	Egress      []NetworkPolicyRuleInfo
+}
+
+// NetworkPolicyRuleInfo holds one ingress or egress rule from a NetworkPolicy,
+// with its peers and JSON-encoded port list.
+type NetworkPolicyRuleInfo struct {
+	Peers []NetworkPolicyPeerInfo
+	Ports []byte // JSON-encoded []NetworkPolicyPort
+}
+
+// NetworkPolicyPeerInfo describes one network peer in a NetworkPolicy rule.
+// Kind is "selector" for pod/namespace selectors or "ip_block" for CIDR peers.
+type NetworkPolicyPeerInfo struct {
+	Kind              string // "selector" | "ip_block"
+	PodSelector       []byte
+	NamespaceSelector []byte
+	IPBlockCIDR       string
+	IPBlockExcept     []byte // JSON-encoded []string
+}
+
+// NetworkPolicyLister returns every NetworkPolicy visible to the configured
+// kubeconfig for a given namespace.
+type NetworkPolicyLister interface {
+	ListNetworkPolicies(ctx context.Context, namespace string) ([]NetworkPolicyInfo, error)
+}
+
 // KubeSource is the composite contract the Collector consumes.
 type KubeSource interface {
 	VersionFetcher
@@ -240,6 +280,7 @@ type KubeSource interface {
 	ReplicaSetOwnerLister
 	PersistentVolumeLister
 	PersistentVolumeClaimLister
+	NetworkPolicyLister
 }
 
 // CmdbStore is the subset of api.Store the collector consumes. Exported so
@@ -277,6 +318,7 @@ type CmdbStore interface {
 // a single tick are logged and the loop continues to the next tick.
 type Collector struct {
 	store        CmdbStore
+	netpolStore  NetPolStore // nil when the store doesn't implement netpol ops
 	source       KubeSource
 	clusterName  string
 	interval     time.Duration
@@ -289,15 +331,22 @@ type Collector struct {
 // vanish from the Kubernetes listing are deleted from the CMDB so the stored
 // state always matches the live cluster — required for ANSSI cartography
 // fidelity.
-func New(store CmdbStore, source KubeSource, clusterName string, interval, fetchTimeout time.Duration, reconcile bool) *Collector {
-	return &Collector{
-		store:        store,
+//
+// If the supplied store also implements NetPolStore (i.e. it is *store.PG),
+// NetworkPolicy reconciliation is enabled automatically.
+func New(st CmdbStore, source KubeSource, clusterName string, interval, fetchTimeout time.Duration, reconcile bool) *Collector {
+	c := &Collector{
+		store:        st,
 		source:       source,
 		clusterName:  clusterName,
 		interval:     interval,
 		fetchTimeout: fetchTimeout,
 		reconcile:    reconcile,
 	}
+	if nps, ok := st.(NetPolStore); ok {
+		c.netpolStore = nps
+	}
+	return c
 }
 
 // Run polls until ctx is cancelled. A poll happens immediately on start and
@@ -380,6 +429,7 @@ func (c *Collector) poll(parent context.Context) {
 		c.ingestServices(ctx, namespaceIDsByName)
 		c.ingestIngresses(ctx, namespaceIDsByName)
 		c.ingestPersistentVolumeClaims(ctx, namespaceIDsByName, pvIDsByName)
+		c.ingestNetworkPolicies(ctx, *cluster.Id, namespaceIDsByName)
 	}
 }
 
@@ -1114,4 +1164,25 @@ func (c *Collector) ingestPersistentVolumeClaims(ctx context.Context, namespaceI
 	slog.Info("collector: ingested pvcs",
 		slog.Int("upserted", upserted), slog.Int("failed", failed), slog.Int("skipped", skipped),
 		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
+}
+
+// ingestNetworkPolicies runs one tick of NetworkPolicy reconciliation for
+// every namespace that was successfully ingested this tick. It is a no-op
+// when the store does not implement NetPolStore (e.g. the push-mode
+// apiclient.Store which reaches the server via REST, where netpol writes
+// go through the in-process path instead).
+func (c *Collector) ingestNetworkPolicies(ctx context.Context, clusterID uuid.UUID, namespaceIDsByName map[string]uuid.UUID) {
+	if c.netpolStore == nil {
+		return
+	}
+	for nsName, nsID := range namespaceIDsByName {
+		if err := CollectNetworkPolicies(ctx, c.source, c.netpolStore, clusterID, nsID, nsName); err != nil {
+			slog.Warn("collector: netpol tick failed",
+				slog.String("cluster", clusterID.String()),
+				slog.String("ns", nsName),
+				slog.Any("err", err),
+				slog.String("cluster_name", c.clusterName))
+			// per CLAUDE.md: do not return — other namespaces still need to land
+		}
+	}
 }

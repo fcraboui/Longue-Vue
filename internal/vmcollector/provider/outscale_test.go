@@ -1,6 +1,14 @@
 package provider
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestCanonicalPowerState(t *testing.T) {
 	t.Parallel()
@@ -59,5 +67,59 @@ func TestDeriveRegionFromZone(t *testing.T) {
 		if got := DeriveRegionFromZone(in); got != want {
 			t.Errorf("DeriveRegionFromZone(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestGetSecurityGroups verifies that GetSecurityGroups calls
+// ReadSecurityGroups, marshals the response through
+// NormalizeOutscaleSecurityGroups, and returns a canonical []SecurityGroup.
+// The fixture is the same outscale_sg_native.json used by the normalize unit test.
+//
+//nolint:gocyclo // test exercises the full HTTP mock + normalization pipeline; assertions are necessarily numerous
+func TestGetSecurityGroups(t *testing.T) {
+	t.Parallel()
+	fixture, err := os.ReadFile(filepath.Join("testdata", "outscale_sg_native.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	// The Outscale API wraps the response in {"SecurityGroups": [...]}
+	// (same shape as the fixture). We re-wrap it as a ReadSecurityGroupsResponse
+	// by embedding it verbatim — the SDK will decode it into the Go struct.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("unexpected method: %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture)
+	}))
+	defer srv.Close()
+
+	p, err := NewOutscale("ak", "sk", "eu-west-2", srv.URL)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	got, err := p.GetSecurityGroups(context.Background())
+	if err != nil {
+		t.Fatalf("GetSecurityGroups: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 SG, got %d", len(got))
+	}
+	sg := got[0]
+	if sg.ProviderSGID != "sg-12345678" {
+		t.Errorf("ProviderSGID = %q, want %q", sg.ProviderSGID, "sg-12345678")
+	}
+	if len(sg.Ingress) != 2 || len(sg.Egress) != 1 {
+		t.Errorf("rule counts: ing=%d eg=%d, want 2/1", len(sg.Ingress), len(sg.Egress))
+	}
+	// Spot-check the payload is version-stamped when embedded in VMSecurityGroupsPayload.
+	payload := VMSecurityGroupsPayload{Version: SGSchemaVersion, Groups: got}
+	b, _ := json.Marshal(payload)
+	var roundtrip VMSecurityGroupsPayload
+	if err := json.Unmarshal(b, &roundtrip); err != nil {
+		t.Fatalf("roundtrip: %v", err)
+	}
+	if roundtrip.Version != SGSchemaVersion {
+		t.Errorf("version = %d, want %d", roundtrip.Version, SGSchemaVersion)
 	}
 }

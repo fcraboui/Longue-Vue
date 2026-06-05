@@ -1,0 +1,12 @@
+{
+  "rules": [
+    {
+      "id": "rule-1",
+      "direction": "inbound",
+      "protocol": "TCP",
+      "dest_port_from": 443,
+      "dest_port_to": 443,
+      "ip_range": "0.0.0.0/0"
+    }
+  ]
+}

@@ -438,6 +438,8 @@ func maybeInitOIDC(ctx context.Context, cfg *auth.OIDCConfig) (*auth.OIDCProvide
 // ListenAndServeTLS. When either is unset, the listener stays plaintext —
 // the legacy posture, allowed for backward compatibility but refused at
 // boot when LONGUE_VUE_REQUIRE_HTTPS=true (see checkTransportPosture).
+//
+//nolint:maintidx // pre-existing complexity; this branch's additions are 6 line items for the flow-matrix read routes
 func buildHTTPServer(
 	cfg *runConfig,
 	pg *store.PG,
@@ -575,6 +577,28 @@ func buildHTTPServer(
 	mux.Handle("GET /v1/virtual-machines/{id}", requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetVirtualMachine(pg)))))
 	mux.Handle("PATCH /v1/virtual-machines/{id}", requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandlePatchVirtualMachine(pg)))))
 	mux.Handle("DELETE /v1/virtual-machines/{id}", requireScope(auth.ScopeDelete)(cloudAuth(auditWrap(api.HandleDeleteVirtualMachine(pg)))))
+	mux.Handle(
+		"POST /v1/ingest/cloud-accounts/{id}/security-groups/sweep",
+		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleSweepSecurityGroups(pg)))),
+	)
+
+	// Security groups — read endpoints (flow-matrix P1, Task 19).
+	mux.Handle("GET /v1/security-groups",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListSecurityGroups(pg)))))
+	mux.Handle("GET /v1/security-groups/{id}",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetSecurityGroup(pg)))))
+
+	// Network policies — read endpoints (flow-matrix P1, Tasks 17 + 18).
+	mux.Handle("GET /v1/network-policies",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListNetworkPolicies(pg)))))
+	mux.Handle("GET /v1/network-policies/{id}",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetNetworkPolicy(pg)))))
+
+	// Per-asset derived network-rules (flow-matrix P1, Tasks 20 + 21).
+	mux.Handle("GET /v1/workloads/{id}/network-rules",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleWorkloadNetworkRules(pg)))))
+	mux.Handle("GET /v1/virtual-machines/{id}/network-rules",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleVMNetworkRules(pg)))))
 
 	// Application + ApplicationBlock routes (ADR-0029) — extracted to keep
 	// buildHTTPServer within the maintainability-index ceiling.

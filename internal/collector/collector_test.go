@@ -35,6 +35,8 @@ type fakeSource struct {
 	listPVErr        error
 	pvcs             []PVCInfo
 	listPVCErr       error
+	netpols          []NetworkPolicyInfo
+	listNetpolErr    error
 }
 
 func (f *fakeSource) ServerVersion(_ context.Context) (string, error) {
@@ -75,6 +77,10 @@ func (f *fakeSource) ListPersistentVolumes(_ context.Context) ([]PVInfo, error) 
 
 func (f *fakeSource) ListPersistentVolumeClaims(_ context.Context) ([]PVCInfo, error) {
 	return f.pvcs, f.listPVCErr
+}
+
+func (f *fakeSource) ListNetworkPolicies(_ context.Context, _ string) ([]NetworkPolicyInfo, error) {
+	return f.netpols, f.listNetpolErr
 }
 
 type recordedUpdate struct {

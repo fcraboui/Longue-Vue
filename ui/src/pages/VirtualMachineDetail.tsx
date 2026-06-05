@@ -15,6 +15,43 @@ import { ApplicationCard } from '../components/inventory/ApplicationCard';
 import { EffectiveDICTCard } from '../components/inventory/EffectiveDICTCard';
 import { ApplicationsCard } from '../components/inventory/ApplicationsCard';
 import { CuratedMetadataCard } from '../components/inventory/CuratedMetadataCard';
+import { NetworkRulesTab } from '../components/network/NetworkRulesTab';
+
+type VMTab = 'overview' | 'network-rules';
+
+function VMTabBar({
+  active,
+  tabs,
+  onChange,
+}: {
+  active: string;
+  tabs: { id: string; label: string }[];
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid var(--border)', marginBottom: '1rem' }}>
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onChange(t.id)}
+          style={{
+            background: 'none',
+            border: 'none',
+            borderBottom: active === t.id ? '2px solid var(--accent)' : '2px solid transparent',
+            marginBottom: -2,
+            padding: '0.5rem 1rem',
+            cursor: 'pointer',
+            color: active === t.id ? 'var(--accent)' : 'var(--fg-muted)',
+            fontWeight: active === t.id ? 600 : 400,
+            fontSize: '0.9rem',
+          }}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // VirtualMachineDetail is the per-VM drill-down page. Card layout mirrors
 // the Node detail page, with extra cards for cloud-native fields (image,
@@ -35,6 +72,7 @@ export default function VirtualMachineDetail() {
   const me = useMe();
   const [nonce, setNonce] = useState(0);
   const reload = () => setNonce((n) => n + 1);
+  const [activeTab, setActiveTab] = useState<VMTab>('overview');
 
   const vmState = useResource(() => api.getVirtualMachine(id), [id, nonce]);
   const acctState = useResource(
@@ -77,6 +115,20 @@ export default function VirtualMachineDetail() {
                 )}
               </h2>
 
+              <VMTabBar
+                active={activeTab}
+                tabs={[
+                  { id: 'overview', label: 'Overview' },
+                  { id: 'network-rules', label: 'Network rules' },
+                ]}
+                onChange={(t) => setActiveTab(t as VMTab)}
+              />
+
+              {activeTab === 'network-rules' && (
+                <NetworkRulesTab kind="vm" id={vm.id} />
+              )}
+
+              {activeTab === 'overview' && (<>
               <IdentityCard
                 rows={[
                   { label: 'Name', value: <code>{vm.name}</code> },
@@ -283,6 +335,7 @@ export default function VirtualMachineDetail() {
                   }
                 />
               </dl>
+              </>)}
             </>
           );
         }}

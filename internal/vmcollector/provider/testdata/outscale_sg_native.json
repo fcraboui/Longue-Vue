@@ -1,0 +1,36 @@
+{
+  "SecurityGroups": [
+    {
+      "SecurityGroupId": "sg-12345678",
+      "SecurityGroupName": "pg-primary",
+      "NetId": "vpc-aaa",
+      "Description": "Postgres primary",
+      "Tags": [{"Key": "env", "Value": "prod"}],
+      "InboundRules": [
+        {
+          "FromPortRange": 5432,
+          "ToPortRange": 5432,
+          "IpProtocol": "tcp",
+          "IpRanges": ["10.0.0.0/16"],
+          "SecurityGroupsMembers": []
+        },
+        {
+          "FromPortRange": -1,
+          "ToPortRange": -1,
+          "IpProtocol": "icmp",
+          "IpRanges": [],
+          "SecurityGroupsMembers": [{"SecurityGroupId": "sg-87654321"}]
+        }
+      ],
+      "OutboundRules": [
+        {
+          "FromPortRange": -1,
+          "ToPortRange": -1,
+          "IpProtocol": "-1",
+          "IpRanges": ["0.0.0.0/0"],
+          "SecurityGroupsMembers": []
+        }
+      ]
+    }
+  ]
+}

@@ -30,6 +30,7 @@ type CollectorStore interface {
 	UpdateCloudAccountStatus(ctx context.Context, id uuid.UUID, status string, lastSeenAt *time.Time, lastErr *string) error
 	UpsertVirtualMachine(ctx context.Context, accountID uuid.UUID, vm provider.VM) error
 	ReconcileVirtualMachines(ctx context.Context, accountID uuid.UUID, keep []string) (int64, error)
+	SweepSecurityGroups(ctx context.Context, accountID uuid.UUID, seenProviderSGIDs []string) error
 }
 
 // ProviderFactory builds a Provider from the credentials fetched from
@@ -142,7 +143,16 @@ func (c *Collector) runOnce(ctx context.Context) {
 		slog.Int("kept", len(kept)),
 	)
 	keep := make([]string, 0, len(kept))
+	// seenSGs accumulates every provider_sg_id seen across all VMs in this
+	// tick. Used by the account-level sweep at the end of the loop.
+	seenSGs := make(map[string]struct{})
 	for i := range kept {
+		// Collect SG IDs before upsert so we sweep even if a VM is skipped.
+		for _, sg := range kept[i].SecurityGroups.Groups {
+			if sg.ProviderSGID != "" {
+				seenSGs[sg.ProviderSGID] = struct{}{}
+			}
+		}
 		if err := c.store.UpsertVirtualMachine(tickCtx, accountID, kept[i]); err != nil {
 			if errors.Is(err, apiclient.ErrAlreadyKubeNode) {
 				IncSkippedKubernetes(1)
@@ -155,6 +165,16 @@ func (c *Collector) runOnce(ctx context.Context) {
 			return
 		}
 		keep = append(keep, kept[i].ProviderVMID)
+	}
+
+	// Account-level SG sweep: delete any SGs not seen in this tick.
+	// Best-effort — never blocks the next tick on failure.
+	seenIDs := make([]string, 0, len(seenSGs))
+	for sgID := range seenSGs {
+		seenIDs = append(seenIDs, sgID)
+	}
+	if err := c.store.SweepSecurityGroups(tickCtx, accountID, seenIDs); err != nil {
+		slog.Warn("vm-collector: SG sweep failed", slog.Any("error", err))
 	}
 
 	if c.cfg.Reconcile {

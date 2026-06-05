@@ -2,6 +2,7 @@ package ingestgw
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -10,11 +11,10 @@ const testUUID = "550e8400-e29b-41d4-a716-446655440000"
 func TestMatchAllowlist_Positive(t *testing.T) {
 	t.Parallel()
 	for _, r := range Routes {
-		path := r.Pattern
-		// Substitute the {uuid} placeholder with a valid UUID.
-		if path == "/v1/clusters/{uuid}" {
-			path = "/v1/clusters/" + testUUID
-		}
+		// Substitute every {uuid} placeholder with a valid UUID so matchAllowlist
+		// can resolve it against the regex (the literal "{uuid}" string is not a
+		// valid UUID and would produce a false negative).
+		path := strings.ReplaceAll(r.Pattern, "{uuid}", testUUID)
 		t.Run(r.Method+" "+path, func(t *testing.T) {
 			t.Parallel()
 			_, ok := matchAllowlist(r.Method, path)
@@ -118,8 +118,8 @@ func TestMatchAllowlist_ReturnsPattern(t *testing.T) {
 
 func TestRouteCount(t *testing.T) {
 	t.Parallel()
-	// Routes contains exactly 18 write paths (no verify — that's longue-vue-internal).
-	const wantRoutes = 18
+	// Routes contains exactly 19 write paths (18 original + 1 vm-collector SG sweep added in flow-matrix P1).
+	const wantRoutes = 19
 	if len(Routes) != wantRoutes {
 		t.Errorf("len(Routes) = %d; want %d", len(Routes), wantRoutes)
 	}

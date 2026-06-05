@@ -20,6 +20,38 @@ import (
 	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
+// sgWirePayload is the subset of VMSecurityGroupsPayload the VM ingest handler
+// decodes. Mirrors provider.VMSecurityGroupsPayload without importing the
+// vmcollector/provider package (which would add a cross-layer dependency).
+type sgWirePayload struct {
+	Version int           `json:"schema_version"`
+	Groups  []sgWireGroup `json:"groups"`
+}
+
+type sgWireGroup struct {
+	ProviderSGID string            `json:"provider_sg_id"`
+	Name         string            `json:"name"`
+	VPCID        string            `json:"vpc_id,omitempty"`
+	Ingress      []sgWireRule      `json:"ingress"`
+	Egress       []sgWireRule      `json:"egress"`
+	Tags         map[string]string `json:"tags,omitempty"`
+}
+
+type sgWireRule struct {
+	Protocol    string     `json:"protocol"`
+	FromPort    *int       `json:"from_port,omitempty"`
+	ToPort      *int       `json:"to_port,omitempty"`
+	Peer        sgWirePeer `json:"peer"`
+	Description string     `json:"description,omitempty"`
+}
+
+type sgWirePeer struct {
+	Kind             string `json:"kind"`
+	CIDR             string `json:"cidr,omitempty"`
+	ProviderSGID     string `json:"provider_sg_id,omitempty"`
+	ProviderPrefixID string `json:"provider_prefix_id,omitempty"`
+}
+
 // timeNow is overridable in tests so the diff logic in diffVMApplications
 // produces deterministic added_at stamps. Real callers use time.Now.
 var timeNow = time.Now
@@ -186,6 +218,11 @@ func HandleUpsertVirtualMachine(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
+
+		// Best-effort SG persistence — never fails the VM ingest.
+		// Pre-canonical payloads (Version < 1) are silently skipped.
+		persistSGsFromVMIngest(r.Context(), store, req.CloudAccountID, req.SecurityGroups)
+
 		if outcome == OutcomeNoChange {
 			SetAuditSkip(r.Context())
 		}
@@ -631,4 +668,84 @@ func HandleReconcileVirtualMachines(store Store) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"tombstoned": n})
 	}
+}
+
+// persistSGsFromVMIngest decodes a canonical VMSecurityGroupsPayload from
+// sgRaw and persists each SG + its rules via the store. Best-effort: every
+// error is logged as WARN and skipped so the caller's VM upsert is never
+// rolled back. Pre-canonical payloads (IsCanonicalSGPayload=false) are
+// silently skipped.
+//
+// Task 14 handles account-level sweeping; this function only upserts.
+func persistSGsFromVMIngest(ctx context.Context, s Store, accountID uuid.UUID, sgRaw json.RawMessage) {
+	if !IsCanonicalSGPayload(sgRaw) {
+		return
+	}
+	var payload sgWirePayload
+	if err := json.Unmarshal(sgRaw, &payload); err != nil {
+		slog.Warn("vm ingest: bad canonical SG payload",
+			slog.Any("cloud_account_id", accountID), slog.Any("err", err))
+		return
+	}
+	for _, g := range payload.Groups {
+		sgID, err := s.UpsertSecurityGroup(ctx, SecurityGroupRow{
+			CloudAccountID: accountID,
+			ProviderSGID:   g.ProviderSGID,
+			Name:           g.Name,
+			VPCID:          g.VPCID,
+			Tags:           tagsToJSON(g.Tags),
+		})
+		if err != nil {
+			slog.Warn("vm ingest: UpsertSecurityGroup failed",
+				slog.String("sg", g.ProviderSGID), slog.Any("cloud_account_id", accountID), slog.Any("err", err))
+			continue
+		}
+		rules := flattenSGToRules(g)
+		if err := s.ReplaceSecurityGroupRules(ctx, sgID, rules); err != nil {
+			slog.Warn("vm ingest: ReplaceSecurityGroupRules failed",
+				slog.String("sg", g.ProviderSGID), slog.Any("sg_id", sgID), slog.Any("err", err))
+		}
+	}
+}
+
+// flattenSGToRules converts an sgWireGroup to a flat []SecurityGroupRuleRow,
+// tagging each rule with its direction.
+//
+//nolint:gocritic // hugeParam: sgWireGroup matches the wire format; pointer would require callers to take address of slice elements
+func flattenSGToRules(g sgWireGroup) []SecurityGroupRuleRow {
+	out := make([]SecurityGroupRuleRow, 0, len(g.Ingress)+len(g.Egress))
+	for _, r := range g.Ingress {
+		out = append(out, toStoreSGRule(r, "ingress"))
+	}
+	for _, r := range g.Egress {
+		out = append(out, toStoreSGRule(r, "egress"))
+	}
+	return out
+}
+
+// toStoreSGRule maps one sgWireRule + direction to a SecurityGroupRuleRow.
+//
+//nolint:gocritic // hugeParam: sgWireRule matches the wire format; callers iterate over slices so pointer passing would complicate indexing
+func toStoreSGRule(r sgWireRule, dir string) SecurityGroupRuleRow {
+	return SecurityGroupRuleRow{
+		Direction:        dir,
+		Protocol:         r.Protocol,
+		FromPort:         r.FromPort,
+		ToPort:           r.ToPort,
+		PeerKind:         r.Peer.Kind,
+		PeerCIDR:         r.Peer.CIDR,
+		PeerSGProviderID: r.Peer.ProviderSGID,
+		PeerPrefixID:     r.Peer.ProviderPrefixID,
+		Description:      r.Description,
+	}
+}
+
+// tagsToJSON serialises a map[string]string to JSON. Returns `{}` when the
+// map is empty so the JSONB column is never NULL.
+func tagsToJSON(m map[string]string) json.RawMessage {
+	if len(m) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	b, _ := json.Marshal(m)
+	return b
 }

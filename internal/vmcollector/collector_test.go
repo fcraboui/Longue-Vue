@@ -98,6 +98,10 @@ func (f *fakeStore) ReconcileVirtualMachines(_ context.Context, accountID uuid.U
 	return 0, nil
 }
 
+func (f *fakeStore) SweepSecurityGroups(_ context.Context, _ uuid.UUID, _ []string) error {
+	return nil
+}
+
 func TestCollectorAwaitsCredentials(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()

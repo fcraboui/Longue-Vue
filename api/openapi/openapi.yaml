@@ -533,6 +533,44 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/network-policies:
+    get:
+      operationId: listNetworkPolicies
+      summary: List NetworkPolicies
+      parameters:
+        - { in: query, name: cluster_id,   required: true,  schema: { type: string, format: uuid } }
+        - { in: query, name: namespace_id, required: false, schema: { type: string, format: uuid } }
+        - { in: query, name: limit,        required: false, schema: { type: integer, default: 50, maximum: 500 } }
+        - { in: query, name: cursor,       required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:       { type: array, items: { $ref: "#/components/schemas/NetworkPolicy" } }
+                  next_cursor: { type: string }
+
+  /v1/network-policies/{id}:
+    get:
+      operationId: getNetworkPolicy
+      summary: Get NetworkPolicy with embedded rules
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/NetworkPolicy"
+                  - type: object
+                    properties:
+                      rules: { type: array, items: { $ref: "#/components/schemas/NetworkPolicyRule" } }
+
   /v1/pods:
     get:
       tags: [pods]
@@ -814,6 +852,33 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /v1/workloads/{id}/network-rules:
+    get:
+      operationId: getWorkloadNetworkRules
+      summary: NetworkPolicies selecting this workload
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workload_id:       { type: string, format: uuid }
+                  policy_count:      { type: integer }
+                  k8s_default_allow: { type: boolean, description: "True when no NetworkPolicy selects this workload — K8s default-allow applies (wide_open_no_netpol in P2)." }
+                  matching_policies:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:            { type: string, format: uuid }
+                        name:          { type: string }
+                        policy_types:  { type: array, items: { type: string } }
+                        rules:         { type: array, items: { $ref: "#/components/schemas/NetworkPolicyRule" } }
 
   /v1/services:
     get:
@@ -2667,6 +2732,72 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /v1/security-groups:
+    get:
+      operationId: listSecurityGroups
+      summary: List Security Groups
+      parameters:
+        - { in: query, name: cloud_account_id, required: true,  schema: { type: string, format: uuid } }
+        - { in: query, name: vpc_id,           required: false, schema: { type: string } }
+        - { in: query, name: name,             required: false, schema: { type: string } }
+        - { in: query, name: limit,            required: false, schema: { type: integer, default: 50, maximum: 500 } }
+        - { in: query, name: cursor,           required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:       { type: array, items: { $ref: "#/components/schemas/SecurityGroup" } }
+                  next_cursor: { type: string }
+
+  /v1/security-groups/{id}:
+    get:
+      operationId: getSecurityGroup
+      summary: Get Security Group with embedded rules
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SecurityGroup"
+                  - type: object
+                    properties:
+                      rules: { type: array, items: { $ref: "#/components/schemas/SecurityGroupRule" } }
+
+  /v1/virtual-machines/{id}/network-rules:
+    get:
+      operationId: getVirtualMachineNetworkRules
+      summary: Security-group rules attached to this VM
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vm_id:              { type: string, format: uuid }
+                  stale:              { type: boolean, description: "True when the VM row predates the canonical SG schema." }
+                  no_security_groups: { type: boolean }
+                  attached_security_groups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:     { type: string, format: uuid }
+                        name:   { type: string }
+                        vpc_id: { type: string }
+                        rules:  { type: array, items: { $ref: "#/components/schemas/SecurityGroupRule" } }
+
   /v1/application-blocks:
     get:
       tags: [application-blocks]
@@ -4224,6 +4355,32 @@ components:
             Opaque cursor to pass as `?cursor=` to fetch the next page.
             Absent or null when no more pages remain.
 
+    NetworkPolicy:
+      type: object
+      required: [id, cluster_id, namespace_id, name, pod_selector, policy_types]
+      properties:
+        id:            { type: string, format: uuid }
+        cluster_id:    { type: string, format: uuid }
+        namespace_id:  { type: string, format: uuid }
+        name:          { type: string }
+        pod_selector:  { type: object, additionalProperties: true }
+        policy_types:
+          type: array
+          items: { type: string, enum: [Ingress, Egress] }
+
+    NetworkPolicyRule:
+      type: object
+      required: [id, direction, peer_kind]
+      properties:
+        id:                       { type: string, format: uuid }
+        direction:                { type: string, enum: [ingress, egress] }
+        peer_kind:                { type: string, enum: [selector, ip_block] }
+        peer_pod_selector:        { type: object, nullable: true, additionalProperties: true }
+        peer_namespace_selector:  { type: object, nullable: true, additionalProperties: true }
+        peer_ip_block_cidr:       { type: string, nullable: true }
+        peer_ip_block_except:     { type: array, items: { type: string }, nullable: true }
+        ports:                    { type: array, items: { type: object, additionalProperties: true } }
+
     ContainerList:
       type: array
       description: |
@@ -4607,6 +4764,32 @@ components:
           description: |
             Opaque cursor to pass as `?cursor=` to fetch the next page.
             Absent or null when no more pages remain.
+
+    SecurityGroup:
+      type: object
+      required: [id, cloud_account_id, provider_sg_id, name]
+      properties:
+        id:               { type: string, format: uuid }
+        cloud_account_id: { type: string, format: uuid }
+        provider_sg_id:   { type: string }
+        name:             { type: string }
+        vpc_id:           { type: string, nullable: true }
+        tags:             { type: object, additionalProperties: { type: string } }
+
+    SecurityGroupRule:
+      type: object
+      required: [id, direction, protocol, peer_kind]
+      properties:
+        id:                   { type: string, format: uuid }
+        direction:            { type: string, enum: [ingress, egress] }
+        protocol:             { type: string, enum: [tcp, udp, icmp, any] }
+        from_port:            { type: integer, nullable: true }
+        to_port:              { type: integer, nullable: true }
+        peer_kind:            { type: string, enum: [cidr, sg_ref, prefix_list_ref, self] }
+        peer_cidr:            { type: string, nullable: true }
+        peer_sg_provider_id:  { type: string, nullable: true }
+        peer_prefix_id:       { type: string, nullable: true }
+        description:          { type: string }
 
     ServiceType:
       type: string

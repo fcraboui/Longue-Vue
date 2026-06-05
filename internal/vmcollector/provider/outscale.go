@@ -69,6 +69,9 @@ func (o *Outscale) ListVMs(ctx context.Context) ([]VM, error) {
 	resp, httpResp, err := o.client.VmApi.ReadVms(authCtx).
 		ReadVmsRequest(*osc.NewReadVmsRequest()).
 		Execute()
+	if httpResp != nil {
+		defer func() { _ = httpResp.Body.Close() }()
+	}
 	if err != nil {
 		// The SDK's GenericOpenAPIError wraps the HTTP response body;
 		// surface the first 512 bytes so 4xx responses ("filter X is
@@ -107,6 +110,8 @@ func (o *Outscale) ListVMs(ctx context.Context) ([]VM, error) {
 // ImageId in vms via a single ReadImages call filtered by ImageIds.
 // Returns an empty map (never nil) on success or on error — the caller
 // treats absence as "name not yet known", not as a fatal condition.
+//
+//nolint:funcorder,gocyclo // pre-existing helper; funcorder fires because GetSecurityGroups was appended below, gocyclo trips at 11 (was 10) after the bodyclose defer added in this branch
 func (o *Outscale) resolveImageNames(authCtx context.Context, vms []osc.Vm) map[string]string {
 	out := make(map[string]string)
 	if len(vms) == 0 {
@@ -132,9 +137,12 @@ func (o *Outscale) resolveImageNames(authCtx context.Context, vms []osc.Vm) map[
 	filter := osc.NewFiltersImage()
 	filter.SetImageIds(ids)
 	req.SetFilters(*filter)
-	resp, _, err := o.client.ImageApi.ReadImages(authCtx).
+	resp, httpResp, err := o.client.ImageApi.ReadImages(authCtx).
 		ReadImagesRequest(*req).
 		Execute()
+	if httpResp != nil {
+		defer func() { _ = httpResp.Body.Close() }()
+	}
 	if err != nil {
 		// Best-effort — log via the SDK's wrapped error and continue
 		// without image names. Operator-facing log lives in collector.
@@ -194,7 +202,7 @@ func mapOutscaleVM(v *osc.Vm, fallbackRegion string) VM {
 		}
 	}
 
-	sgJSON := jsonOrNull(v.GetSecurityGroups())
+	sgPayload := normalizeVMSecurityGroups(v.GetSecurityGroups())
 	bdJSON := jsonOrNull(v.GetBlockDeviceMappings())
 
 	return VM{
@@ -222,7 +230,7 @@ func mapOutscaleVM(v *osc.Vm, fallbackRegion string) VM {
 		CapacityCPU:          cpu,
 		CapacityMemory:       mem,
 		NICs:                 nicsJSON,
-		SecurityGroups:       sgJSON,
+		SecurityGroups:       sgPayload,
 		BlockDevices:         bdJSON,
 		RootDeviceType:       v.GetRootDeviceType(),
 		RootDeviceName:       v.GetRootDeviceName(),
@@ -317,6 +325,57 @@ func ParseInstanceTypeCapacity(instanceType string) (cpu, mem string) {
 		return cpu, ""
 	}
 	return cpu, strconv.Itoa(memGi) + "Gi"
+}
+
+// GetSecurityGroups fetches all security groups for the configured
+// account/region and returns them in canonical form. Called once per
+// collector tick to persist the account-level SG inventory.
+func (o *Outscale) GetSecurityGroups(ctx context.Context) ([]SecurityGroup, error) {
+	authCtx := context.WithValue(ctx, osc.ContextAWSv4, osc.AWSv4{
+		AccessKey: o.accessKey,
+		SecretKey: o.secretKey,
+	})
+	resp, httpResp, err := o.client.SecurityGroupApi.
+		ReadSecurityGroups(authCtx).
+		ReadSecurityGroupsRequest(osc.ReadSecurityGroupsRequest{}).
+		Execute()
+	if httpResp != nil {
+		_ = httpResp.Body.Close()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("outscale ReadSecurityGroups: %w", err)
+	}
+	sgs := resp.GetSecurityGroups()
+	raw := make([]json.RawMessage, 0, len(sgs))
+	for i := range sgs {
+		buf, err := json.Marshal(sgs[i])
+		if err != nil {
+			return nil, fmt.Errorf("outscale marshal sg %s: %w", sgs[i].GetSecurityGroupId(), err)
+		}
+		raw = append(raw, buf)
+	}
+	return NormalizeOutscaleSecurityGroups(raw)
+}
+
+// normalizeVMSecurityGroups converts the VM-level osc.SecurityGroupLight
+// slice (only id + name, no rules) into a VMSecurityGroupsPayload. The
+// attached SG refs carry no rule detail, so each canonical SecurityGroup
+// has empty Ingress/Egress. Full rule detail is in the account-level SGs
+// returned by GetSecurityGroups.
+func normalizeVMSecurityGroups(lights []osc.SecurityGroupLight) VMSecurityGroupsPayload {
+	groups := make([]SecurityGroup, 0, len(lights))
+	for i := range lights {
+		groups = append(groups, SecurityGroup{
+			ProviderSGID: lights[i].GetSecurityGroupId(),
+			Name:         lights[i].GetSecurityGroupName(),
+			Ingress:      []SecurityGroupRule{},
+			Egress:       []SecurityGroupRule{},
+		})
+	}
+	return VMSecurityGroupsPayload{
+		Version: SGSchemaVersion,
+		Groups:  groups,
+	}
 }
 
 // hasPrefix is a tiny helper used by tests; kept to avoid importing

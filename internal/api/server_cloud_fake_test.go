@@ -6,6 +6,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -1005,4 +1006,256 @@ func resetMemOriginMappings() {
 	memOriginMappingsMu.Lock()
 	defer memOriginMappingsMu.Unlock()
 	memOriginMappings = map[string]ImageOriginMapping{}
+}
+
+// --- Security groups stubs (flow-matrix P1) ---
+//
+// memSGState is a minimal in-memory SG store for tests that exercise the VM
+// ingest handler's best-effort SG persistence path. Not threadsafe beyond the
+// lock inherited from cloudFake.mu; tests are not parallel here.
+
+type memSGState struct {
+	mu    sync.Mutex
+	sgs   map[uuid.UUID]SecurityGroupRow       // keyed by stable ID
+	rules map[uuid.UUID][]SecurityGroupRuleRow // keyed by sgID
+	// byAccountProv allows lookup by (cloudAccountID, providerSGID)
+	byAccountProv map[[2]string]uuid.UUID
+}
+
+var sgFake = &memSGState{
+	sgs:           make(map[uuid.UUID]SecurityGroupRow),
+	rules:         make(map[uuid.UUID][]SecurityGroupRuleRow),
+	byAccountProv: make(map[[2]string]uuid.UUID),
+}
+
+func resetSGFake() {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	sgFake.sgs = make(map[uuid.UUID]SecurityGroupRow)
+	sgFake.rules = make(map[uuid.UUID][]SecurityGroupRuleRow)
+	sgFake.byAccountProv = make(map[[2]string]uuid.UUID)
+}
+
+//nolint:gocritic // hugeParam: SecurityGroupRow must match the Store interface signature
+func (m *memStore) UpsertSecurityGroup(_ context.Context, in SecurityGroupRow) (uuid.UUID, error) {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	key := [2]string{in.CloudAccountID.String(), in.ProviderSGID}
+	if id, ok := sgFake.byAccountProv[key]; ok {
+		// Update existing.
+		sg := sgFake.sgs[id]
+		sg.Name = in.Name
+		sg.VPCID = in.VPCID
+		sg.Tags = in.Tags
+		sgFake.sgs[id] = sg
+		return id, nil
+	}
+	id := uuid.New()
+	in.ID = id
+	sgFake.sgs[id] = in
+	sgFake.byAccountProv[key] = id
+	return id, nil
+}
+
+func (m *memStore) ReplaceSecurityGroupRules(_ context.Context, sgID uuid.UUID, rules []SecurityGroupRuleRow) error {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	sgFake.rules[sgID] = rules
+	return nil
+}
+
+func (m *memStore) ListSecurityGroupsByAccount(_ context.Context, accountID uuid.UUID, limit int, _ string) ([]SecurityGroupRow, string, error) {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	out := make([]SecurityGroupRow, 0)
+	for _, sg := range sgFake.sgs {
+		if sg.CloudAccountID == accountID {
+			out = append(out, sg)
+		}
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, "", nil
+}
+
+func (m *memStore) GetSecurityGroup(_ context.Context, id uuid.UUID) (SecurityGroupRow, error) {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	sg, ok := sgFake.sgs[id]
+	if !ok {
+		return SecurityGroupRow{}, ErrNotFound
+	}
+	return sg, nil
+}
+
+func (m *memStore) ListSecurityGroupRules(_ context.Context, sgID uuid.UUID) ([]SecurityGroupRuleRow, error) {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	rules, ok := sgFake.rules[sgID]
+	if !ok {
+		return nil, nil
+	}
+	out := make([]SecurityGroupRuleRow, len(rules))
+	copy(out, rules)
+	return out, nil
+}
+
+// --- Network policy fakes (flow-matrix P1) ---
+
+type memNPState struct {
+	mu    sync.Mutex
+	nps   map[uuid.UUID]NetworkPolicyRow
+	rules map[uuid.UUID][]NetworkPolicyRuleRow
+}
+
+var npFake = &memNPState{
+	nps:   make(map[uuid.UUID]NetworkPolicyRow),
+	rules: make(map[uuid.UUID][]NetworkPolicyRuleRow),
+}
+
+func resetNPFake() {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	npFake.nps = make(map[uuid.UUID]NetworkPolicyRow)
+	npFake.rules = make(map[uuid.UUID][]NetworkPolicyRuleRow)
+}
+
+func (m *memStore) ListNetworkPoliciesByCluster(
+	_ context.Context,
+	clusterID uuid.UUID,
+	namespaceID *uuid.UUID,
+	limit int,
+	_ string,
+) ([]NetworkPolicyRow, string, error) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	out := make([]NetworkPolicyRow, 0)
+	for _, np := range npFake.nps { //nolint:gocritic // rangeValCopy: test fake
+		if np.ClusterID != clusterID {
+			continue
+		}
+		if namespaceID != nil && np.NamespaceID != *namespaceID {
+			continue
+		}
+		out = append(out, np)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, "", nil
+}
+
+func (m *memStore) GetNetworkPolicy(_ context.Context, id uuid.UUID) (NetworkPolicyRow, error) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	np, ok := npFake.nps[id]
+	if !ok {
+		return NetworkPolicyRow{}, ErrNotFound
+	}
+	return np, nil
+}
+
+func (m *memStore) ListNetworkPolicyRules(_ context.Context, policyID uuid.UUID) ([]NetworkPolicyRuleRow, error) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	rules, ok := npFake.rules[policyID]
+	if !ok {
+		return nil, nil
+	}
+	out := make([]NetworkPolicyRuleRow, len(rules))
+	copy(out, rules)
+	return out, nil
+}
+
+func (m *memStore) ListNetworkPoliciesForWorkload(_ context.Context, namespaceID uuid.UUID, _ json.RawMessage) ([]NetworkPolicyRow, error) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	// The fake returns all policies in the namespace — close enough for handler tests.
+	out := make([]NetworkPolicyRow, 0)
+	for _, np := range npFake.nps { //nolint:gocritic // rangeValCopy: test fake
+		if np.NamespaceID == namespaceID {
+			out = append(out, np)
+		}
+	}
+	return out, nil
+}
+
+// upsertNetworkPolicyFake inserts or updates a network policy in the fake
+// store. Keyed on (clusterID, namespaceID, name). Returns the stable UUID.
+// Used by handler tests to seed the in-memory store.
+//
+//nolint:gocritic // hugeParam: NetworkPolicyRow matches the store interface; test helper accepts by value for simplicity
+func upsertNetworkPolicyFake(np NetworkPolicyRow) uuid.UUID {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	for id, existing := range npFake.nps { //nolint:gocritic // rangeValCopy: test fake
+		if existing.ClusterID == np.ClusterID && existing.NamespaceID == np.NamespaceID && existing.Name == np.Name {
+			np.ID = id
+			npFake.nps[id] = np
+			return id
+		}
+	}
+	if np.ID == uuid.Nil {
+		np.ID = uuid.New()
+	}
+	npFake.nps[np.ID] = np
+	return np.ID
+}
+
+// replaceNetworkPolicyRulesFake atomically replaces rules for a policy.
+func replaceNetworkPolicyRulesFake(policyID uuid.UUID, rules []NetworkPolicyRuleRow) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	out := make([]NetworkPolicyRuleRow, len(rules))
+	for i, r := range rules { //nolint:gocritic // rangeValCopy: test fake; copy is intentional for mutation isolation
+		if r.ID == uuid.Nil {
+			r.ID = uuid.New()
+		}
+		r.NetworkPolicyID = policyID
+		out[i] = r
+	}
+	npFake.rules[policyID] = out
+}
+
+func (m *memStore) GetSecurityGroupByProviderID(_ context.Context, accountID uuid.UUID, providerSGID string) (SecurityGroupRow, error) {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	key := [2]string{accountID.String(), providerSGID}
+	id, ok := sgFake.byAccountProv[key]
+	if !ok {
+		return SecurityGroupRow{}, ErrNotFound
+	}
+	sg, ok := sgFake.sgs[id]
+	if !ok {
+		return SecurityGroupRow{}, ErrNotFound
+	}
+	return sg, nil
+}
+
+func (m *memStore) SweepSecurityGroupsByAccount(_ context.Context, accountID uuid.UUID, seenProviderIDs []string) error {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	seen := make(map[string]struct{}, len(seenProviderIDs))
+	for _, id := range seenProviderIDs {
+		seen[id] = struct{}{}
+	}
+	for sgID, sg := range sgFake.sgs {
+		if sg.CloudAccountID != accountID {
+			continue
+		}
+		if _, ok := seen[sg.ProviderSGID]; !ok {
+			key := [2]string{sg.CloudAccountID.String(), sg.ProviderSGID}
+			delete(sgFake.byAccountProv, key)
+			delete(sgFake.rules, sgID)
+			delete(sgFake.sgs, sgID)
+		}
+	}
+	return nil
 }

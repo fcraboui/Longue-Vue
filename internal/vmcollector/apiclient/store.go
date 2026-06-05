@@ -230,6 +230,13 @@ type upsertVMBody struct {
 //
 //nolint:gocritic // hugeParam: provider.VM matches the CollectorStore interface; copying is acceptable on this path
 func (s *Store) UpsertVirtualMachine(ctx context.Context, accountID uuid.UUID, vm provider.VM) error {
+	// VMSecurityGroupsPayload is a safe struct; the error is handled below with a fallback.
+	sgJSON, err := json.Marshal(vm.SecurityGroups) //nolint:errchkjson // safe struct; error handled with fallback below
+	if err != nil {
+		// Defensive: VMSecurityGroupsPayload is always marshalable; fall
+		// back to a minimal versioned payload rather than dropping the VM.
+		sgJSON, _ = json.Marshal(provider.VMSecurityGroupsPayload{Version: provider.SGSchemaVersion})
+	}
 	body := upsertVMBody{
 		CloudAccountID:     accountID,
 		ProviderVMID:       vm.ProviderVMID,
@@ -238,7 +245,7 @@ func (s *Store) UpsertVirtualMachine(ctx context.Context, accountID uuid.UUID, v
 		Ready:              vm.PowerState == "running",
 		DeletionProtection: vm.DeletionProtection,
 		NICs:               vm.NICs,
-		SecurityGroups:     vm.SecurityGroups,
+		SecurityGroups:     sgJSON,
 		BlockDevices:       vm.BlockDevices,
 		Tags:               vm.Tags,
 	}
@@ -285,6 +292,16 @@ func (s *Store) ReconcileVirtualMachines(ctx context.Context, accountID uuid.UUI
 		return 0, err
 	}
 	return out.Tombstoned, nil
+}
+
+// SweepSecurityGroups POSTs /v1/ingest/cloud-accounts/{id}/security-groups/sweep.
+// Deletes any SG in the account whose provider_sg_id is not in seenProviderSGIDs.
+func (s *Store) SweepSecurityGroups(ctx context.Context, accountID uuid.UUID, seenProviderSGIDs []string) error {
+	body := map[string]any{
+		"seen_provider_sg_ids": seenProviderSGIDs,
+	}
+	path := "/v1/ingest/cloud-accounts/" + accountID.String() + "/security-groups/sweep"
+	return s.doJSON(ctx, http.MethodPost, path, body, nil)
 }
 
 func stringPtrOrNil(s string) *string {

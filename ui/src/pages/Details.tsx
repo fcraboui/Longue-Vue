@@ -30,6 +30,7 @@ import {
   ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon, IngressIcon,
   ServiceIcon, VolumeIcon,
 } from '../icons';
+import { NetworkRulesTab } from '../components/network/NetworkRulesTab';
 import {
   AsyncView,
   ClusterLink,
@@ -699,6 +700,8 @@ export function NamespaceDetail() {
 
 // --- Workload detail ------------------------------------------------------
 
+type WorkloadTab = 'overview' | 'network-rules';
+
 // --- WorkloadDetail child section -----------------------------------------
 
 function WorkloadPodsSection({ workloadId }: { workloadId: string }) {
@@ -779,6 +782,7 @@ export function WorkloadDetail() {
   const me = useMe();
   const [nonce, setNonce] = useState(0);
   const reload = () => setNonce((n) => n + 1);
+  const [activeTab, setActiveTab] = useState<WorkloadTab>('overview');
   const workloadState = useResource(() => api.getWorkload(id), [id, nonce]);
 
   return (
@@ -812,6 +816,21 @@ export function WorkloadDetail() {
             <h2>
               <WorkloadIcon size={20} /> {workload.name} <LayerPill layer={workload.layer} />
             </h2>
+
+            <TabBar
+              active={activeTab}
+              tabs={[
+                { id: 'overview', label: 'Overview' },
+                { id: 'network-rules', label: 'Network rules' },
+              ]}
+              onChange={(t) => setActiveTab(t as WorkloadTab)}
+            />
+
+            {activeTab === 'network-rules' && (
+              <NetworkRulesTab kind="workload" id={workload.id} />
+            )}
+
+            {activeTab === 'overview' && (<>
             <dl className="kv-list">
               <KV k="Kind" v={<span className="pill">{workload.kind}</span>} />
               <KV
@@ -912,6 +931,7 @@ export function WorkloadDetail() {
             )}
 
             <WorkloadPodsSection workloadId={id} />
+            </>)}
           </>
         )}
       </AsyncView>
