@@ -7,7 +7,9 @@ import "context"
 // when the tests don't mutate the slice between calls.
 type Fake struct {
 	VMs     []VM
+	SGs     []SecurityGroup
 	ListErr error
+	SGErr   error
 	calls   int
 }
 
@@ -22,6 +24,16 @@ func (f *Fake) ListVMs(_ context.Context) ([]VM, error) {
 	}
 	out := make([]VM, len(f.VMs))
 	copy(out, f.VMs)
+	return out, nil
+}
+
+// GetSecurityGroups returns the configured SGs slice or the configured error.
+func (f *Fake) GetSecurityGroups(_ context.Context) ([]SecurityGroup, error) {
+	if f.SGErr != nil {
+		return nil, f.SGErr
+	}
+	out := make([]SecurityGroup, len(f.SGs))
+	copy(out, f.SGs)
 	return out, nil
 }
 

@@ -46,7 +46,7 @@ type VM struct {
 	CapacityCPU          string
 	CapacityMemory       string
 	NICs                 json.RawMessage // forwarded as opaque JSON
-	SecurityGroups       json.RawMessage // forwarded as opaque JSON
+	SecurityGroups       VMSecurityGroupsPayload // canonical SG payload (Version + Groups)
 	BlockDevices         json.RawMessage // forwarded as opaque JSON
 	RootDeviceType       string
 	RootDeviceName       string
@@ -64,4 +64,9 @@ type Provider interface {
 	// account/region. Pagination + retries are the implementation's
 	// concern.
 	ListVMs(ctx context.Context) ([]VM, error)
+
+	// GetSecurityGroups returns the full canonical security-group list
+	// for the configured account/region. Called once per tick by the
+	// collector to persist the account-level SG inventory.
+	GetSecurityGroups(ctx context.Context) ([]SecurityGroup, error)
 }

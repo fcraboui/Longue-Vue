@@ -194,7 +194,7 @@ func mapOutscaleVM(v *osc.Vm, fallbackRegion string) VM {
 		}
 	}
 
-	sgJSON := jsonOrNull(v.GetSecurityGroups())
+	sgPayload := normalizeVMSecurityGroups(v.GetSecurityGroups())
 	bdJSON := jsonOrNull(v.GetBlockDeviceMappings())
 
 	return VM{
@@ -222,7 +222,7 @@ func mapOutscaleVM(v *osc.Vm, fallbackRegion string) VM {
 		CapacityCPU:          cpu,
 		CapacityMemory:       mem,
 		NICs:                 nicsJSON,
-		SecurityGroups:       sgJSON,
+		SecurityGroups:       sgPayload,
 		BlockDevices:         bdJSON,
 		RootDeviceType:       v.GetRootDeviceType(),
 		RootDeviceName:       v.GetRootDeviceName(),
@@ -317,6 +317,54 @@ func ParseInstanceTypeCapacity(instanceType string) (cpu, mem string) {
 		return cpu, ""
 	}
 	return cpu, strconv.Itoa(memGi) + "Gi"
+}
+
+// GetSecurityGroups fetches all security groups for the configured
+// account/region and returns them in canonical form. Called once per
+// collector tick to persist the account-level SG inventory.
+func (o *Outscale) GetSecurityGroups(ctx context.Context) ([]SecurityGroup, error) {
+	authCtx := context.WithValue(ctx, osc.ContextAWSv4, osc.AWSv4{
+		AccessKey: o.accessKey,
+		SecretKey: o.secretKey,
+	})
+	resp, _, err := o.client.SecurityGroupApi.
+		ReadSecurityGroups(authCtx).
+		ReadSecurityGroupsRequest(osc.ReadSecurityGroupsRequest{}).
+		Execute()
+	if err != nil {
+		return nil, fmt.Errorf("outscale ReadSecurityGroups: %w", err)
+	}
+	sgs := resp.GetSecurityGroups()
+	raw := make([]json.RawMessage, 0, len(sgs))
+	for i := range sgs {
+		buf, err := json.Marshal(sgs[i])
+		if err != nil {
+			return nil, fmt.Errorf("outscale marshal sg %s: %w", sgs[i].GetSecurityGroupId(), err)
+		}
+		raw = append(raw, buf)
+	}
+	return NormalizeOutscaleSecurityGroups(raw)
+}
+
+// normalizeVMSecurityGroups converts the VM-level osc.SecurityGroupLight
+// slice (only id + name, no rules) into a VMSecurityGroupsPayload. The
+// attached SG refs carry no rule detail, so each canonical SecurityGroup
+// has empty Ingress/Egress. Full rule detail is in the account-level SGs
+// returned by GetSecurityGroups.
+func normalizeVMSecurityGroups(lights []osc.SecurityGroupLight) VMSecurityGroupsPayload {
+	groups := make([]SecurityGroup, 0, len(lights))
+	for i := range lights {
+		groups = append(groups, SecurityGroup{
+			ProviderSGID: lights[i].GetSecurityGroupId(),
+			Name:         lights[i].GetSecurityGroupName(),
+			Ingress:      []SecurityGroupRule{},
+			Egress:       []SecurityGroupRule{},
+		})
+	}
+	return VMSecurityGroupsPayload{
+		Version: SGSchemaVersion,
+		Groups:  groups,
+	}
 }
 
 // hasPrefix is a tiny helper used by tests; kept to avoid importing
