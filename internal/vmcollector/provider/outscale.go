@@ -111,7 +111,7 @@ func (o *Outscale) ListVMs(ctx context.Context) ([]VM, error) {
 // Returns an empty map (never nil) on success or on error — the caller
 // treats absence as "name not yet known", not as a fatal condition.
 //
-//nolint:funcorder // pre-existing helper; flagged after GetSecurityGroups was appended below
+//nolint:funcorder,gocyclo // pre-existing helper; funcorder fires because GetSecurityGroups was appended below, gocyclo trips at 11 (was 10) after the bodyclose defer added in this branch
 func (o *Outscale) resolveImageNames(authCtx context.Context, vms []osc.Vm) map[string]string {
 	out := make(map[string]string)
 	if len(vms) == 0 {
