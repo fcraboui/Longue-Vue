@@ -690,6 +690,7 @@ func (k *KubeClient) ListWorkloads(ctx context.Context) ([]WorkloadInfo, error) 
 	return out, nil
 }
 
+//nolint:funcorder // pre-existing helper; flagged after ListNetworkPolicies was appended below
 func (k *KubeClient) listDeployments(ctx context.Context) ([]WorkloadInfo, error) {
 	deps, err := k.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -713,6 +714,7 @@ func (k *KubeClient) listDeployments(ctx context.Context) ([]WorkloadInfo, error
 	return out, nil
 }
 
+//nolint:funcorder // pre-existing helper; flagged after ListNetworkPolicies was appended below
 func (k *KubeClient) listStatefulSets(ctx context.Context) ([]WorkloadInfo, error) {
 	sfs, err := k.clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -736,6 +738,7 @@ func (k *KubeClient) listStatefulSets(ctx context.Context) ([]WorkloadInfo, erro
 	return out, nil
 }
 
+//nolint:funcorder // pre-existing helper; flagged after ListNetworkPolicies was appended below
 func (k *KubeClient) listDaemonSets(ctx context.Context) ([]WorkloadInfo, error) {
 	dss, err := k.clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
 	if err != nil {

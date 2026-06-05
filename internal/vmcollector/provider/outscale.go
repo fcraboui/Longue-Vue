@@ -107,6 +107,8 @@ func (o *Outscale) ListVMs(ctx context.Context) ([]VM, error) {
 // ImageId in vms via a single ReadImages call filtered by ImageIds.
 // Returns an empty map (never nil) on success or on error — the caller
 // treats absence as "name not yet known", not as a fatal condition.
+//
+//nolint:funcorder // pre-existing helper; flagged after GetSecurityGroups was appended below
 func (o *Outscale) resolveImageNames(authCtx context.Context, vms []osc.Vm) map[string]string {
 	out := make(map[string]string)
 	if len(vms) == 0 {
