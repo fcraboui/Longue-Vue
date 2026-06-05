@@ -16,8 +16,8 @@ CREATE TABLE network_policies (
     UNIQUE (cluster_id, namespace_id, name)
 );
 
-CREATE INDEX network_policies_namespace_idx ON network_policies(namespace_id);
-CREATE INDEX network_policies_cluster_idx   ON network_policies(cluster_id);
+CREATE INDEX network_policies_namespace_id_idx ON network_policies(namespace_id);
+CREATE INDEX network_policies_cluster_id_idx   ON network_policies(cluster_id);
 
 -- network_policy_rules: one row per (rule, peer) pair. Ports stay as JSONB
 -- on the row to keep row count bounded.
@@ -32,8 +32,8 @@ CREATE TABLE network_policy_rules (
     peer_ip_block_except    JSONB,
     ports                   JSONB NOT NULL DEFAULT '[]'::jsonb
 );
-CREATE INDEX npol_rules_pol_idx  ON network_policy_rules(network_policy_id);
-CREATE INDEX npol_rules_cidr_idx ON network_policy_rules USING gist (peer_ip_block_cidr inet_ops);
+CREATE INDEX network_policy_rules_network_policy_id_idx ON network_policy_rules(network_policy_id);
+CREATE INDEX network_policy_rules_peer_ip_block_cidr_idx ON network_policy_rules USING gist (peer_ip_block_cidr inet_ops);
 
 -- +goose StatementEnd
 
