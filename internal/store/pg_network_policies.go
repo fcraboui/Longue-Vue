@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,17 +13,11 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
-// NetworkPolicy is the in-store shape of a K8s NetworkPolicy. Selectors
-// stay as JSONB / text[] so the engine (P2) can query them without a join.
-type NetworkPolicy struct {
-	ID          uuid.UUID
-	ClusterID   uuid.UUID
-	NamespaceID uuid.UUID
-	Name        string
-	PodSelector json.RawMessage
-	PolicyTypes []string
-	SpecRaw     json.RawMessage
-}
+// NetworkPolicy and NetworkPolicyRule are type aliases so that store-internal
+// test helpers (pg_network_policies_test.go) can continue using the short name
+// while the api.Store interface uses api.NetworkPolicyRow / api.NetworkPolicyRuleRow.
+type NetworkPolicy = api.NetworkPolicyRow
+type NetworkPolicyRule = api.NetworkPolicyRuleRow
 
 const npSelect = `
 	id, cluster_id, namespace_id, name,
@@ -54,35 +47,21 @@ func (p *PG) UpsertNetworkPolicy(ctx context.Context, np NetworkPolicy) (uuid.UU
 	return id, nil
 }
 
-// GetNetworkPolicy returns ErrNotFound on miss.
-func (p *PG) GetNetworkPolicy(ctx context.Context, id uuid.UUID) (NetworkPolicy, error) {
+// GetNetworkPolicy returns ErrNotFound on miss. Satisfies api.Store.
+func (p *PG) GetNetworkPolicy(ctx context.Context, id uuid.UUID) (api.NetworkPolicyRow, error) {
 	const q = `SELECT ` + npSelect + ` FROM network_policies WHERE id = $1`
-	var np NetworkPolicy
+	var np api.NetworkPolicyRow
 	err := p.pool.QueryRow(ctx, q, id).Scan(
 		&np.ID, &np.ClusterID, &np.NamespaceID, &np.Name,
 		&np.PodSelector, &np.PolicyTypes, &np.SpecRaw,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return NetworkPolicy{}, api.ErrNotFound
+		return api.NetworkPolicyRow{}, api.ErrNotFound
 	}
 	if err != nil {
-		return NetworkPolicy{}, fmt.Errorf("get network_policy: %w", err)
+		return api.NetworkPolicyRow{}, fmt.Errorf("get network_policy: %w", err)
 	}
 	return np, nil
-}
-
-// NetworkPolicyRule is the in-store row. Direction ∈ {ingress,egress};
-// PeerKind ∈ {selector,ip_block}. Non-applicable fields are zero-valued.
-type NetworkPolicyRule struct {
-	ID                    uuid.UUID
-	NetworkPolicyID       uuid.UUID
-	Direction             string
-	PeerKind              string
-	PeerPodSelector       json.RawMessage
-	PeerNamespaceSelector json.RawMessage
-	PeerIPBlockCIDR       string
-	PeerIPBlockExcept     json.RawMessage
-	Ports                 json.RawMessage
 }
 
 // ReplaceNetworkPolicyRules deletes then inserts in one transaction.
@@ -122,9 +101,9 @@ func (p *PG) ReplaceNetworkPolicyRules(ctx context.Context, policyID uuid.UUID, 
 	return nil
 }
 
-// ListNetworkPolicyRules returns every rule for a single policy, in
-// stable insertion order.
-func (p *PG) ListNetworkPolicyRules(ctx context.Context, policyID uuid.UUID) ([]NetworkPolicyRule, error) {
+// ListNetworkPolicyRules returns every rule for a single policy, in stable
+// insertion order. Satisfies api.Store.
+func (p *PG) ListNetworkPolicyRules(ctx context.Context, policyID uuid.UUID) ([]api.NetworkPolicyRuleRow, error) {
 	const q = `
 		SELECT id, network_policy_id, direction, peer_kind,
 		       peer_pod_selector, peer_namespace_selector,
@@ -140,9 +119,9 @@ func (p *PG) ListNetworkPolicyRules(ctx context.Context, policyID uuid.UUID) ([]
 	}
 	defer rows.Close()
 
-	var out []NetworkPolicyRule
+	var out []api.NetworkPolicyRuleRow
 	for rows.Next() {
-		var r NetworkPolicyRule
+		var r api.NetworkPolicyRuleRow
 		if err := rows.Scan(
 			&r.ID, &r.NetworkPolicyID, &r.Direction, &r.PeerKind,
 			&r.PeerPodSelector, &r.PeerNamespaceSelector,
@@ -178,13 +157,13 @@ func (p *PG) SweepNetworkPoliciesByNamespace(ctx context.Context, namespaceID uu
 // ListNetworkPoliciesByCluster returns a page + next_cursor. Optional
 // namespaceID filter (nil = all namespaces). Cursor format identical to
 // ListApplications in pg_applications.go — REUSE encodeCursor/decodeCursor.
-// Order: reconcile_seen_at DESC, id DESC.
-func (p *PG) ListNetworkPoliciesByCluster(ctx context.Context, clusterID uuid.UUID, namespaceID *uuid.UUID, limit int, cursor string) ([]NetworkPolicy, string, error) {
+// Order: reconcile_seen_at DESC, id DESC. Satisfies api.Store.
+func (p *PG) ListNetworkPoliciesByCluster(ctx context.Context, clusterID uuid.UUID, namespaceID *uuid.UUID, limit int, cursor string) ([]api.NetworkPolicyRow, string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > 500 {
+		limit = 500
 	}
 
 	conds := make([]string, 0, 3)
@@ -224,8 +203,8 @@ func (p *PG) ListNetworkPoliciesByCluster(ctx context.Context, clusterID uuid.UU
 	defer rows.Close()
 
 	type npWithTS struct {
-		np      NetworkPolicy
-		seenAt  time.Time
+		np     api.NetworkPolicyRow
+		seenAt time.Time
 	}
 	raw := make([]npWithTS, 0, limit+1)
 	for rows.Next() {
@@ -249,7 +228,7 @@ func (p *PG) ListNetworkPoliciesByCluster(ctx context.Context, clusterID uuid.UU
 		next = encodeCursor(last.seenAt, last.np.ID)
 		raw = raw[:limit]
 	}
-	items := make([]NetworkPolicy, len(raw))
+	items := make([]api.NetworkPolicyRow, len(raw))
 	for i, r := range raw {
 		items[i] = r.np
 	}

@@ -1080,6 +1080,16 @@ func (m *memStore) ListSecurityGroupsByAccount(_ context.Context, accountID uuid
 	return out, "", nil
 }
 
+func (m *memStore) GetSecurityGroup(_ context.Context, id uuid.UUID) (SecurityGroupRow, error) {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	sg, ok := sgFake.sgs[id]
+	if !ok {
+		return SecurityGroupRow{}, ErrNotFound
+	}
+	return sg, nil
+}
+
 func (m *memStore) ListSecurityGroupRules(_ context.Context, sgID uuid.UUID) ([]SecurityGroupRuleRow, error) {
 	sgFake.mu.Lock()
 	defer sgFake.mu.Unlock()
@@ -1090,6 +1100,105 @@ func (m *memStore) ListSecurityGroupRules(_ context.Context, sgID uuid.UUID) ([]
 	out := make([]SecurityGroupRuleRow, len(rules))
 	copy(out, rules)
 	return out, nil
+}
+
+// --- Network policy fakes (flow-matrix P1) ---
+
+type memNPState struct {
+	mu    sync.Mutex
+	nps   map[uuid.UUID]NetworkPolicyRow
+	rules map[uuid.UUID][]NetworkPolicyRuleRow
+}
+
+var npFake = &memNPState{
+	nps:   make(map[uuid.UUID]NetworkPolicyRow),
+	rules: make(map[uuid.UUID][]NetworkPolicyRuleRow),
+}
+
+func resetNPFake() {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	npFake.nps = make(map[uuid.UUID]NetworkPolicyRow)
+	npFake.rules = make(map[uuid.UUID][]NetworkPolicyRuleRow)
+}
+
+func (m *memStore) ListNetworkPoliciesByCluster(_ context.Context, clusterID uuid.UUID, namespaceID *uuid.UUID, limit int, _ string) ([]NetworkPolicyRow, string, error) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	if limit <= 0 {
+		limit = 50
+	}
+	out := make([]NetworkPolicyRow, 0)
+	for _, np := range npFake.nps { //nolint:gocritic // rangeValCopy: test fake
+		if np.ClusterID != clusterID {
+			continue
+		}
+		if namespaceID != nil && np.NamespaceID != *namespaceID {
+			continue
+		}
+		out = append(out, np)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, "", nil
+}
+
+func (m *memStore) GetNetworkPolicy(_ context.Context, id uuid.UUID) (NetworkPolicyRow, error) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	np, ok := npFake.nps[id]
+	if !ok {
+		return NetworkPolicyRow{}, ErrNotFound
+	}
+	return np, nil
+}
+
+func (m *memStore) ListNetworkPolicyRules(_ context.Context, policyID uuid.UUID) ([]NetworkPolicyRuleRow, error) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	rules, ok := npFake.rules[policyID]
+	if !ok {
+		return nil, nil
+	}
+	out := make([]NetworkPolicyRuleRow, len(rules))
+	copy(out, rules)
+	return out, nil
+}
+
+// upsertNetworkPolicyFake inserts or updates a network policy in the fake
+// store. Keyed on (clusterID, namespaceID, name). Returns the stable UUID.
+// Used by handler tests to seed the in-memory store.
+func upsertNetworkPolicyFake(np NetworkPolicyRow) uuid.UUID {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	for id, existing := range npFake.nps { //nolint:gocritic // rangeValCopy: test fake
+		if existing.ClusterID == np.ClusterID && existing.NamespaceID == np.NamespaceID && existing.Name == np.Name {
+			np.ID = id
+			npFake.nps[id] = np
+			return id
+		}
+	}
+	if np.ID == uuid.Nil {
+		np.ID = uuid.New()
+	}
+	npFake.nps[np.ID] = np
+	return np.ID
+}
+
+// replaceNetworkPolicyRulesFake atomically replaces rules for a policy.
+func replaceNetworkPolicyRulesFake(policyID uuid.UUID, rules []NetworkPolicyRuleRow) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	out := make([]NetworkPolicyRuleRow, len(rules))
+	for i, r := range rules {
+		if r.ID == uuid.Nil {
+			r.ID = uuid.New()
+		}
+		r.NetworkPolicyID = policyID
+		out[i] = r
+	}
+	npFake.rules[policyID] = out
 }
 
 func (m *memStore) SweepSecurityGroupsByAccount(_ context.Context, accountID uuid.UUID, seenProviderIDs []string) error {

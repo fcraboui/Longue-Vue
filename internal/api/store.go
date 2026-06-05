@@ -746,6 +746,10 @@ type Store interface {
 	// collector tick; idempotent.
 	UpsertSecurityGroup(ctx context.Context, in SecurityGroupRow) (uuid.UUID, error)
 
+	// GetSecurityGroup fetches a security group by stable UUID.
+	// Returns ErrNotFound when the row is absent.
+	GetSecurityGroup(ctx context.Context, id uuid.UUID) (SecurityGroupRow, error)
+
 	// ReplaceSecurityGroupRules atomically replaces every rule for the
 	// given security_group_id. Delete+insert in one transaction; rule
 	// sets are small enough that a finer diff is over-engineering.
@@ -763,6 +767,21 @@ type Store interface {
 	// account whose provider_sg_id is NOT in seenProviderIDs. Called once
 	// per account refresh tick after all VM upserts are done.
 	SweepSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, seenProviderIDs []string) error
+
+	// --- Network policies (flow-matrix P1) ---------------------------------
+
+	// ListNetworkPoliciesByCluster returns a page of network policies for
+	// the given cluster, optionally filtered by namespace. Cursor-based
+	// pagination ordered by (reconcile_seen_at DESC, id DESC).
+	ListNetworkPoliciesByCluster(ctx context.Context, clusterID uuid.UUID, namespaceID *uuid.UUID, limit int, cursor string) ([]NetworkPolicyRow, string, error)
+
+	// GetNetworkPolicy fetches a network policy by stable UUID.
+	// Returns ErrNotFound when the row is absent.
+	GetNetworkPolicy(ctx context.Context, id uuid.UUID) (NetworkPolicyRow, error)
+
+	// ListNetworkPolicyRules returns all rules for a single network
+	// policy, in stable insertion order.
+	ListNetworkPolicyRules(ctx context.Context, policyID uuid.UUID) ([]NetworkPolicyRuleRow, error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by

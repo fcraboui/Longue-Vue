@@ -580,6 +580,18 @@ func buildHTTPServer(
 		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleSweepSecurityGroups(pg)))),
 	)
 
+	// Security groups — read endpoints (flow-matrix P1, Task 19).
+	mux.Handle("GET /v1/security-groups",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListSecurityGroups(pg)))))
+	mux.Handle("GET /v1/security-groups/{id}",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetSecurityGroup(pg)))))
+
+	// Network policies — read endpoints (flow-matrix P1, Tasks 17 + 18).
+	mux.Handle("GET /v1/network-policies",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListNetworkPolicies(pg)))))
+	mux.Handle("GET /v1/network-policies/{id}",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetNetworkPolicy(pg)))))
+
 	// Application + ApplicationBlock routes (ADR-0029) — extracted to keep
 	// buildHTTPServer within the maintainability-index ceiling.
 	mountApplicationRoutes(mux, pg, requireScope, cloudAuth, auditWrap, cfg.extractMaxRows)
