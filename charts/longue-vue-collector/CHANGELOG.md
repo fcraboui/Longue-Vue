@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-collector-v2.0.0...chart-longue-vue-collector-v2.1.0) (2026-06-05)
+
+
+### Features
+
+* **flow-matrix:** phase 1 inventory — netpols + canonical SG model ([d7cfa0b](https://github.com/sthalbert/Longue-Vue/commit/d7cfa0bd365d81b4e30261afd4660eb0e9e2c9fe))
+
 ## [2.0.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-collector-v1.0.0...chart-longue-vue-collector-v2.0.0) (2026-06-02)
 
 
