@@ -1,0 +1,28 @@
+{
+  "SecurityGroups": [
+    {
+      "GroupId": "sg-0123456789abcdef0",
+      "GroupName": "web-tier",
+      "VpcId": "vpc-aaa",
+      "Description": "Web tier",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 443,
+          "ToPort": 443,
+          "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+          "UserIdGroupPairs": [],
+          "PrefixListIds": []
+        }
+      ],
+      "IpPermissionsEgress": [
+        {
+          "IpProtocol": "-1",
+          "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+          "UserIdGroupPairs": [],
+          "PrefixListIds": []
+        }
+      ]
+    }
+  ]
+}
