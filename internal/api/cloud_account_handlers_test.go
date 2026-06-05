@@ -60,6 +60,8 @@ func buildCloudMux(t *testing.T, store Store, enc *secrets.Encrypter, caller *au
 	mux.Handle("PATCH /v1/virtual-machines/{id}", wrap(HandlePatchVirtualMachine(store)))
 	mux.Handle("DELETE /v1/virtual-machines/{id}", wrap(HandleDeleteVirtualMachine(store)))
 
+	mux.Handle("POST /v1/ingest/cloud-accounts/{id}/security-groups/sweep", wrap(HandleSweepSecurityGroups(store)))
+
 	return mux
 }
 

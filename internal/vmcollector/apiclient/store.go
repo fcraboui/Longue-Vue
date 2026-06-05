@@ -293,6 +293,16 @@ func (s *Store) ReconcileVirtualMachines(ctx context.Context, accountID uuid.UUI
 	return out.Tombstoned, nil
 }
 
+// SweepSecurityGroups POSTs /v1/ingest/cloud-accounts/{id}/security-groups/sweep.
+// Deletes any SG in the account whose provider_sg_id is not in seenProviderSGIDs.
+func (s *Store) SweepSecurityGroups(ctx context.Context, accountID uuid.UUID, seenProviderSGIDs []string) error {
+	body := map[string]any{
+		"seen_provider_sg_ids": seenProviderSGIDs,
+	}
+	path := "/v1/ingest/cloud-accounts/" + accountID.String() + "/security-groups/sweep"
+	return s.doJSON(ctx, http.MethodPost, path, body, nil)
+}
+
 func stringPtrOrNil(s string) *string {
 	if s == "" {
 		return nil

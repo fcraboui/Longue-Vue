@@ -172,6 +172,140 @@ func TestIngest_VMUpsert_PreCanonical_SkipsSGs(t *testing.T) {
 	}
 }
 
+// TestSweepSecurityGroups_RemovesUnseen verifies that the sweep endpoint
+// deletes SGs not present in seen_provider_sg_ids and returns 204.
+func TestSweepSecurityGroups_RemovesUnseen(t *testing.T) {
+	resetCloudFake()
+	resetSGFake()
+
+	accID := uuid.New()
+	cloudFake.mu.Lock()
+	cloudFake.accounts[accID] = CloudAccount{
+		ID:       accID,
+		Provider: "outscale",
+		Name:     "sweep-test-account",
+		Region:   "eu-west-2",
+		Status:   CloudAccountStatusActive,
+	}
+	cloudFake.mu.Unlock()
+
+	store := newMemStore()
+
+	// Seed an SG that will NOT be in the seen list.
+	if _, err := store.UpsertSecurityGroup(t.Context(), SecurityGroupRow{
+		CloudAccountID: accID,
+		ProviderSGID:   "sg-gone",
+		Name:           "gone-sg",
+	}); err != nil {
+		t.Fatalf("seed UpsertSecurityGroup: %v", err)
+	}
+
+	caller := collectorCaller(&accID)
+	h := buildCloudMux(t, store, nil, caller)
+
+	body := map[string]any{
+		"seen_provider_sg_ids": []string{"sg-other"},
+	}
+	rr := doReq(t, h, http.MethodPost,
+		"/v1/ingest/cloud-accounts/"+accID.String()+"/security-groups/sweep", body)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status: %d %s", rr.Code, rr.Body.String())
+	}
+
+	sgs, _, err := store.ListSecurityGroupsByAccount(t.Context(), accID, 100, "")
+	if err != nil {
+		t.Fatalf("ListSecurityGroupsByAccount: %v", err)
+	}
+	if len(sgs) != 0 {
+		t.Fatalf("expected sweep to delete sg-gone, got %d remaining", len(sgs))
+	}
+}
+
+// TestSweepSecurityGroups_KeepsSeen verifies that SGs in seen_provider_sg_ids
+// survive the sweep.
+func TestSweepSecurityGroups_KeepsSeen(t *testing.T) {
+	resetCloudFake()
+	resetSGFake()
+
+	accID := uuid.New()
+	cloudFake.mu.Lock()
+	cloudFake.accounts[accID] = CloudAccount{
+		ID:       accID,
+		Provider: "outscale",
+		Name:     "sweep-keep-account",
+		Region:   "eu-west-2",
+		Status:   CloudAccountStatusActive,
+	}
+	cloudFake.mu.Unlock()
+
+	store := newMemStore()
+
+	// Seed two SGs; one will be seen, one will not.
+	if _, err := store.UpsertSecurityGroup(t.Context(), SecurityGroupRow{
+		CloudAccountID: accID,
+		ProviderSGID:   "sg-keep",
+		Name:           "keep-sg",
+	}); err != nil {
+		t.Fatalf("seed sg-keep: %v", err)
+	}
+	if _, err := store.UpsertSecurityGroup(t.Context(), SecurityGroupRow{
+		CloudAccountID: accID,
+		ProviderSGID:   "sg-drop",
+		Name:           "drop-sg",
+	}); err != nil {
+		t.Fatalf("seed sg-drop: %v", err)
+	}
+
+	caller := collectorCaller(&accID)
+	h := buildCloudMux(t, store, nil, caller)
+
+	body := map[string]any{
+		"seen_provider_sg_ids": []string{"sg-keep"},
+	}
+	rr := doReq(t, h, http.MethodPost,
+		"/v1/ingest/cloud-accounts/"+accID.String()+"/security-groups/sweep", body)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status: %d %s", rr.Code, rr.Body.String())
+	}
+
+	sgs, _, err := store.ListSecurityGroupsByAccount(t.Context(), accID, 100, "")
+	if err != nil {
+		t.Fatalf("ListSecurityGroupsByAccount: %v", err)
+	}
+	if len(sgs) != 1 {
+		t.Fatalf("expected 1 SG after sweep, got %d", len(sgs))
+	}
+	if sgs[0].ProviderSGID != "sg-keep" {
+		t.Errorf("surviving SG = %q, want sg-keep", sgs[0].ProviderSGID)
+	}
+}
+
+// TestSweepSecurityGroups_ForbiddenForOtherAccount verifies that a vm-collector
+// token bound to account A cannot sweep account B (403).
+func TestSweepSecurityGroups_ForbiddenForOtherAccount(t *testing.T) {
+	resetCloudFake()
+	resetSGFake()
+
+	accA := uuid.New()
+	accB := uuid.New()
+	cloudFake.mu.Lock()
+	cloudFake.accounts[accA] = CloudAccount{ID: accA, Provider: "outscale", Name: "acct-a", Region: "eu-west-2", Status: CloudAccountStatusActive}
+	cloudFake.accounts[accB] = CloudAccount{ID: accB, Provider: "outscale", Name: "acct-b", Region: "eu-west-2", Status: CloudAccountStatusActive}
+	cloudFake.mu.Unlock()
+
+	store := newMemStore()
+	// Caller is bound to accA, tries to sweep accB.
+	caller := collectorCaller(&accA)
+	h := buildCloudMux(t, store, nil, caller)
+
+	body := map[string]any{"seen_provider_sg_ids": []string{}}
+	rr := doReq(t, h, http.MethodPost,
+		"/v1/ingest/cloud-accounts/"+accB.String()+"/security-groups/sweep", body)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d %s", rr.Code, rr.Body.String())
+	}
+}
+
 // TestIngest_VMUpsert_SGFailure_DoesNotFailVM verifies the best-effort contract:
 // even if the SG store returns an error, the VM ingest still returns 200.
 // (This is inherently covered by the memStore never returning errors, but we

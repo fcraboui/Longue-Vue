@@ -1091,3 +1091,24 @@ func (m *memStore) ListSecurityGroupRules(_ context.Context, sgID uuid.UUID) ([]
 	copy(out, rules)
 	return out, nil
 }
+
+func (m *memStore) SweepSecurityGroupsByAccount(_ context.Context, accountID uuid.UUID, seenProviderIDs []string) error {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	seen := make(map[string]struct{}, len(seenProviderIDs))
+	for _, id := range seenProviderIDs {
+		seen[id] = struct{}{}
+	}
+	for sgID, sg := range sgFake.sgs { //nolint:gocritic // rangeValCopy: test fake; copy is intentional
+		if sg.CloudAccountID != accountID {
+			continue
+		}
+		if _, ok := seen[sg.ProviderSGID]; !ok {
+			key := [2]string{sg.CloudAccountID.String(), sg.ProviderSGID}
+			delete(sgFake.byAccountProv, key)
+			delete(sgFake.rules, sgID)
+			delete(sgFake.sgs, sgID)
+		}
+	}
+	return nil
+}

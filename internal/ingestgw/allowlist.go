@@ -48,6 +48,8 @@ var Routes = []route{ //nolint:gochecknoglobals // hardcoded allowlist; reads be
 	{http.MethodPost, "/v1/persistentvolumes/reconcile"},
 	{http.MethodPost, "/v1/persistentvolumeclaims"},
 	{http.MethodPost, "/v1/persistentvolumeclaims/reconcile"},
+	// vm-collector account-level SG sweep (flow-matrix P1, Task 14).
+	{http.MethodPost, "/v1/ingest/cloud-accounts/{uuid}/security-groups/sweep"},
 }
 
 // uuidPattern matches a canonical 8-4-4-4-12 hex UUID. Wider than

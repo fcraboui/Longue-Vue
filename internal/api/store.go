@@ -758,6 +758,11 @@ type Store interface {
 	// ListSecurityGroupRules returns all rules for a single security
 	// group, in stable insertion order.
 	ListSecurityGroupRules(ctx context.Context, sgID uuid.UUID) ([]SecurityGroupRuleRow, error)
+
+	// SweepSecurityGroupsByAccount deletes every security group in the
+	// account whose provider_sg_id is NOT in seenProviderIDs. Called once
+	// per account refresh tick after all VM upserts are done.
+	SweepSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, seenProviderIDs []string) error
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by

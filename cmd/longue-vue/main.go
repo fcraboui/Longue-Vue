@@ -575,6 +575,10 @@ func buildHTTPServer(
 	mux.Handle("GET /v1/virtual-machines/{id}", requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetVirtualMachine(pg)))))
 	mux.Handle("PATCH /v1/virtual-machines/{id}", requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandlePatchVirtualMachine(pg)))))
 	mux.Handle("DELETE /v1/virtual-machines/{id}", requireScope(auth.ScopeDelete)(cloudAuth(auditWrap(api.HandleDeleteVirtualMachine(pg)))))
+	mux.Handle(
+		"POST /v1/ingest/cloud-accounts/{id}/security-groups/sweep",
+		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleSweepSecurityGroups(pg)))),
+	)
 
 	// Application + ApplicationBlock routes (ADR-0029) — extracted to keep
 	// buildHTTPServer within the maintainability-index ceiling.
