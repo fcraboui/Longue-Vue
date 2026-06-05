@@ -106,6 +106,24 @@ export const handlers = [
   http.patch('/v1/applications/:id', () => HttpResponse.json(fixtureApplication)),
   http.delete('/v1/applications/:id', () => new HttpResponse(null, { status: 204 })),
 
+  // --- network rules ---
+  http.get('/v1/workloads/:id/network-rules', () =>
+    HttpResponse.json({
+      workload_id: 'wl-1',
+      policy_count: 0,
+      k8s_default_allow: true,
+      matching_policies: [],
+    }),
+  ),
+  http.get('/v1/virtual-machines/:id/network-rules', () =>
+    HttpResponse.json({
+      vm_id: 'vm-1',
+      stale: false,
+      no_security_groups: true,
+      attached_security_groups: [],
+    }),
+  ),
+
   // --- health ---
   http.get('/healthz', () => HttpResponse.json({ status: 'ok', version: 'test' })),
 ];
