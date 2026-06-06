@@ -1259,3 +1259,15 @@ func (m *memStore) SweepSecurityGroupsByAccount(_ context.Context, accountID uui
 	}
 	return nil
 }
+
+func (m *memStore) UpsertVMSecurityGroupAttachment(_ context.Context, _ VMSecurityGroupAttachment) error {
+	return nil
+}
+
+func (m *memStore) SweepVMSecurityGroupAttachments(_ context.Context, _ uuid.UUID, _ []VMSecurityGroupAttachment) error {
+	return nil
+}
+
+func (m *memStore) PerimeterSecurityGroupsForCluster(_ context.Context, _ uuid.UUID) ([]SecurityGroupRow, error) {
+	return nil, nil
+}

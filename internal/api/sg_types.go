@@ -47,6 +47,16 @@ type SecurityGroupRuleRow struct {
 	Description      string    `json:"description,omitempty"`
 }
 
+// VMSecurityGroupAttachment links a raw provider VM id to a provider SG id
+// within a cloud account, independent of the virtual_machines table. Node VMs
+// are never inventoried as virtual_machines (ADR-0015 dedup), so their SG
+// links live here keyed by raw provider VM id.
+type VMSecurityGroupAttachment struct {
+	CloudAccountID uuid.UUID
+	ProviderVMID   string
+	ProviderSGID   string
+}
+
 // IsCanonicalSGPayload returns true when the JSONB carries a schema_version
 // >= 1. Pre-deploy rows (missing or zero version) return false; the VM ingest
 // handler skips SG persistence for those rows and they are rendered with

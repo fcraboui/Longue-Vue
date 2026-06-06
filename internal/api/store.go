@@ -772,6 +772,23 @@ type Store interface {
 	// (cloud_account_id, provider_sg_id). Returns ErrNotFound on miss.
 	GetSecurityGroupByProviderID(ctx context.Context, accountID uuid.UUID, providerSGID string) (SecurityGroupRow, error)
 
+	// UpsertVMSecurityGroupAttachment inserts or refreshes one
+	// (account, vm, sg) attachment, stamping reconcile_seen_at. Called on
+	// every collector tick; idempotent.
+	UpsertVMSecurityGroupAttachment(ctx context.Context, a VMSecurityGroupAttachment) error
+
+	// SweepVMSecurityGroupAttachments deletes attachments for the account
+	// that are not in seen. Called once per account refresh tick after all
+	// attachment upserts are done; MUST only run after a successful provider
+	// list (CLAUDE.md reconcile contract).
+	SweepVMSecurityGroupAttachments(ctx context.Context, accountID uuid.UUID, seen []VMSecurityGroupAttachment) error
+
+	// PerimeterSecurityGroupsForCluster resolves the security groups that
+	// protect a cluster's node VMs, joining nodes.provider_id to attachment
+	// provider_vm_id via the same substring match the VM dedup trusts
+	// (ADR-0015).
+	PerimeterSecurityGroupsForCluster(ctx context.Context, clusterID uuid.UUID) ([]SecurityGroupRow, error)
+
 	// --- Network policies (flow-matrix P1) ---------------------------------
 
 	// ListNetworkPoliciesByCluster returns a page of network policies for
