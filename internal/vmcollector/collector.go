@@ -30,7 +30,7 @@ type CollectorStore interface {
 	UpdateCloudAccountStatus(ctx context.Context, id uuid.UUID, status string, lastSeenAt *time.Time, lastErr *string) error
 	UpsertVirtualMachine(ctx context.Context, accountID uuid.UUID, vm provider.VM) error
 	ReconcileVirtualMachines(ctx context.Context, accountID uuid.UUID, keep []string) (int64, error)
-	SweepSecurityGroups(ctx context.Context, accountID uuid.UUID, seenProviderSGIDs []string) error
+	SweepSecurityGroups(ctx context.Context, accountID uuid.UUID, seenProviderSGIDs []string, groups []provider.SecurityGroup, attachments []apiclient.SGAttachment) error
 }
 
 // ProviderFactory builds a Provider from the credentials fetched from
@@ -133,6 +133,29 @@ func (c *Collector) runOnce(ctx context.Context) {
 		ObserveTick("error", time.Since(tickStart))
 		return
 	}
+	// Build SG attachments for EVERY listed VM — node or not — before filtering,
+	// so the cluster perimeter (SGs on node VMs) is captured even though node VMs
+	// are never inventoried (ADR-0015).
+	attachments := make([]apiclient.SGAttachment, 0, len(vms))
+	for i := range vms {
+		ids := make([]string, 0, len(vms[i].SecurityGroups.Groups))
+		for _, g := range vms[i].SecurityGroups.Groups {
+			if g.ProviderSGID != "" {
+				ids = append(ids, g.ProviderSGID)
+			}
+		}
+		if len(ids) > 0 {
+			attachments = append(attachments, apiclient.SGAttachment{ProviderVMID: vms[i].ProviderVMID, ProviderSGIDs: ids})
+		}
+	}
+
+	// Account-wide SG enumeration — so node-only SGs survive the sweep.
+	accountSGs, err := prov.GetSecurityGroups(tickCtx)
+	if err != nil {
+		slog.Warn("vm-collector: GetSecurityGroups failed; perimeter SGs may be incomplete this tick", slog.Any("error", err))
+		accountSGs = nil // best-effort; do not abort the VM tick
+	}
+
 	kept := filter.Apply(vms)
 	// Pre-filter dropped count: VMs the collector knew were kube-owned
 	// before sending. Server-side 409s are counted separately below.
@@ -168,12 +191,20 @@ func (c *Collector) runOnce(ctx context.Context) {
 	}
 
 	// Account-level SG sweep: delete any SGs not seen in this tick.
-	// Best-effort — never blocks the next tick on failure.
-	seenIDs := make([]string, 0, len(seenSGs))
-	for sgID := range seenSGs {
-		seenIDs = append(seenIDs, sgID)
+	// Best-effort — never blocks the next tick on failure. Seed seenIDs from
+	// the account-wide enumeration when available so node-only SGs are kept;
+	// fall back to the per-VM seen set otherwise.
+	seenIDs := make([]string, 0)
+	if len(accountSGs) > 0 {
+		for _, g := range accountSGs {
+			seenIDs = append(seenIDs, g.ProviderSGID)
+		}
+	} else {
+		for sgID := range seenSGs {
+			seenIDs = append(seenIDs, sgID)
+		}
 	}
-	if err := c.store.SweepSecurityGroups(tickCtx, accountID, seenIDs); err != nil {
+	if err := c.store.SweepSecurityGroups(tickCtx, accountID, seenIDs, accountSGs, attachments); err != nil {
 		slog.Warn("vm-collector: SG sweep failed", slog.Any("error", err))
 	}
 

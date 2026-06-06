@@ -24,6 +24,7 @@ type fakeStore struct {
 	statusUpdates    []statusUpdate
 	upsertConflicts  map[string]bool // provider_vm_id -> ErrAlreadyKubeNode
 	registerCallback func(name string, id uuid.UUID)
+	sweptAttachments []apiclient.SGAttachment
 }
 
 type reconcileCall struct {
@@ -98,8 +99,41 @@ func (f *fakeStore) ReconcileVirtualMachines(_ context.Context, accountID uuid.U
 	return 0, nil
 }
 
-func (f *fakeStore) SweepSecurityGroups(_ context.Context, _ uuid.UUID, _ []string) error {
+func (f *fakeStore) SweepSecurityGroups(_ context.Context, _ uuid.UUID, _ []string, _ []provider.SecurityGroup, attachments []apiclient.SGAttachment) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sweptAttachments = append(f.sweptAttachments, attachments...)
 	return nil
+}
+
+// sawAttachment reports whether the sweep received an attachment binding
+// the given VM to the given SG.
+func (f *fakeStore) sawAttachment(vmID, sgID string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, a := range f.sweptAttachments {
+		if a.ProviderVMID != vmID {
+			continue
+		}
+		for _, id := range a.ProviderSGIDs {
+			if id == sgID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// sawVMUpsert reports whether the given VM was upserted into inventory.
+func (f *fakeStore) sawVMUpsert(vmID string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, vm := range f.upsertedVMs {
+		if vm.ProviderVMID == vmID {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCollectorAwaitsCredentials(t *testing.T) {
@@ -180,6 +214,45 @@ func TestCollectorTickEndToEnd(t *testing.T) {
 	last := store.statusUpdates[len(store.statusUpdates)-1]
 	if last.status != "active" || last.lastSeenAt == nil {
 		t.Errorf("last status update = %+v", last)
+	}
+}
+
+func TestTick_EmitsAttachmentsForFilteredNodeVMs(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	store.credsByName["x"] = apiclient.Credentials{
+		AccessKey: "ak", SecretKey: "sk", Region: "eu-west-2", Provider: "outscale",
+	}
+	fakeProv := &provider.Fake{
+		VMs: []provider.VM{
+			// Kube node: dropped by filter.Apply via OscK8sNodeName tag, but
+			// still carries the cluster perimeter SG.
+			{
+				ProviderVMID: "i-node1", PowerState: "running",
+				Tags:           map[string]string{"OscK8sNodeName": "i-node1"},
+				SecurityGroups: provider.VMSecurityGroupsPayload{Version: 1, Groups: []provider.SecurityGroup{{ProviderSGID: "sg-perimeter"}}},
+			},
+			{
+				ProviderVMID: "i-app1", PowerState: "running",
+				SecurityGroups: provider.VMSecurityGroupsPayload{Version: 1, Groups: []provider.SecurityGroup{{ProviderSGID: "sg-app"}}},
+			},
+		},
+		SGs: []provider.SecurityGroup{{ProviderSGID: "sg-perimeter", Name: "nodes"}, {ProviderSGID: "sg-app", Name: "app"}},
+	}
+	c := New(Config{Provider: "outscale", AccountName: "x", Region: "eu-west-2", Interval: 1 * time.Hour, Reconcile: true},
+		store, func(_ apiclient.Credentials) (provider.Provider, error) { return fakeProv, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c.runOnce(ctx)
+
+	if !fakeProv.GetSecurityGroupsCalled {
+		t.Fatalf("expected GetSecurityGroups called")
+	}
+	if !store.sawAttachment("i-node1", "sg-perimeter") {
+		t.Fatalf("missing attachment for filtered node VM")
+	}
+	if store.sawVMUpsert("i-node1") {
+		t.Fatalf("node VM must not be inventoried")
 	}
 }
 
