@@ -294,11 +294,27 @@ func (s *Store) ReconcileVirtualMachines(ctx context.Context, accountID uuid.UUI
 	return out.Tombstoned, nil
 }
 
+// SGAttachment is one VM's SG attachment set sent on the sweep payload.
+type SGAttachment struct {
+	ProviderVMID  string   `json:"provider_vm_id"`
+	ProviderSGIDs []string `json:"provider_sg_ids"`
+}
+
 // SweepSecurityGroups POSTs /v1/ingest/cloud-accounts/{id}/security-groups/sweep.
-// Deletes any SG in the account whose provider_sg_id is not in seenProviderSGIDs.
-func (s *Store) SweepSecurityGroups(ctx context.Context, accountID uuid.UUID, seenProviderSGIDs []string) error {
+// seenProviderSGIDs drives delete-unseen; groups + attachments are the
+// account-wide flow-matrix enrichment (persisted server-side only when the
+// flow_matrix_enabled toggle is on).
+func (s *Store) SweepSecurityGroups(
+	ctx context.Context,
+	accountID uuid.UUID,
+	seenProviderSGIDs []string,
+	groups []provider.SecurityGroup,
+	attachments []SGAttachment,
+) error {
 	body := map[string]any{
 		"seen_provider_sg_ids": seenProviderSGIDs,
+		"groups":               groups,
+		"attachments":          attachments,
 	}
 	path := "/v1/ingest/cloud-accounts/" + accountID.String() + "/security-groups/sweep"
 	return s.doJSON(ctx, http.MethodPost, path, body, nil)

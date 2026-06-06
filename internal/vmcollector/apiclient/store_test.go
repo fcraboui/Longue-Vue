@@ -153,6 +153,31 @@ func TestReconcileReturnsTombstoned(t *testing.T) {
 	}
 }
 
+func TestSweepSecurityGroups_SendsGroupsAndAttachments(t *testing.T) {
+	t.Parallel()
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := newClient(t, srv, "t-1")
+	acc := uuid.New()
+	groups := []provider.SecurityGroup{{ProviderSGID: "sg-a", Name: "a"}}
+	atts := []SGAttachment{{ProviderVMID: "i-1", ProviderSGIDs: []string{"sg-a"}}}
+
+	if err := s.SweepSecurityGroups(context.Background(), acc, []string{"sg-a"}, groups, atts); err != nil {
+		t.Fatalf("SweepSecurityGroups: %v", err)
+	}
+	if _, ok := gotBody["groups"]; !ok {
+		t.Fatalf("body missing groups: %v", gotBody)
+	}
+	if _, ok := gotBody["attachments"]; !ok {
+		t.Fatalf("body missing attachments: %v", gotBody)
+	}
+}
+
 func TestExtraHeadersForwarded(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
