@@ -344,6 +344,10 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 	}
 	defer drainImageVersions()
 
+	if err := seedFlowMatrixSetting(rootCtx, pg); err != nil {
+		return fmt.Errorf("flow matrix setting: %w", err)
+	}
+
 	drainMCP, err := maybeStartMCPServer(rootCtx, pg)
 	if err != nil {
 		return err
@@ -1358,6 +1362,26 @@ func parseFloat32Env(key string, fallback float32) (float32, error) {
 		return 0, fmt.Errorf("parse %s=%q: %w", key, v, err)
 	}
 	return float32(f), nil
+}
+
+// seedFlowMatrixSetting seeds the `flow_matrix_enabled` DB setting from the
+// LONGUE_VUE_FLOW_MATRIX_ENABLED env var when explicitly set, mirroring the
+// seed-once semantics of the EOL / image-versions toggles. Unlike those
+// toggles there is no enricher goroutine to host the seed (the flow-matrix
+// behavior is gated elsewhere), so the seed lives in its own boot hook.
+func seedFlowMatrixSetting(ctx context.Context, s api.Store) error {
+	envVal := os.Getenv("LONGUE_VUE_FLOW_MATRIX_ENABLED")
+	if envVal == "" {
+		return nil
+	}
+	enabled, err := strconv.ParseBool(envVal)
+	if err != nil {
+		return fmt.Errorf("parse LONGUE_VUE_FLOW_MATRIX_ENABLED=%q: %w", envVal, err)
+	}
+	if _, err := s.UpdateSettings(ctx, api.SettingsPatch{FlowMatrixEnabled: &enabled}); err != nil {
+		slog.Warn("flow matrix: failed to seed settings from env", slog.Any("error", err))
+	}
+	return nil
 }
 
 // maybeStartEOLEnricher spawns the EOL enrichment goroutine (ADR-0012).

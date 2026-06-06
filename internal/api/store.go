@@ -933,6 +933,7 @@ type Settings struct {
 	TimeTravelRetentionDays int       `json:"time_travel_retention_days"`
 	TimeTravelReaperEnabled bool      `json:"time_travel_reaper_enabled"`
 	ImageVersionsEnabled    bool      `json:"image_versions_enabled"`
+	FlowMatrixEnabled       bool      `json:"flow_matrix_enabled"`
 	UpdatedAt               time.Time `json:"updated_at"`
 }
 
@@ -945,6 +946,7 @@ type SettingsPatch struct {
 	TimeTravelRetentionDays *int  `json:"time_travel_retention_days,omitempty"`
 	TimeTravelReaperEnabled *bool `json:"time_travel_reaper_enabled,omitempty"`
 	ImageVersionsEnabled    *bool `json:"image_versions_enabled,omitempty"`
+	FlowMatrixEnabled       *bool `json:"flow_matrix_enabled,omitempty"`
 }
 
 // ImageVersionRow is a row from image_versions — one (image_repo, variant) pair
