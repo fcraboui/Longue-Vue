@@ -100,7 +100,13 @@ func (f *fakeStore) ReconcileVirtualMachines(_ context.Context, accountID uuid.U
 	return 0, nil
 }
 
-func (f *fakeStore) SweepSecurityGroups(_ context.Context, _ uuid.UUID, seenIDs []string, _ []provider.SecurityGroup, attachments []apiclient.SGAttachment) error {
+func (f *fakeStore) SweepSecurityGroups(
+	_ context.Context,
+	_ uuid.UUID,
+	seenIDs []string,
+	_ []provider.SecurityGroup,
+	attachments []apiclient.SGAttachment,
+) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sweptSeenIDs = append(f.sweptSeenIDs, seenIDs...)
@@ -143,8 +149,8 @@ func (f *fakeStore) sawAttachment(vmID, sgID string) bool {
 func (f *fakeStore) sawVMUpsert(vmID string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for _, vm := range f.upsertedVMs {
-		if vm.ProviderVMID == vmID {
+	for i := range f.upsertedVMs {
+		if f.upsertedVMs[i].ProviderVMID == vmID {
 			return true
 		}
 	}
