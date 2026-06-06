@@ -688,24 +688,34 @@ func persistSGsFromVMIngest(ctx context.Context, s Store, accountID uuid.UUID, s
 		return
 	}
 	for _, g := range payload.Groups {
-		sgID, err := s.UpsertSecurityGroup(ctx, SecurityGroupRow{
-			CloudAccountID: accountID,
-			ProviderSGID:   g.ProviderSGID,
-			Name:           g.Name,
-			VPCID:          g.VPCID,
-			Tags:           tagsToJSON(g.Tags),
-		})
-		if err != nil {
-			slog.Warn("vm ingest: UpsertSecurityGroup failed",
+		if err := upsertCanonicalSG(ctx, s, accountID, g); err != nil {
+			slog.Warn("vm ingest: persist SG failed",
 				slog.String("sg", g.ProviderSGID), slog.Any("cloud_account_id", accountID), slog.Any("err", err))
-			continue
-		}
-		rules := flattenSGToRules(g)
-		if err := s.ReplaceSecurityGroupRules(ctx, sgID, rules); err != nil {
-			slog.Warn("vm ingest: ReplaceSecurityGroupRules failed",
-				slog.String("sg", g.ProviderSGID), slog.Any("sg_id", sgID), slog.Any("err", err))
 		}
 	}
+}
+
+// upsertCanonicalSG upserts one canonical security group and replaces its rule
+// set. Shared by the per-VM ingest path (persistSGsFromVMIngest) and the
+// account-wide sweep path (persistAccountSGEnrichment). Returns an error for
+// the caller to log; it never panics on partial data.
+//
+//nolint:gocritic // hugeParam: sgWireGroup matches the wire format; callers iterate over slices so pointer passing would complicate indexing
+func upsertCanonicalSG(ctx context.Context, s Store, accountID uuid.UUID, g sgWireGroup) error {
+	sgID, err := s.UpsertSecurityGroup(ctx, SecurityGroupRow{
+		CloudAccountID: accountID,
+		ProviderSGID:   g.ProviderSGID,
+		Name:           g.Name,
+		VPCID:          g.VPCID,
+		Tags:           tagsToJSON(g.Tags),
+	})
+	if err != nil {
+		return fmt.Errorf("UpsertSecurityGroup %q: %w", g.ProviderSGID, err)
+	}
+	if err := s.ReplaceSecurityGroupRules(ctx, sgID, flattenSGToRules(g)); err != nil {
+		return fmt.Errorf("ReplaceSecurityGroupRules %q: %w", g.ProviderSGID, err)
+	}
+	return nil
 }
 
 // flattenSGToRules converts an sgWireGroup to a flat []SecurityGroupRuleRow,

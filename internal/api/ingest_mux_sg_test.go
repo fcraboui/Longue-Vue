@@ -320,6 +320,119 @@ func TestSweepSecurityGroups_ForbiddenForOtherAccount(t *testing.T) {
 	}
 }
 
+// sweepEnrichmentBody builds a sweep request body carrying one canonical group
+// (sg-perimeter, one ingress tcp/443 from 0.0.0.0/0) and one attachment
+// (i-node1 → sg-perimeter), plus the legacy seen list. Shared by the
+// flow-matrix on/off tests below.
+func sweepEnrichmentBody() map[string]any {
+	port := 443
+	sg := sgWireGroup{
+		ProviderSGID: "sg-perimeter",
+		Name:         "perimeter",
+		Ingress: []sgWireRule{
+			{
+				Protocol: testProtocolTCP,
+				FromPort: &port,
+				ToPort:   &port,
+				Peer:     sgWirePeer{Kind: testPeerKindCIDR, CIDR: "0.0.0.0/0"},
+			},
+		},
+	}
+	return map[string]any{
+		testFieldSeenSGIDs: []string{"sg-perimeter"},
+		"groups":           []sgWireGroup{sg},
+		"attachments": []map[string]any{
+			{"provider_vm_id": "i-node1", "provider_sg_ids": []string{"sg-perimeter"}},
+		},
+	}
+}
+
+// TestSweepSecurityGroups_FlowMatrixOn_PersistsEnrichment verifies that with
+// flow_matrix_enabled ON, a sweep carrying groups + attachments persists both
+// the account-wide SG and the per-VM attachment, and returns 204.
+func TestSweepSecurityGroups_FlowMatrixOn_PersistsEnrichment(t *testing.T) {
+	resetCloudFake()
+	resetSGFake()
+
+	accID := uuid.New()
+	cloudFake.mu.Lock()
+	cloudFake.accounts[accID] = CloudAccount{
+		ID:       accID,
+		Provider: testProviderOutscale,
+		Name:     "sweep-fm-on",
+		Region:   testRegionEUWest2,
+		Status:   CloudAccountStatusActive,
+	}
+	cloudFake.mu.Unlock()
+
+	store := newMemStore()
+	on := true
+	if _, err := store.UpdateSettings(t.Context(), SettingsPatch{FlowMatrixEnabled: &on}); err != nil {
+		t.Fatalf("enable flow_matrix: %v", err)
+	}
+
+	caller := collectorCaller(&accID)
+	h := buildCloudMux(t, store, nil, caller)
+
+	rr := doReq(t, h, http.MethodPost,
+		"/v1/ingest/cloud-accounts/"+accID.String()+"/security-groups/sweep", sweepEnrichmentBody())
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// The account-wide SG must be persisted.
+	if _, err := store.GetSecurityGroupByProviderID(t.Context(), accID, "sg-perimeter"); err != nil {
+		t.Fatalf("GetSecurityGroupByProviderID(sg-perimeter): %v", err)
+	}
+
+	// Exactly one attachment for i-node1 → sg-perimeter.
+	atts := listVMSecurityGroupAttachmentsFake(accID)
+	if len(atts) != 1 {
+		t.Fatalf("want 1 attachment, got %d", len(atts))
+	}
+	if atts[0].ProviderVMID != "i-node1" || atts[0].ProviderSGID != "sg-perimeter" {
+		t.Errorf("attachment = %+v, want i-node1 → sg-perimeter", atts[0])
+	}
+}
+
+// TestSweepSecurityGroups_FlowMatrixOff_IgnoresEnrichment verifies that with
+// the flag OFF (default), the same body persists NO attachments and NO
+// account-wide SG, and still returns 204 (legacy behavior preserved).
+func TestSweepSecurityGroups_FlowMatrixOff_IgnoresEnrichment(t *testing.T) {
+	resetCloudFake()
+	resetSGFake()
+
+	accID := uuid.New()
+	cloudFake.mu.Lock()
+	cloudFake.accounts[accID] = CloudAccount{
+		ID:       accID,
+		Provider: testProviderOutscale,
+		Name:     "sweep-fm-off",
+		Region:   testRegionEUWest2,
+		Status:   CloudAccountStatusActive,
+	}
+	cloudFake.mu.Unlock()
+
+	store := newMemStore() // flow_matrix_enabled defaults to false
+	caller := collectorCaller(&accID)
+	h := buildCloudMux(t, store, nil, caller)
+
+	rr := doReq(t, h, http.MethodPost,
+		"/v1/ingest/cloud-accounts/"+accID.String()+"/security-groups/sweep", sweepEnrichmentBody())
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// No attachments persisted with the flag off.
+	if atts := listVMSecurityGroupAttachmentsFake(accID); len(atts) != 0 {
+		t.Fatalf("want 0 attachments with flow_matrix off, got %d", len(atts))
+	}
+	// No account-wide SG persisted either.
+	if _, err := store.GetSecurityGroupByProviderID(t.Context(), accID, "sg-perimeter"); err == nil {
+		t.Errorf("expected no sg-perimeter persisted with flow_matrix off")
+	}
+}
+
 // TestIngest_VMUpsert_SGFailure_DoesNotFailVM verifies the best-effort contract:
 // even if the SG store returns an error, the VM ingest still returns 200.
 // (This is inherently covered by the memStore never returning errors, but we

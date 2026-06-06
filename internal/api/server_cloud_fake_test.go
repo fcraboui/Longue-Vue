@@ -1020,12 +1020,15 @@ type memSGState struct {
 	rules map[uuid.UUID][]SecurityGroupRuleRow // keyed by sgID
 	// byAccountProv allows lookup by (cloudAccountID, providerSGID)
 	byAccountProv map[[2]string]uuid.UUID
+	// attachments keyed by (cloudAccountID, providerVMID, providerSGID)
+	attachments map[[3]string]VMSecurityGroupAttachment
 }
 
 var sgFake = &memSGState{
 	sgs:           make(map[uuid.UUID]SecurityGroupRow),
 	rules:         make(map[uuid.UUID][]SecurityGroupRuleRow),
 	byAccountProv: make(map[[2]string]uuid.UUID),
+	attachments:   make(map[[3]string]VMSecurityGroupAttachment),
 }
 
 func resetSGFake() {
@@ -1034,6 +1037,7 @@ func resetSGFake() {
 	sgFake.sgs = make(map[uuid.UUID]SecurityGroupRow)
 	sgFake.rules = make(map[uuid.UUID][]SecurityGroupRuleRow)
 	sgFake.byAccountProv = make(map[[2]string]uuid.UUID)
+	sgFake.attachments = make(map[[3]string]VMSecurityGroupAttachment)
 }
 
 //nolint:gocritic // hugeParam: SecurityGroupRow must match the Store interface signature
@@ -1260,12 +1264,44 @@ func (m *memStore) SweepSecurityGroupsByAccount(_ context.Context, accountID uui
 	return nil
 }
 
-func (m *memStore) UpsertVMSecurityGroupAttachment(_ context.Context, _ VMSecurityGroupAttachment) error {
+func (m *memStore) UpsertVMSecurityGroupAttachment(_ context.Context, a VMSecurityGroupAttachment) error {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	key := [3]string{a.CloudAccountID.String(), a.ProviderVMID, a.ProviderSGID}
+	sgFake.attachments[key] = a
 	return nil
 }
 
-func (m *memStore) SweepVMSecurityGroupAttachments(_ context.Context, _ uuid.UUID, _ []VMSecurityGroupAttachment) error {
+func (m *memStore) SweepVMSecurityGroupAttachments(_ context.Context, accountID uuid.UUID, seen []VMSecurityGroupAttachment) error {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	keep := make(map[[3]string]struct{}, len(seen))
+	for _, a := range seen {
+		keep[[3]string{a.CloudAccountID.String(), a.ProviderVMID, a.ProviderSGID}] = struct{}{}
+	}
+	for key, a := range sgFake.attachments {
+		if a.CloudAccountID != accountID {
+			continue
+		}
+		if _, ok := keep[key]; !ok {
+			delete(sgFake.attachments, key)
+		}
+	}
 	return nil
+}
+
+// listVMSecurityGroupAttachmentsFake returns all attachments for an account.
+// Test-only helper (no Store-interface counterpart).
+func listVMSecurityGroupAttachmentsFake(accountID uuid.UUID) []VMSecurityGroupAttachment {
+	sgFake.mu.Lock()
+	defer sgFake.mu.Unlock()
+	out := make([]VMSecurityGroupAttachment, 0)
+	for _, a := range sgFake.attachments {
+		if a.CloudAccountID == accountID {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 func (m *memStore) PerimeterSecurityGroupsForCluster(_ context.Context, _ uuid.UUID) ([]SecurityGroupRow, error) {
