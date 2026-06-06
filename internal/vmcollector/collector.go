@@ -150,9 +150,10 @@ func (c *Collector) runOnce(ctx context.Context) {
 	}
 
 	// Account-wide SG enumeration — so node-only SGs survive the sweep.
-	accountSGs, err := prov.GetSecurityGroups(tickCtx)
-	if err != nil {
-		slog.Warn("vm-collector: GetSecurityGroups failed; perimeter SGs may be incomplete this tick", slog.Any("error", err))
+	accountSGs, sgErr := prov.GetSecurityGroups(tickCtx)
+	enumOK := sgErr == nil
+	if sgErr != nil {
+		slog.Warn("vm-collector: GetSecurityGroups failed; perimeter SGs may be incomplete this tick", slog.Any("error", sgErr))
 		accountSGs = nil // best-effort; do not abort the VM tick
 	}
 
@@ -195,12 +196,26 @@ func (c *Collector) runOnce(ctx context.Context) {
 	// the account-wide enumeration when available so node-only SGs are kept;
 	// fall back to the per-VM seen set otherwise.
 	seenIDs := make([]string, 0)
-	if len(accountSGs) > 0 {
+	if enumOK {
 		for _, g := range accountSGs {
 			seenIDs = append(seenIDs, g.ProviderSGID)
 		}
 	} else {
+		// Enumeration failed: preserve every SG we saw this tick — both the
+		// per-VM (kept) seen set AND the attachment SG ids (which include
+		// node-VM perimeter SGs from the pre-filter list). Omitting the node
+		// SGs here would let the server's always-on delete-unseen sweep purge
+		// the cluster perimeter.
+		seenSet := make(map[string]struct{})
 		for sgID := range seenSGs {
+			seenSet[sgID] = struct{}{}
+		}
+		for _, a := range attachments {
+			for _, sgID := range a.ProviderSGIDs {
+				seenSet[sgID] = struct{}{}
+			}
+		}
+		for sgID := range seenSet {
 			seenIDs = append(seenIDs, sgID)
 		}
 	}

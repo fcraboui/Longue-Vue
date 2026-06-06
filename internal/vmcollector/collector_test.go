@@ -25,6 +25,7 @@ type fakeStore struct {
 	upsertConflicts  map[string]bool // provider_vm_id -> ErrAlreadyKubeNode
 	registerCallback func(name string, id uuid.UUID)
 	sweptAttachments []apiclient.SGAttachment
+	sweptSeenIDs     []string
 }
 
 type reconcileCall struct {
@@ -99,11 +100,25 @@ func (f *fakeStore) ReconcileVirtualMachines(_ context.Context, accountID uuid.U
 	return 0, nil
 }
 
-func (f *fakeStore) SweepSecurityGroups(_ context.Context, _ uuid.UUID, _ []string, _ []provider.SecurityGroup, attachments []apiclient.SGAttachment) error {
+func (f *fakeStore) SweepSecurityGroups(_ context.Context, _ uuid.UUID, seenIDs []string, _ []provider.SecurityGroup, attachments []apiclient.SGAttachment) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.sweptSeenIDs = append(f.sweptSeenIDs, seenIDs...)
 	f.sweptAttachments = append(f.sweptAttachments, attachments...)
 	return nil
+}
+
+// sawSeenID reports whether the given SG id was included in the sweep's
+// seen-set (and therefore preserved from the server's delete-unseen pass).
+func (f *fakeStore) sawSeenID(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, s := range f.sweptSeenIDs {
+		if s == id {
+			return true
+		}
+	}
+	return false
 }
 
 // sawAttachment reports whether the sweep received an attachment binding
@@ -253,6 +268,48 @@ func TestTick_EmitsAttachmentsForFilteredNodeVMs(t *testing.T) {
 	}
 	if store.sawVMUpsert("i-node1") {
 		t.Fatalf("node VM must not be inventoried")
+	}
+}
+
+// TestTick_EnumerationFailure_PreservesNodePerimeterSG asserts that when
+// account-wide SG enumeration fails, the sweep seen-set still includes the
+// perimeter SG attached only to a filtered-out node VM — otherwise the
+// server's always-on delete-unseen sweep would purge the cluster perimeter.
+func TestTick_EnumerationFailure_PreservesNodePerimeterSG(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	store.credsByName["x"] = apiclient.Credentials{
+		AccessKey: "ak", SecretKey: "sk", Region: "eu-west-2", Provider: "outscale",
+	}
+	fakeProv := &provider.Fake{
+		VMs: []provider.VM{
+			// Kube node: dropped by filter.Apply, carries the perimeter SG only.
+			{
+				ProviderVMID: "i-node1", PowerState: "running",
+				Tags:           map[string]string{"OscK8sNodeName": "i-node1"},
+				SecurityGroups: provider.VMSecurityGroupsPayload{Version: 1, Groups: []provider.SecurityGroup{{ProviderSGID: "sg-perimeter"}}},
+			},
+			{
+				ProviderVMID: "i-app1", PowerState: "running",
+				SecurityGroups: provider.VMSecurityGroupsPayload{Version: 1, Groups: []provider.SecurityGroup{{ProviderSGID: "sg-app"}}},
+			},
+		},
+		SGErr: errors.New("enumeration outage"),
+	}
+	c := New(Config{Provider: "outscale", AccountName: "x", Region: "eu-west-2", Interval: 1 * time.Hour, Reconcile: true},
+		store, func(_ apiclient.Credentials) (provider.Provider, error) { return fakeProv, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c.runOnce(ctx) // must not panic/abort despite the enumeration failure
+
+	if !fakeProv.GetSecurityGroupsCalled {
+		t.Fatalf("expected GetSecurityGroups called")
+	}
+	if !store.sawSeenID("sg-perimeter") {
+		t.Fatalf("node perimeter SG must survive enumeration failure in the sweep seen-set")
+	}
+	if !store.sawSeenID("sg-app") {
+		t.Fatalf("app SG must be present in the sweep seen-set")
 	}
 }
 
