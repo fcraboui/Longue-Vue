@@ -816,6 +816,14 @@ type Store interface {
 	// as "select everything" per the Kubernetes semantics. matchExpressions
 	// support is deferred to P2.
 	ListNetworkPoliciesForWorkload(ctx context.Context, namespaceID uuid.UUID, workloadLabels json.RawMessage) ([]NetworkPolicyRow, error)
+
+	// --- Endpoint groups (flow-matrix R2) ---------------------------------
+
+	ListEndpointGroups(ctx context.Context) ([]EndpointGroup, error)
+	GetEndpointGroup(ctx context.Context, id uuid.UUID) (EndpointGroup, error)
+	CreateEndpointGroup(ctx context.Context, in EndpointGroupInput, createdBy *uuid.UUID) (EndpointGroup, error)
+	UpdateEndpointGroup(ctx context.Context, id uuid.UUID, in EndpointGroupInput) (EndpointGroup, error)
+	DeleteEndpointGroup(ctx context.Context, id uuid.UUID) error
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by

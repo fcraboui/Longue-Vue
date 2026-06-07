@@ -1307,3 +1307,23 @@ func listVMSecurityGroupAttachmentsFake(accountID uuid.UUID) []VMSecurityGroupAt
 func (m *memStore) PerimeterSecurityGroupsForCluster(_ context.Context, _ uuid.UUID) ([]SecurityGroupRow, error) {
 	return nil, nil
 }
+
+func (m *memStore) ListEndpointGroups(_ context.Context) ([]EndpointGroup, error) {
+	return nil, nil
+}
+
+func (m *memStore) GetEndpointGroup(_ context.Context, _ uuid.UUID) (EndpointGroup, error) {
+	return EndpointGroup{}, ErrNotFound
+}
+
+func (m *memStore) CreateEndpointGroup(_ context.Context, _ EndpointGroupInput, _ *uuid.UUID) (EndpointGroup, error) {
+	return EndpointGroup{}, nil
+}
+
+func (m *memStore) UpdateEndpointGroup(_ context.Context, _ uuid.UUID, _ EndpointGroupInput) (EndpointGroup, error) {
+	return EndpointGroup{}, ErrNotFound
+}
+
+func (m *memStore) DeleteEndpointGroup(_ context.Context, _ uuid.UUID) error {
+	return ErrNotFound
+}
