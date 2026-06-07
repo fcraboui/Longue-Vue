@@ -44,6 +44,7 @@ import SettingsPage from './pages/admin/Settings';
 import CloudAccountsPage from './pages/admin/CloudAccounts';
 import CloudAccountDetail from './pages/admin/CloudAccountDetail';
 import ImageRegistriesPage from './pages/admin/ImageRegistries';
+import EndpointGroupsPage from './pages/admin/EndpointGroups';
 import ApplicationBlocksPage from './pages/admin/ApplicationBlocks';
 import ClassificationHeatmap from './pages/admin/ClassificationHeatmap';
 import { MeProvider } from './me';
@@ -292,6 +293,7 @@ export default function App() {
         <Route path="cloud-accounts" element={<CloudAccountsPage />} />
         <Route path="cloud-accounts/:id" element={<CloudAccountDetail />} />
         <Route path="image-registries" element={<ImageRegistriesPage />} />
+        <Route path="endpoint-groups" element={<EndpointGroupsPage />} />
         <Route path="application-blocks" element={<ApplicationBlocksPage />} />
         <Route path="classification" element={<ClassificationHeatmap />} />
         <Route path="audit" element={<AuditPage />} />
