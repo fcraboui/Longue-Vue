@@ -2825,6 +2825,99 @@ paths:
         "409":
           $ref: '#/components/responses/Conflict'
 
+  /v1/clusters/{id}/flow-matrix/extract:
+    get:
+      tags: [flow-matrix]
+      operationId: clusterFlowMatrixExtract
+      summary: Download a cluster's flow-matrix synthesis as CSV or JSON
+      description: |
+        Flattens the read-time perimeter + internal flow-matrix synthesis
+        (ADR-0037) into one row per synthesized flow. Read scope, gated by
+        the admin-settings flow_matrix_enabled toggle (409 when off), capped
+        at `LONGUE_VUE_EXTRACT_MAX_ROWS` (default 50 000). When the cap is
+        hit the response carries `X-Longue-Vue-Truncated: true`. Audited
+        (SecNumCloud ch.8 evidence).
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+        - in: query
+          name: format
+          required: false
+          schema:
+            type: string
+            enum: [csv, json]
+            default: csv
+      responses:
+        '200':
+          description: Extract body. CSV is UTF-8 with a BOM and CRLF endings; JSON is an envelope with an items array.
+          headers:
+            X-Longue-Vue-Truncated:
+              schema:
+                type: string
+                enum: ['true']
+              description: Present and "true" when the row cap was hit.
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/clusters/{id}/flow-matrix/extract.zip:
+    get:
+      tags: [flow-matrix]
+      operationId: clusterFlowMatrixExtractZip
+      summary: Download a cluster's flow-matrix synthesis as a ZIP bundle
+      description: |
+        Bundles flow-matrix.csv (same rows/columns as the flat CSV extract)
+        plus _sources.json, a deduped {kind,id} index of every rule id that
+        contributed to the synthesis (ADR-0037). Read scope, gated by
+        flow_matrix_enabled (409 when off), capped at
+        `LONGUE_VUE_EXTRACT_MAX_ROWS`; carries `X-Longue-Vue-Truncated: true`
+        when the cap is hit. Audited.
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: ZIP bundle.
+          headers:
+            X-Longue-Vue-Truncated:
+              schema:
+                type: string
+                enum: ['true']
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /v1/clusters/{id}/flow-references:
     get:
       operationId: listFlowReferences

@@ -45,6 +45,12 @@ output-options:
     - eolExtract
     - searchExtract
     - searchExtractZip
+    # Flow-matrix R3 (ADR-0037): hand-written audited extracts mounted on the
+    # main mux (flow_matrix_extract.go). Documented in openapi.yaml so they
+    # appear in Swagger UI; excluded from the strict server like the other
+    # extract endpoints to avoid double registration.
+    - clusterFlowMatrixExtract
+    - clusterFlowMatrixExtractZip
     # ADR-0026: getImageRegistryCredentials is hand-written too — it
     # uses the composite (hostname, path_prefix) key that the strict
     # server can't easily express alongside the single-key CRUD routes.
