@@ -1328,24 +1328,8 @@ func (m *memStore) DeleteEndpointGroup(_ context.Context, _ uuid.UUID) error {
 	return ErrNotFound
 }
 
-func (m *memStore) ListFlowReferences(_ context.Context, _ uuid.UUID) ([]FlowReference, error) {
-	return nil, nil
-}
-
-//nolint:gocritic // hugeParam: fake mirrors the Store interface signature.
-func (m *memStore) CreateFlowReference(_ context.Context, _ uuid.UUID, _ FlowReferenceInput, _ *uuid.UUID) (FlowReference, error) {
-	return FlowReference{}, nil
-}
-
-//nolint:gocritic // hugeParam: fake mirrors the Store interface signature.
-func (m *memStore) UpdateFlowReference(_ context.Context, _ uuid.UUID, _ FlowReferenceInput) (FlowReference, error) {
-	return FlowReference{}, ErrNotFound
-}
-
-func (m *memStore) DeleteFlowReference(_ context.Context, _ uuid.UUID) error {
-	return ErrNotFound
-}
-
-func (m *memStore) ReplaceFlowReferences(_ context.Context, _ uuid.UUID, _ []FlowReferenceInput, _ *uuid.UUID) ([]FlowReference, error) {
-	return nil, nil
-}
+// Flow-reference fake store methods live in
+// server_flow_reference_fake_test.go (real in-memory impl, mirroring the
+// ApplicationBlock fake pattern) so the handler tests in
+// flow_reference_handlers_test.go can drive the full CRUD + replace-all
+// surface without a Postgres dependency.

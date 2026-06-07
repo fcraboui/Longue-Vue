@@ -28,6 +28,10 @@ type FlowReference struct {
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
+// kindEndpointGroup is the src_kind/dst_kind value identifying a named CIDR
+// endpoint group (the perimeter "outside" side of a flow).
+const kindEndpointGroup = "endpoint_group"
+
 // FlowReferenceInput is the create/update payload for a FlowReference.
 type FlowReferenceInput struct {
 	Layer         string `json:"layer" yaml:"layer"`
@@ -52,10 +56,10 @@ func (in FlowReferenceInput) Validate() error {
 		return fmt.Errorf("justification is required: %w", ErrConflict)
 	}
 	egSides := 0
-	if in.SrcKind == "endpoint_group" {
+	if in.SrcKind == kindEndpointGroup {
 		egSides++
 	}
-	if in.DstKind == "endpoint_group" {
+	if in.DstKind == kindEndpointGroup {
 		egSides++
 	}
 	switch in.Layer {
