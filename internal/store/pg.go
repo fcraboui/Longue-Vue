@@ -4967,12 +4967,14 @@ func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 	const q = `SELECT eol_enabled, mcp_enabled,
 		time_travel_enabled, time_travel_retention_days, time_travel_reaper_enabled,
 		image_versions_enabled,
+		flow_matrix_enabled,
 		updated_at FROM settings WHERE id = 1`
 	var s api.Settings
 	if err := p.pool.QueryRow(ctx, q).Scan(
 		&s.EOLEnabled, &s.MCPEnabled,
 		&s.TimeTravelEnabled, &s.TimeTravelRetentionDays, &s.TimeTravelReaperEnabled,
 		&s.ImageVersionsEnabled,
+		&s.FlowMatrixEnabled,
 		&s.UpdatedAt,
 	); err != nil {
 		return api.Settings{}, fmt.Errorf("get settings: %w", err)
@@ -5032,6 +5034,11 @@ func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Sett
 	if in.ImageVersionsEnabled != nil {
 		sets = append(sets, fmt.Sprintf("image_versions_enabled=$%d", idx))
 		args = append(args, *in.ImageVersionsEnabled)
+		idx++
+	}
+	if in.FlowMatrixEnabled != nil {
+		sets = append(sets, fmt.Sprintf("flow_matrix_enabled=$%d", idx))
+		args = append(args, *in.FlowMatrixEnabled)
 		idx++
 	}
 

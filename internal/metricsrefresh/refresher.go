@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/flowmatrix"
 	"github.com/sthalbert/longue-vue/internal/metrics"
 )
 
@@ -29,14 +31,25 @@ type Store interface {
 type Refresher struct {
 	store    Store
 	interval time.Duration
+	// flowStore is the full application store, used for the flow-matrix gauge
+	// pass. It's optional: when the concrete store doesn't satisfy api.Store
+	// (e.g. a narrow test fake) the flow pass is skipped. In production the
+	// *store.PG passed to New satisfies both Store and api.Store.
+	flowStore api.Store
 }
 
-// New builds a Refresher. interval defaults to 60s when non-positive.
+// New builds a Refresher. interval defaults to 60s when non-positive. When the
+// concrete store also satisfies api.Store, the flow-matrix gauge pass is wired
+// in; otherwise it is silently skipped.
 func New(store Store, interval time.Duration) *Refresher {
 	if interval <= 0 {
 		interval = 60 * time.Second
 	}
-	return &Refresher{store: store, interval: interval}
+	r := &Refresher{store: store, interval: interval}
+	if fs, ok := store.(api.Store); ok {
+		r.flowStore = fs
+	}
+	return r
 }
 
 // Run refreshes once immediately, then on each tick until ctx is cancelled.
@@ -70,5 +83,56 @@ func (r *Refresher) refresh(ctx context.Context) {
 	} else {
 		metrics.SetApplicationCounts(buckets)
 		metrics.SetApplicationBlocksTotal(blocks)
+	}
+
+	r.refreshFlows(ctx)
+}
+
+// refreshFlows recomputes the flow-matrix gauges from the read-time synthesis.
+// Best-effort throughout: gated on flow_matrix_enabled, only covers clusters
+// with >=1 reference row, and skips any cluster whose inputs fail to load. A
+// failure here never aborts the surrounding refresh tick.
+func (r *Refresher) refreshFlows(ctx context.Context) {
+	if r.flowStore == nil {
+		return
+	}
+	st, err := r.flowStore.GetSettings(ctx)
+	if err != nil {
+		slog.Warn("metrics refresher: flow settings query failed", slog.Any("error", err))
+		return
+	}
+	if !st.FlowMatrixEnabled {
+		// Toggle off: clear any series left from a previous enabled window.
+		metrics.ResetFlowGauges()
+		return
+	}
+
+	clusters, err := r.flowStore.ListClustersWithFlowReferences(ctx)
+	if err != nil {
+		slog.Warn("metrics refresher: flow reference clusters query failed", slog.Any("error", err))
+		return
+	}
+
+	metrics.ResetFlowGauges()
+	for _, cid := range clusters {
+		inputs, warnings, lerr := api.LoadFlowInputsForMetrics(ctx, r.flowStore, cid)
+		if lerr != nil {
+			slog.Warn("metrics refresher: load flow inputs failed",
+				slog.String("cluster", cid.String()), slog.Any("error", lerr))
+			continue
+		}
+		syn := flowmatrix.Synthesize(inputs)
+		perim := map[string]int{}
+		inter := map[string]int{}
+		for i := range syn.Perimeter {
+			perim[string(syn.Perimeter[i].State)]++
+		}
+		for i := range syn.Internal {
+			inter[string(syn.Internal[i].State)]++
+		}
+		metrics.SetFlowStates(cid.String(), "perimeter", perim)
+		metrics.SetFlowStates(cid.String(), "internal", inter)
+		metrics.SetFlowReferenceRows(cid.String(), len(inputs.References))
+		metrics.SetFlowDanglingRefs(cid.String(), len(warnings))
 	}
 }

@@ -6,11 +6,12 @@ import "context"
 // verbatim and surfaces ListErr on demand. Safe for concurrent use only
 // when the tests don't mutate the slice between calls.
 type Fake struct {
-	VMs     []VM
-	SGs     []SecurityGroup
-	ListErr error
-	SGErr   error
-	calls   int
+	VMs                     []VM
+	SGs                     []SecurityGroup
+	ListErr                 error
+	SGErr                   error
+	GetSecurityGroupsCalled bool
+	calls                   int
 }
 
 // Kind returns the static label "fake".
@@ -29,6 +30,7 @@ func (f *Fake) ListVMs(_ context.Context) ([]VM, error) {
 
 // GetSecurityGroups returns the configured SGs slice or the configured error.
 func (f *Fake) GetSecurityGroups(_ context.Context) ([]SecurityGroup, error) {
+	f.GetSecurityGroupsCalled = true
 	if f.SGErr != nil {
 		return nil, f.SGErr
 	}

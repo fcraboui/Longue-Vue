@@ -557,8 +557,8 @@ func TestApplicationEOL_UnknownID_404(t *testing.T) {
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d body=%q", rr.Code, rr.Body.String())
 	}
-	if ct := rr.Header().Get("Content-Type"); ct != "application/problem+json" {
-		t.Errorf("content-type = %q, want application/problem+json", ct)
+	if ct := rr.Header().Get("Content-Type"); ct != ctProblemJSON {
+		t.Errorf("content-type = %q, want %s", ct, ctProblemJSON)
 	}
 }
 

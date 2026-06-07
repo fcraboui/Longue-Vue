@@ -772,6 +772,23 @@ type Store interface {
 	// (cloud_account_id, provider_sg_id). Returns ErrNotFound on miss.
 	GetSecurityGroupByProviderID(ctx context.Context, accountID uuid.UUID, providerSGID string) (SecurityGroupRow, error)
 
+	// UpsertVMSecurityGroupAttachment inserts or refreshes one
+	// (account, vm, sg) attachment, stamping reconcile_seen_at. Called on
+	// every collector tick; idempotent.
+	UpsertVMSecurityGroupAttachment(ctx context.Context, a VMSecurityGroupAttachment) error
+
+	// SweepVMSecurityGroupAttachments deletes attachments for the account
+	// that are not in seen. Called once per account refresh tick after all
+	// attachment upserts are done; MUST only run after a successful provider
+	// list (CLAUDE.md reconcile contract).
+	SweepVMSecurityGroupAttachments(ctx context.Context, accountID uuid.UUID, seen []VMSecurityGroupAttachment) error
+
+	// PerimeterSecurityGroupsForCluster resolves the security groups that
+	// protect a cluster's node VMs, joining nodes.provider_id to attachment
+	// provider_vm_id via the same substring match the VM dedup trusts
+	// (ADR-0015).
+	PerimeterSecurityGroupsForCluster(ctx context.Context, clusterID uuid.UUID) ([]SecurityGroupRow, error)
+
 	// --- Network policies (flow-matrix P1) ---------------------------------
 
 	// ListNetworkPoliciesByCluster returns a page of network policies for
@@ -799,6 +816,29 @@ type Store interface {
 	// as "select everything" per the Kubernetes semantics. matchExpressions
 	// support is deferred to P2.
 	ListNetworkPoliciesForWorkload(ctx context.Context, namespaceID uuid.UUID, workloadLabels json.RawMessage) ([]NetworkPolicyRow, error)
+
+	// --- Endpoint groups (flow-matrix R2) ---------------------------------
+
+	ListEndpointGroups(ctx context.Context) ([]EndpointGroup, error)
+	GetEndpointGroup(ctx context.Context, id uuid.UUID) (EndpointGroup, error)
+	CreateEndpointGroup(ctx context.Context, in EndpointGroupInput, createdBy *uuid.UUID) (EndpointGroup, error)
+	UpdateEndpointGroup(ctx context.Context, id uuid.UUID, in EndpointGroupInput) (EndpointGroup, error)
+	DeleteEndpointGroup(ctx context.Context, id uuid.UUID) error
+
+	// --- Cluster flow references (flow-matrix R2) -------------------------
+
+	ListFlowReferences(ctx context.Context, clusterID uuid.UUID) ([]FlowReference, error)
+	CreateFlowReference(ctx context.Context, clusterID uuid.UUID, in FlowReferenceInput, createdBy *uuid.UUID) (FlowReference, error)
+	UpdateFlowReference(ctx context.Context, id uuid.UUID, in FlowReferenceInput) (FlowReference, error)
+	DeleteFlowReference(ctx context.Context, id uuid.UUID) error
+	ReplaceFlowReferences(ctx context.Context, clusterID uuid.UUID, ins []FlowReferenceInput, createdBy *uuid.UUID) ([]FlowReference, error)
+
+	// RecordFlowDriftSeen marks (cluster, flowKey) as seen now and returns true
+	// when it was NOT seen within `within` (caller should then emit an audit
+	// event). Atomic upsert so concurrent reads emit at most once per window.
+	RecordFlowDriftSeen(ctx context.Context, clusterID uuid.UUID, flowKey string, within time.Duration) (bool, error)
+	// ListClustersWithFlowReferences returns cluster ids having >=1 reference row.
+	ListClustersWithFlowReferences(ctx context.Context) ([]uuid.UUID, error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by
@@ -933,6 +973,7 @@ type Settings struct {
 	TimeTravelRetentionDays int       `json:"time_travel_retention_days"`
 	TimeTravelReaperEnabled bool      `json:"time_travel_reaper_enabled"`
 	ImageVersionsEnabled    bool      `json:"image_versions_enabled"`
+	FlowMatrixEnabled       bool      `json:"flow_matrix_enabled"`
 	UpdatedAt               time.Time `json:"updated_at"`
 }
 
@@ -945,6 +986,7 @@ type SettingsPatch struct {
 	TimeTravelRetentionDays *int  `json:"time_travel_retention_days,omitempty"`
 	TimeTravelReaperEnabled *bool `json:"time_travel_reaper_enabled,omitempty"`
 	ImageVersionsEnabled    *bool `json:"image_versions_enabled,omitempty"`
+	FlowMatrixEnabled       *bool `json:"flow_matrix_enabled,omitempty"`
 }
 
 // ImageVersionRow is a row from image_versions — one (image_repo, variant) pair

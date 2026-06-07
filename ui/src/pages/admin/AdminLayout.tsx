@@ -37,6 +37,7 @@ export default function AdminLayout({ role }: { role: Role }) {
         {role === 'admin' &&
           tab('/admin/cloud-accounts', 'Cloud accounts', '/admin/cloud-accounts')}
         {role === 'admin' && tab('/admin/image-registries', 'Image registries')}
+        {role === 'admin' && tab('/admin/endpoint-groups', 'Endpoint groups')}
         {role === 'admin' && tab('/admin/application-blocks', 'Application blocks')}
         {role === 'admin' && tab('/admin/classification', 'Classification')}
         {tab('/admin/audit', 'Audit')}

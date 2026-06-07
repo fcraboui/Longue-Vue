@@ -200,6 +200,21 @@ export function ContainerImageIcon(props: IconProps) {
   );
 }
 
+// FlowsIcon — network flow-matrix glyph: two nodes connected by a
+// directed edge with arrowhead, suggesting source → destination traffic.
+// Distinct from ServiceIcon (a hub of peers) and ImpactGraph's tree.
+export function FlowsIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx={5} cy={6} r={2.5} />
+      <circle cx={19} cy={18} r={2.5} />
+      <path d="M7 7.5 L17 16.5" />
+      <path d="M17 16.5 L13.5 16" />
+      <path d="M17 16.5 L17 12.5" />
+    </Svg>
+  );
+}
+
 // Entity type → icon lookup for tables and headers.
 const ENTITY_ICONS: Record<string, React.FC<IconProps>> = {
   cluster: ClusterIcon,

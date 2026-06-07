@@ -30,7 +30,13 @@ type CollectorStore interface {
 	UpdateCloudAccountStatus(ctx context.Context, id uuid.UUID, status string, lastSeenAt *time.Time, lastErr *string) error
 	UpsertVirtualMachine(ctx context.Context, accountID uuid.UUID, vm provider.VM) error
 	ReconcileVirtualMachines(ctx context.Context, accountID uuid.UUID, keep []string) (int64, error)
-	SweepSecurityGroups(ctx context.Context, accountID uuid.UUID, seenProviderSGIDs []string) error
+	SweepSecurityGroups(
+		ctx context.Context,
+		accountID uuid.UUID,
+		seenProviderSGIDs []string,
+		groups []provider.SecurityGroup,
+		attachments []apiclient.SGAttachment,
+	) error
 }
 
 // ProviderFactory builds a Provider from the credentials fetched from
@@ -133,6 +139,19 @@ func (c *Collector) runOnce(ctx context.Context) {
 		ObserveTick("error", time.Since(tickStart))
 		return
 	}
+	// Build SG attachments for EVERY listed VM — node or not — before filtering,
+	// so the cluster perimeter (SGs on node VMs) is captured even though node VMs
+	// are never inventoried (ADR-0015).
+	attachments := buildSGAttachments(vms)
+
+	// Account-wide SG enumeration — so node-only SGs survive the sweep.
+	accountSGs, sgErr := prov.GetSecurityGroups(tickCtx)
+	enumOK := sgErr == nil
+	if sgErr != nil {
+		slog.Warn("vm-collector: GetSecurityGroups failed; perimeter SGs may be incomplete this tick", slog.Any("error", sgErr))
+		accountSGs = nil // best-effort; do not abort the VM tick
+	}
+
 	kept := filter.Apply(vms)
 	// Pre-filter dropped count: VMs the collector knew were kube-owned
 	// before sending. Server-side 409s are counted separately below.
@@ -169,11 +188,8 @@ func (c *Collector) runOnce(ctx context.Context) {
 
 	// Account-level SG sweep: delete any SGs not seen in this tick.
 	// Best-effort — never blocks the next tick on failure.
-	seenIDs := make([]string, 0, len(seenSGs))
-	for sgID := range seenSGs {
-		seenIDs = append(seenIDs, sgID)
-	}
-	if err := c.store.SweepSecurityGroups(tickCtx, accountID, seenIDs); err != nil {
+	seenIDs := computeSweepSeenIDs(enumOK, accountSGs, seenSGs, attachments)
+	if err := c.store.SweepSecurityGroups(tickCtx, accountID, seenIDs, accountSGs, attachments); err != nil {
 		slog.Warn("vm-collector: SG sweep failed", slog.Any("error", err))
 	}
 
@@ -192,6 +208,64 @@ func (c *Collector) runOnce(ctx context.Context) {
 		slog.Warn("vm-collector: status update failed", slog.Any("error", err))
 	}
 	ObserveTick("success", time.Since(tickStart))
+}
+
+// buildSGAttachments derives one (provider_vm_id → provider_sg_ids)
+// attachment per listed VM that carries at least one SG. It runs over the
+// full pre-filter VM list so node-VM perimeter SGs are captured even though
+// node VMs are dropped from inventory (ADR-0015).
+func buildSGAttachments(vms []provider.VM) []apiclient.SGAttachment {
+	attachments := make([]apiclient.SGAttachment, 0, len(vms))
+	for i := range vms {
+		ids := make([]string, 0, len(vms[i].SecurityGroups.Groups))
+		for _, g := range vms[i].SecurityGroups.Groups {
+			if g.ProviderSGID != "" {
+				ids = append(ids, g.ProviderSGID)
+			}
+		}
+		if len(ids) > 0 {
+			attachments = append(attachments, apiclient.SGAttachment{
+				ProviderVMID:  vms[i].ProviderVMID,
+				ProviderSGIDs: ids,
+			})
+		}
+	}
+	return attachments
+}
+
+// computeSweepSeenIDs builds the seen-set for the account-level SG sweep.
+// When the account-wide enumeration succeeded it seeds from those SGs so
+// node-only SGs are kept. When it failed it falls back to every SG observed
+// this tick — both the per-VM (kept) set and the attachment SG ids (which
+// include node-VM perimeter SGs) — so the server's delete-unseen sweep
+// cannot purge the cluster perimeter.
+func computeSweepSeenIDs(
+	enumOK bool,
+	accountSGs []provider.SecurityGroup,
+	seenSGs map[string]struct{},
+	attachments []apiclient.SGAttachment,
+) []string {
+	if enumOK {
+		seenIDs := make([]string, 0, len(accountSGs))
+		for _, g := range accountSGs {
+			seenIDs = append(seenIDs, g.ProviderSGID)
+		}
+		return seenIDs
+	}
+	seenSet := make(map[string]struct{})
+	for sgID := range seenSGs {
+		seenSet[sgID] = struct{}{}
+	}
+	for _, a := range attachments {
+		for _, sgID := range a.ProviderSGIDs {
+			seenSet[sgID] = struct{}{}
+		}
+	}
+	seenIDs := make([]string, 0, len(seenSet))
+	for sgID := range seenSet {
+		seenIDs = append(seenIDs, sgID)
+	}
+	return seenIDs
 }
 
 // ensureCredentials fetches credentials from longue-vue; on the first

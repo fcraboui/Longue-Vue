@@ -775,6 +775,9 @@ func (m *memStore) UpdateSettings(_ context.Context, patch SettingsPatch) (Setti
 	if patch.ImageVersionsEnabled != nil {
 		m.settings.ImageVersionsEnabled = *patch.ImageVersionsEnabled
 	}
+	if patch.FlowMatrixEnabled != nil {
+		m.settings.FlowMatrixEnabled = *patch.FlowMatrixEnabled
+	}
 	return m.settings, nil
 }
 

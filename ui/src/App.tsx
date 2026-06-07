@@ -28,6 +28,7 @@ import {
   PersistentVolumeClaimDetail,
 } from './pages/Details';
 import EolDashboard from './pages/EolDashboard';
+import Flows from './pages/Flows';
 import VirtualMachines from './pages/VirtualMachines';
 import VirtualMachineDetail from './pages/VirtualMachineDetail';
 import Applications from './pages/Applications';
@@ -43,13 +44,14 @@ import SettingsPage from './pages/admin/Settings';
 import CloudAccountsPage from './pages/admin/CloudAccounts';
 import CloudAccountDetail from './pages/admin/CloudAccountDetail';
 import ImageRegistriesPage from './pages/admin/ImageRegistries';
+import EndpointGroupsPage from './pages/admin/EndpointGroups';
 import ApplicationBlocksPage from './pages/admin/ApplicationBlocks';
 import ClassificationHeatmap from './pages/admin/ClassificationHeatmap';
 import { MeProvider } from './me';
 import {
   ClusterIcon, NamespaceIcon, NodeIcon, WorkloadIcon, PodIcon,
   ServiceIcon, IngressIcon, VolumeIcon, SearchIcon, EolIcon, ContainerImageIcon, AdminIcon,
-  VirtualMachineIcon,
+  VirtualMachineIcon, FlowsIcon,
 } from './icons';
 
 // --- auth gate ----------------------------------------------------------
@@ -162,6 +164,7 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
           <div className="sidebar-divider" />
           <span className="sidebar-section-label">Tools</span>
           {link('/search/image', 'Search', SearchIcon)}
+          {link('/flows', 'Flows', FlowsIcon)}
           {link('/eol', 'EOL', EolIcon)}
           {link('/images', 'Container images', ContainerImageIcon)}
           <a href="/docs/" target="_blank" rel="noopener noreferrer" title={collapsed ? 'API Docs' : undefined}>
@@ -253,6 +256,7 @@ export default function App() {
       <Route path="/persistentvolumeclaims/:id" element={authed(<PersistentVolumeClaimDetail />)} />
 
       <Route path="/search/image" element={authed(<ImageSearch />)} />
+      <Route path="/flows" element={authed(<Flows />)} />
       <Route path="/eol" element={authed(<EolDashboard />)} />
 
       <Route path="/virtual-machines" element={authed(<VirtualMachines />)} />
@@ -289,6 +293,7 @@ export default function App() {
         <Route path="cloud-accounts" element={<CloudAccountsPage />} />
         <Route path="cloud-accounts/:id" element={<CloudAccountDetail />} />
         <Route path="image-registries" element={<ImageRegistriesPage />} />
+        <Route path="endpoint-groups" element={<EndpointGroupsPage />} />
         <Route path="application-blocks" element={<ApplicationBlocksPage />} />
         <Route path="classification" element={<ClassificationHeatmap />} />
         <Route path="audit" element={<AuditPage />} />

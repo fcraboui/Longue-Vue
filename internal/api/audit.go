@@ -201,6 +201,13 @@ func shouldAudit(r *http.Request) bool {
 		"/v1/applications/extract.csv", "/v1/applications/extract.json":
 		return true
 	}
+	// Flow-matrix extracts (per-cluster) — SNC chapter-8 evidence. These
+	// carry {id} in the path so the static switch above won't match.
+	if strings.HasPrefix(r.URL.Path, "/v1/clusters/") &&
+		(strings.HasSuffix(r.URL.Path, "/flow-matrix/extract") ||
+			strings.HasSuffix(r.URL.Path, "/flow-matrix/extract.zip")) {
+		return true
+	}
 	return false
 }
 

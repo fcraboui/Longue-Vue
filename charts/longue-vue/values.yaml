@@ -249,6 +249,18 @@ metrics:
     # -- Additional labels for the ServiceMonitor.
     labels: {}
 
+# -- Flow-matrix feature (R3): cluster network flow drift / posture.
+flowMatrix:
+  prometheusRules:
+    # -- Sample alerts for the flow-matrix gauges
+    # (longue_vue_flow_states{state="non_declare"|"large_ouvert"}).
+    # Disabled by default; enable only if you run the Prometheus Operator
+    # and want flow-drift / wide-open alerts.
+    enabled: false
+    # -- Additional labels for the PrometheusRule (e.g. to match your
+    # Prometheus ruleSelector).
+    labels: {}
+
 # -- Ingress (expose longue-vue outside the cluster).
 ingress:
   enabled: false

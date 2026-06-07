@@ -2124,7 +2124,7 @@ func TestHealthAndReadiness(t *testing.T) {
 		if rr.Code != http.StatusServiceUnavailable {
 			t.Fatalf("status=%d body=%q", rr.Code, rr.Body.String())
 		}
-		if ct := rr.Header().Get("Content-Type"); ct != "application/problem+json" {
+		if ct := rr.Header().Get("Content-Type"); ct != ctProblemJSON {
 			t.Errorf("Content-Type=%q", ct)
 		}
 	})
