@@ -49,6 +49,13 @@ func HandleClusterFlowMatrix(store Store) http.HandlerFunc {
 	}
 }
 
+// LoadFlowInputsForMetrics exposes loadFlowInputs to the metrics refresh loop
+// (package main and the metricsrefresh package cannot reach the unexported
+// helper). Returns the same inputs + warnings the synthesis handler uses.
+func LoadFlowInputsForMetrics(ctx context.Context, store Store, clusterID uuid.UUID) (flowmatrix.Inputs, []flowmatrix.Warning, error) {
+	return loadFlowInputs(ctx, store, clusterID)
+}
+
 // loadFlowInputs is the I/O bridge: it reads every persisted input the pure
 // synthesizer needs and flattens it into flowmatrix.Inputs. The returned
 // warnings slice is currently always empty (dangling-reference detection is

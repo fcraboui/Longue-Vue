@@ -219,6 +219,28 @@ var (
 		Name:      "application_blocks_total",
 		Help:      "Count of application blocks (ADR-0029 §9).",
 	})
+
+	// flowStates counts synthesized flows per cluster, layer (perimeter |
+	// internal), and state (conforme | non_declare | manquant | large_ouvert).
+	// Computed at refresh time from the read-time flow-matrix synthesis, only
+	// for clusters with >=1 reference row and only when flow_matrix_enabled.
+	flowStates = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "longue_vue_flow_states",
+		Help: "Count of synthesized flows per cluster, layer, and state.",
+	}, []string{"cluster", "layer", "state"})
+
+	// flowReferenceRows counts declared reference flow rows per cluster.
+	flowReferenceRows = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "longue_vue_flow_reference_rows",
+		Help: "Declared reference flow rows per cluster.",
+	}, []string{"cluster"})
+
+	// flowDanglingRefs counts reference rows whose endpoint no longer resolves,
+	// per cluster (surfaced as synthesis warnings).
+	flowDanglingRefs = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "longue_vue_flow_dangling_references",
+		Help: "Reference rows whose endpoint no longer resolves, per cluster.",
+	}, []string{"cluster"})
 )
 
 func init() {
@@ -252,7 +274,39 @@ func init() {
 		dictCoverage,
 		applicationsTotal,
 		applicationBlocksTotal,
+		flowStates,
+		flowReferenceRows,
+		flowDanglingRefs,
 	)
+}
+
+// SetFlowStates sets the per-(cluster, layer) flow-state counts. Called from
+// the periodic metrics-refresh loop after recomputing the read-time flow-matrix
+// synthesis. Callers should ResetFlowGauges() once per refresh first so a state
+// that drops to zero is cleared rather than left stale.
+func SetFlowStates(cluster, layer string, counts map[string]int) {
+	for state, n := range counts {
+		flowStates.WithLabelValues(cluster, layer, state).Set(float64(n))
+	}
+}
+
+// SetFlowReferenceRows sets the declared-reference-rows gauge for a cluster.
+func SetFlowReferenceRows(cluster string, n int) {
+	flowReferenceRows.WithLabelValues(cluster).Set(float64(n))
+}
+
+// SetFlowDanglingRefs sets the dangling-reference gauge for a cluster.
+func SetFlowDanglingRefs(cluster string, n int) {
+	flowDanglingRefs.WithLabelValues(cluster).Set(float64(n))
+}
+
+// ResetFlowGauges clears all flow-matrix gauge series. Called at the start of
+// each refresh pass so clusters that lose their reference rows (or whose state
+// counts drop to zero) don't leave stale series behind.
+func ResetFlowGauges() {
+	flowStates.Reset()
+	flowReferenceRows.Reset()
+	flowDanglingRefs.Reset()
 }
 
 // SetDICTCoverage sets the per-source workload effective-DICT coverage gauge
