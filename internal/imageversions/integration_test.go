@@ -55,6 +55,13 @@ func (s *mirrorIntegrationStore) DeleteImageVersionsNotIn(_ context.Context, _ [
 	return 0, nil
 }
 
+// FindImageOrigin has no manual origin mappings in these mirror integration
+// scenarios (ADR-0030), so it always reports "not found" and the resolver
+// falls through to the OCI annotation path under test.
+func (s *mirrorIntegrationStore) FindImageOrigin(_ context.Context, _ string) (string, error) {
+	return "", api.ErrNotFound
+}
+
 func (s *mirrorIntegrationStore) FindMirrorForRef(_ context.Context, hostname, _ string) (api.ImageRegistry, error) {
 	if m, ok := s.mirrors[hostname]; ok {
 		return m, nil
