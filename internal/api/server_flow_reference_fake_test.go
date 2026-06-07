@@ -143,3 +143,15 @@ func (m *memStore) ReplaceFlowReferences(
 	flowRefFake.mu.Unlock()
 	return m.ListFlowReferences(ctx, clusterID)
 }
+
+// RecordFlowDriftSeen is a minimal fake: it always reports "emit" (never
+// throttled). The drift-emit task (R3-B2) refines this if a test needs the
+// throttle behaviour.
+func (m *memStore) RecordFlowDriftSeen(_ context.Context, _ uuid.UUID, _ string, _ time.Duration) (bool, error) {
+	return true, nil
+}
+
+// ListClustersWithFlowReferences is a minimal fake returning no clusters.
+func (m *memStore) ListClustersWithFlowReferences(_ context.Context) ([]uuid.UUID, error) {
+	return nil, nil
+}

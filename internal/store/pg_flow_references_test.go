@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/sthalbert/longue-vue/internal/api"
 )
@@ -114,5 +115,72 @@ func TestFlowReferences_CRUDAndReplace(t *testing.T) {
 	}
 	if len(final) != 0 {
 		t.Errorf("final list len=%d, want 0", len(final))
+	}
+}
+
+func TestRecordFlowDriftSeen_Throttles(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := t.Context()
+
+	cl, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "flow-drift-throttle"})
+	if err != nil {
+		t.Fatalf("cluster: %v", err)
+	}
+	cluster := *cl.Id
+
+	first, err := pg.RecordFlowDriftSeen(ctx, cluster, "ingress|a|b|tcp|443-443", 24*time.Hour)
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if !first {
+		t.Fatalf("first call = false, want true (should emit)")
+	}
+
+	second, err := pg.RecordFlowDriftSeen(ctx, cluster, "ingress|a|b|tcp|443-443", 24*time.Hour)
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if second {
+		t.Fatalf("second call = true, want false (throttled within 24h)")
+	}
+
+	// With a zero window, the same key should emit again (window already elapsed).
+	third, err := pg.RecordFlowDriftSeen(ctx, cluster, "ingress|a|b|tcp|443-443", 0)
+	if err != nil {
+		t.Fatalf("third: %v", err)
+	}
+	if !third {
+		t.Fatalf("third call (0 window) = false, want true (window elapsed)")
+	}
+}
+
+func TestListClustersWithFlowReferences(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := t.Context()
+
+	withRefsCl, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "flow-with-refs"})
+	if err != nil {
+		t.Fatalf("seed with-refs: %v", err)
+	}
+	withRefs := *withRefsCl.Id
+	if _, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "flow-no-refs"}); err != nil {
+		t.Fatalf("seed no-refs: %v", err)
+	}
+
+	p := 443
+	if _, err := pg.CreateFlowReference(ctx, withRefs, api.FlowReferenceInput{
+		Layer: "internal", Direction: "ingress", SrcKind: "workload", SrcRef: "a",
+		DstKind: "workload", DstRef: "b", Protocol: "tcp", FromPort: &p, ToPort: &p,
+		Justification: "x",
+	}, nil); err != nil {
+		t.Fatalf("seed ref: %v", err)
+	}
+
+	got, err := pg.ListClustersWithFlowReferences(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || got[0] != withRefs {
+		t.Fatalf("got %v, want [%s]", got, withRefs)
 	}
 }

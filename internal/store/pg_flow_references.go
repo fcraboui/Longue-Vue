@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -143,4 +144,53 @@ func (p *PG) ReplaceFlowReferences(
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 	return p.ListFlowReferences(ctx, clusterID)
+}
+
+// RecordFlowDriftSeen upserts the (cluster, flow_key) marker and returns true
+// when the prior last_seen_at was absent or older than `within`. The decision +
+// stamp happen in one statement so concurrent callers emit at most one event
+// per window. A fresh insert or a window-elapsed update returns a row (emit);
+// a conflict whose WHERE filtered the update (seen within the window) returns
+// no row → pgx.ErrNoRows → throttle.
+func (p *PG) RecordFlowDriftSeen(ctx context.Context, clusterID uuid.UUID, flowKey string, within time.Duration) (bool, error) {
+	var emit bool
+	err := p.pool.QueryRow(ctx,
+		`INSERT INTO flow_drift_seen (cluster_id, flow_key, last_seen_at)
+		 VALUES ($1, $2, NOW())
+		 ON CONFLICT (cluster_id, flow_key) DO UPDATE
+		   SET last_seen_at = NOW()
+		   WHERE flow_drift_seen.last_seen_at < NOW() - $3::interval
+		 RETURNING true`,
+		clusterID, flowKey, within.String()).Scan(&emit)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Conflict whose WHERE filtered out the update (seen within window) →
+		// no row returned → throttle, do not emit.
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("record flow drift seen: %w", err)
+	}
+	return emit, nil
+}
+
+// ListClustersWithFlowReferences returns clusters with >=1 reference row.
+func (p *PG) ListClustersWithFlowReferences(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := p.pool.Query(ctx,
+		`SELECT DISTINCT cluster_id FROM cluster_flow_references ORDER BY cluster_id`)
+	if err != nil {
+		return nil, fmt.Errorf("list clusters with flow references: %w", err)
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan cluster id: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate cluster ids: %w", err)
+	}
+	return out, nil
 }

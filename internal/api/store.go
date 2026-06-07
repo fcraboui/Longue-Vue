@@ -832,6 +832,13 @@ type Store interface {
 	UpdateFlowReference(ctx context.Context, id uuid.UUID, in FlowReferenceInput) (FlowReference, error)
 	DeleteFlowReference(ctx context.Context, id uuid.UUID) error
 	ReplaceFlowReferences(ctx context.Context, clusterID uuid.UUID, ins []FlowReferenceInput, createdBy *uuid.UUID) ([]FlowReference, error)
+
+	// RecordFlowDriftSeen marks (cluster, flowKey) as seen now and returns true
+	// when it was NOT seen within `within` (caller should then emit an audit
+	// event). Atomic upsert so concurrent reads emit at most once per window.
+	RecordFlowDriftSeen(ctx context.Context, clusterID uuid.UUID, flowKey string, within time.Duration) (bool, error)
+	// ListClustersWithFlowReferences returns cluster ids having >=1 reference row.
+	ListClustersWithFlowReferences(ctx context.Context) ([]uuid.UUID, error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by
