@@ -2145,3 +2145,65 @@ th.sortable:hover {
 .dict-label {
   font-size: var(--fs-sm);
 }
+
+/* ── Flow matrix (Flows tool) ─────────────────────── */
+.flow-pill {
+  display: inline-block;
+  font-size: var(--fs-2xs);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-md);
+  letter-spacing: var(--ls-wide);
+  font-weight: var(--fw-medium);
+  background: var(--bg-pill);
+  color: var(--fg-pill);
+  border: 1px solid transparent;
+}
+.flow-pill--conforme {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  border-color: var(--ok-border);
+}
+.flow-pill--non_declare {
+  background: var(--bad-bg);
+  color: var(--bad-fg);
+  border-color: var(--bad-border);
+}
+.flow-pill--manquant {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: var(--warn-border);
+}
+.flow-pill--large_ouvert {
+  background: transparent;
+  color: var(--warn-fg);
+  border: 1px dotted var(--warn-fg);
+}
+
+.flow-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.flow-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.flow-filter-pill {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 0.1rem;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.flow-filter-pill--active {
+  opacity: 1;
+  border-color: var(--accent-dim);
+}
+.flow-arrow {
+  text-align: center;
+  width: 1.5rem;
+}
