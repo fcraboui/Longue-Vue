@@ -1,0 +1,32 @@
+{{- if .Values.flowMatrix.prometheusRules.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "longue-vue.fullname" . }}-flowmatrix
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "longue-vue.labels" . | nindent 4 }}
+    {{- with .Values.flowMatrix.prometheusRules.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: flow-matrix
+      rules:
+        - alert: FlowMatrixUndeclaredOpenIncrease
+          expr: increase(longue_vue_flow_states{state="non_declare"}[1h]) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Undeclared network flow appeared on cluster {{`{{ $labels.cluster }}`}}"
+            description: "A non_declare flow was synthesized in the last hour — actual posture diverges from the declared matrix."
+        - alert: FlowMatrixWideOpen
+          expr: longue_vue_flow_states{state="large_ouvert"} > 0
+          for: 24h
+          labels:
+            severity: info
+          annotations:
+            summary: "Wide-open flow on cluster {{`{{ $labels.cluster }}`}} for >24h"
+            description: "A large_ouvert flow (K8s default-allow or 0.0.0.0/0 SG peer) has persisted for over 24h — hardening recommended."
+{{- end }}
