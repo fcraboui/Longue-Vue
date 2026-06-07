@@ -7,6 +7,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// FlowReference is one operator-declared row of the reference flow matrix for a
+// cluster: an expected perimeter or internal flow the synthesizer matches
+// discovered rules against.
 type FlowReference struct {
 	ID            uuid.UUID  `json:"id"`
 	ClusterID     uuid.UUID  `json:"cluster_id"`
@@ -25,6 +28,7 @@ type FlowReference struct {
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
+// FlowReferenceInput is the create/update payload for a FlowReference.
 type FlowReferenceInput struct {
 	Layer         string `json:"layer" yaml:"layer"`
 	Direction     string `json:"direction" yaml:"direction"`
@@ -38,6 +42,11 @@ type FlowReferenceInput struct {
 	Justification string `json:"justification" yaml:"justification"`
 }
 
+// Validate enforces the layer/endpoint_group invariants and the required
+// justification for a FlowReferenceInput. Errors wrap ErrConflict. The value
+// receiver is intentional (read-only check on inline-constructed inputs).
+//
+//nolint:gocritic // hugeParam: value receiver is intentional, see doc above.
 func (in FlowReferenceInput) Validate() error {
 	if in.Justification == "" {
 		return fmt.Errorf("justification is required: %w", ErrConflict)

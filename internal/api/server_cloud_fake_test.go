@@ -1332,10 +1332,12 @@ func (m *memStore) ListFlowReferences(_ context.Context, _ uuid.UUID) ([]FlowRef
 	return nil, nil
 }
 
+//nolint:gocritic // hugeParam: fake mirrors the Store interface signature.
 func (m *memStore) CreateFlowReference(_ context.Context, _ uuid.UUID, _ FlowReferenceInput, _ *uuid.UUID) (FlowReference, error) {
 	return FlowReference{}, nil
 }
 
+//nolint:gocritic // hugeParam: fake mirrors the Store interface signature.
 func (m *memStore) UpdateFlowReference(_ context.Context, _ uuid.UUID, _ FlowReferenceInput) (FlowReference, error) {
 	return FlowReference{}, ErrNotFound
 }

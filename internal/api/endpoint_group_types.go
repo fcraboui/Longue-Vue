@@ -6,6 +6,8 @@ import (
 	"github.com/google/uuid"
 )
 
+// EndpointGroup is an operator-curated, named set of CIDRs referenced by flow
+// references and used by the flow-matrix synthesizer to match perimeter peers.
 type EndpointGroup struct {
 	ID        uuid.UUID  `json:"id"`
 	Name      string     `json:"name"`
@@ -16,6 +18,7 @@ type EndpointGroup struct {
 	UpdatedAt time.Time  `json:"updated_at"`
 }
 
+// EndpointGroupInput is the create/update payload for an EndpointGroup.
 type EndpointGroupInput struct {
 	Name  string   `json:"name"`
 	Notes string   `json:"notes"`
