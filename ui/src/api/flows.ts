@@ -70,6 +70,24 @@ export class FlowMatrixDisabledError extends Error {
   }
 }
 
+// parseProblem extracts an RFC 7807 problem+json `detail` (or `title`) from
+// a non-ok response body, falling back to the HTTP status text. Shared by
+// every flows helper so 4xx validation errors surface the server message.
+async function parseProblem(res: Response): Promise<string> {
+  let detail = res.statusText;
+  try {
+    const body = await res.json();
+    if (body && typeof body.detail === 'string') {
+      detail = body.detail;
+    } else if (body && typeof body.title === 'string') {
+      detail = body.title;
+    }
+  } catch {
+    // Non-JSON body — keep statusText.
+  }
+  return detail;
+}
+
 // getClusterFlowMatrix fetches the read-time synthesis for one cluster.
 // A 409 (feature disabled) is translated into a FlowMatrixDisabledError;
 // every other non-2xx surfaces as the shared ApiError.
@@ -78,21 +96,133 @@ export async function getClusterFlowMatrix(clusterId: string): Promise<Synthesis
     credentials: 'same-origin',
   });
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      if (body && typeof body.detail === 'string') {
-        detail = body.detail;
-      } else if (body && typeof body.title === 'string') {
-        detail = body.title;
-      }
-    } catch {
-      // Non-JSON body — keep statusText.
-    }
+    const detail = await parseProblem(res);
     if (res.status === 409) {
       throw new FlowMatrixDisabledError(detail);
     }
     throw new ApiError(res.status, detail);
   }
   return res.json() as Promise<Synthesis>;
+}
+
+// --- Reference matrix (operator-declared) -------------------------------
+//
+// The reference matrix is the operator's source of truth for "what flows
+// are allowed". The synthesis above compares the discovered posture against
+// these references. CRUD here is editor-scoped server-side.
+
+export type FlowLayer = 'perimeter' | 'internal';
+export type FlowDirection = 'ingress' | 'egress';
+export type FlowEndpointKind = 'workload' | 'service' | 'namespace' | 'endpoint_group';
+export type FlowProtocol = 'tcp' | 'udp' | 'icmp' | 'any';
+
+// FlowReferenceInput is the write shape (POST / PATCH body). It omits the
+// server-assigned id/cluster_id and the created_*/updated_* audit columns.
+export interface FlowReferenceInput {
+  layer: FlowLayer;
+  direction: FlowDirection;
+  src_kind: FlowEndpointKind;
+  src_ref: string;
+  dst_kind: FlowEndpointKind;
+  dst_ref: string;
+  protocol: FlowProtocol;
+  from_port?: number | null;
+  to_port?: number | null;
+  justification: string;
+}
+
+// FlowReference is one stored reference row.
+export interface FlowReference extends FlowReferenceInput {
+  id: string;
+  cluster_id: string;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// listFlowReferences returns every stored reference for one cluster.
+export async function listFlowReferences(
+  clusterId: string,
+): Promise<{ items: FlowReference[] }> {
+  const res = await fetch(`/v1/clusters/${clusterId}/flow-references`, {
+    credentials: 'same-origin',
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseProblem(res));
+  }
+  return res.json() as Promise<{ items: FlowReference[] }>;
+}
+
+// createFlowReference adds one reference. A 409 carries the server's
+// validation detail (e.g. "internal flows must not use endpoint_group").
+export async function createFlowReference(
+  clusterId: string,
+  input: FlowReferenceInput,
+): Promise<FlowReference> {
+  const res = await fetch(`/v1/clusters/${clusterId}/flow-references`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseProblem(res));
+  }
+  return res.json() as Promise<FlowReference>;
+}
+
+// updateFlowReference replaces one reference in place (full input body).
+export async function updateFlowReference(
+  id: string,
+  input: FlowReferenceInput,
+): Promise<FlowReference> {
+  const res = await fetch(`/v1/flow-references/${id}`, {
+    method: 'PATCH',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseProblem(res));
+  }
+  return res.json() as Promise<FlowReference>;
+}
+
+// deleteFlowReference removes one reference (204 on success).
+export async function deleteFlowReference(id: string): Promise<void> {
+  const res = await fetch(`/v1/flow-references/${id}`, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseProblem(res));
+  }
+}
+
+// importFlowReferencesYAML replaces every reference for a cluster with the
+// set parsed from a raw YAML document (sent as text/yaml). Destructive:
+// callers must confirm before invoking. Validation errors (4xx) surface
+// the server's per-row detail via ApiError so the editor can show
+// "row N: ..." messages.
+export async function importFlowReferencesYAML(
+  clusterId: string,
+  yaml: string,
+): Promise<{ items: FlowReference[] }> {
+  const res = await fetch(`/v1/clusters/${clusterId}/flow-references/import`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'text/yaml' },
+    body: yaml,
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseProblem(res));
+  }
+  return res.json() as Promise<{ items: FlowReference[] }>;
+}
+
+// exportFlowReferencesURL returns the GET path that streams the cluster's
+// references as a text/yaml document. Used as an <a href download> target
+// so the browser fetches it with the operator's session cookie.
+export function exportFlowReferencesURL(clusterId: string): string {
+  return `/v1/clusters/${clusterId}/flow-references/export`;
 }

@@ -13,6 +13,7 @@ import {
 import { PerimeterPanel } from '../components/flows/PerimeterPanel';
 import { InternalPanel } from '../components/flows/InternalPanel';
 import { StatePill } from '../components/flows/StatePill';
+import { ReferenceEditor } from '../components/flows/ReferenceEditor';
 
 // Flows — the top-level flow-matrix tool (R2 Task 11). An operator picks a
 // cluster; we fetch the read-time synthesis from
@@ -95,9 +96,15 @@ export default function Flows() {
 }
 
 function FlowMatrixView({ clusterId }: { clusterId: string }) {
-  // Re-fetch whenever the chosen cluster changes. The fetcher resolves to
-  // a discriminated result so the disabled (409) case renders distinctly
-  // from a hard error.
+  // synthesisKey bumps whenever the reference editor below mutates the
+  // declared matrix, forcing the synthesis to re-fetch so the
+  // classification pills reflect the new references live.
+  const [synthesisKey, setSynthesisKey] = useState(0);
+  const refetchSynthesis = () => setSynthesisKey((k) => k + 1);
+
+  // Re-fetch whenever the chosen cluster changes (or a reference edit
+  // bumps synthesisKey). The fetcher resolves to a discriminated result
+  // so the disabled (409) case renders distinctly from a hard error.
   const state = useResource<
     | { kind: 'ok'; synthesis: Synthesis }
     | { kind: 'disabled'; detail: string }
@@ -111,7 +118,7 @@ function FlowMatrixView({ clusterId }: { clusterId: string }) {
           }
           throw err;
         }),
-    [clusterId],
+    [clusterId, synthesisKey],
   );
 
   const [stateFilter, setStateFilter] = useState<Set<FlowState>>(new Set());
@@ -127,34 +134,42 @@ function FlowMatrixView({ clusterId }: { clusterId: string }) {
   };
 
   return (
-    <AsyncView state={state}>
-      {(result) => {
-        if (result.kind === 'disabled') {
+    <>
+      <AsyncView state={state}>
+        {(result) => {
+          if (result.kind === 'disabled') {
+            return (
+              <div className="banner banner-warn">
+                <span>
+                  The flow matrix feature is disabled. Enable{' '}
+                  <strong>flow_matrix_enabled</strong> in <strong>Admin &gt; Settings</strong>{' '}
+                  to use this tool.
+                </span>
+              </div>
+            );
+          }
           return (
-            <div className="banner banner-warn">
-              <span>
-                The flow matrix feature is disabled. Enable{' '}
-                <strong>flow_matrix_enabled</strong> in <strong>Admin &gt; Settings</strong>{' '}
-                to use this tool.
-              </span>
-            </div>
+            <FlowMatrixBody
+              synthesis={result.synthesis}
+              stateFilter={stateFilter}
+              direction={direction}
+              onToggleState={toggleState}
+              onDirection={setDirection}
+              onClear={() => {
+                setStateFilter(new Set());
+                setDirection('');
+              }}
+            />
           );
-        }
-        return (
-          <FlowMatrixBody
-            synthesis={result.synthesis}
-            stateFilter={stateFilter}
-            direction={direction}
-            onToggleState={toggleState}
-            onDirection={setDirection}
-            onClear={() => {
-              setStateFilter(new Set());
-              setDirection('');
-            }}
-          />
-        );
-      }}
-    </AsyncView>
+        }}
+      </AsyncView>
+
+      {/* The reference editor renders regardless of the synthesis state
+          (it has its own load/error handling). Editing references bumps
+          synthesisKey so the panels above re-classify against the new
+          declared matrix. */}
+      <ReferenceEditor clusterId={clusterId} onChange={refetchSynthesis} />
+    </>
   );
 }
 
