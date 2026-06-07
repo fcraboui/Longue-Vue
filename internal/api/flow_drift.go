@@ -29,23 +29,6 @@ import (
 // concrete protocol/port (the synthesizer left the port range empty).
 const driftAny = "any"
 
-// driftKeys returns a stable throttle key per non_declare flow in a synthesis.
-// Only non_declare counts as drift (large_ouvert = hardening recommendation,
-// manquant = coverage gap; neither is alerted as drift).
-//
-//nolint:gocritic // hugeParam: Synthesis passed by value mirrors the read-time comparator API; called once per request.
-func driftKeys(syn flowmatrix.Synthesis) []string {
-	var keys []string
-	all := append(append([]flowmatrix.Flow{}, syn.Perimeter...), syn.Internal...)
-	for i := range all {
-		if all[i].State != flowmatrix.StateNonDeclare {
-			continue
-		}
-		keys = append(keys, flowDriftKey(all[i]))
-	}
-	return keys
-}
-
 // flowDriftKey builds the per-flow throttle key. It is intentionally coarse
 // (direction|src|dst|proto|ports) so cosmetic differences don't defeat the
 // 24h throttle; it must match the key the PG layer keys its marker on.

@@ -1,10 +1,11 @@
 package api
 
 // Tests for the throttled flow_drift audit emitter (ADR-0036, R3 Task 2).
-// driftKeys is the pure selector (only non_declare flows count); emitFlowDrift
-// is exercised against the memStore fake, whose RecordFlowDriftSeen always
-// reports "emit" and whose InsertAuditEvent captures rows into
-// authState.auditEvents.
+// flowDriftKey builds the per-flow throttle key; emitFlowDrift is exercised
+// against the memStore fake, whose RecordFlowDriftSeen always reports "emit"
+// and whose InsertAuditEvent captures rows into authState.auditEvents.
+// emitFlowDrift's non_declare filtering is covered by
+// TestEmitFlowDrift_RecordsAuditEvent (mixed synthesis -> exactly one event).
 
 import (
 	"testing"
@@ -27,33 +28,10 @@ func nonDeclareSSH() flowmatrix.Flow {
 	}
 }
 
-func TestFlowDriftKeys_OnlyNonDeclare(t *testing.T) {
-	syn := flowmatrix.Synthesis{
-		ClusterID: "c1",
-		Perimeter: []flowmatrix.Flow{
-			nonDeclareSSH(),
-			{
-				Direction: "ingress",
-				Src:       flowmatrix.Endpoint{Name: "Internet"},
-				Dst:       flowmatrix.Endpoint{Name: "cluster"},
-				State:     flowmatrix.StateConforme,
-			},
-		},
-		Internal: []flowmatrix.Flow{
-			{
-				Direction: "egress",
-				Src:       flowmatrix.Endpoint{Name: "api"},
-				Dst:       flowmatrix.Endpoint{Name: "pg"},
-				State:     flowmatrix.StateLargeOuvert,
-			},
-		},
-	}
-	keys := driftKeys(syn)
-	if len(keys) != 1 {
-		t.Fatalf("driftKeys = %v, want exactly the one non_declare flow", keys)
-	}
-	if keys[0] != "ingress|Internet|cluster|tcp|22-22" {
-		t.Fatalf("key = %q", keys[0])
+func TestFlowDriftKey_PopulatedPorts(t *testing.T) {
+	// Concrete protocol + port range render into the key verbatim.
+	if got := flowDriftKey(nonDeclareSSH()); got != "ingress|Internet|cluster|tcp|22-22" {
+		t.Fatalf("flowDriftKey = %q", got)
 	}
 }
 
