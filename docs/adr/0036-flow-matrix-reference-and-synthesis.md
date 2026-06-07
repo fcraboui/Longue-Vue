@@ -76,6 +76,16 @@ R2 (reference matrix + synthesis) ships:
   (planned ADR-0037).
 - Migrations are renumbered relative to the umbrella spec because the
   toggle landed in R1 as 00052; R2 therefore starts at 00054.
+- Perimeter peers other than `cidr` (`sg_ref` / `self` / `prefix_list`)
+  are skipped in R2's synthesis -- only CIDR peers map to endpoint-group
+  zones. SG-ref-based perimeter flows are deferred to a later round.
+- `cluster_flow_references.src_ref` / `dst_ref` match endpoint groups and
+  workloads BY NAME (no FK). Deleting a still-referenced endpoint group
+  leaves references that resolve to the `Uncategorized` zone rather than
+  erroring -- the drift is surfaced in the synthesis, not blocked.
+- `updateFlowReference` exists in the API and the UI client, but the
+  reference editor UI is create/delete-only in R2; inline row edit is
+  deferred.
 
 ## References
 
