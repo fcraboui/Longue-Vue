@@ -41,6 +41,9 @@ func HandleClusterFlowMatrix(store Store) http.HandlerFunc {
 		}
 		out := flowmatrix.Synthesize(inputs)
 		out.Warnings = append(out.Warnings, warnings...)
+		// Best-effort: emit a throttled flow_drift audit event per
+		// non_declare flow. Never affects the synthesis response.
+		emitFlowDrift(r.Context(), store, clusterID, out)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
 	}
