@@ -10,11 +10,33 @@ func TestSynthesize_PerimeterConformeAndDrift(t *testing.T) {
 			{Name: "Corp-LAN", CIDRs: []string{"10.0.0.0/8"}},
 		},
 		PerimeterRules: []SGRule{
-			{RuleID: "sg1", Direction: "ingress", Port: PortRange{"tcp", p(443), p(443)}, PeerCIDR: "0.0.0.0/0", WideOpen: true, Summary: "sg ingress tcp/443 from 0.0.0.0/0"},
-			{RuleID: "sg2", Direction: "ingress", Port: PortRange{"tcp", p(22), p(22)}, PeerCIDR: "10.0.0.0/8", Summary: "sg ingress tcp/22 from 10.0.0.0/8"},
+			{
+				RuleID:    "sg1",
+				Direction: "ingress",
+				Port:      PortRange{"tcp", p(443), p(443)},
+				PeerCIDR:  "0.0.0.0/0",
+				WideOpen:  true,
+				Summary:   "sg ingress tcp/443 from 0.0.0.0/0",
+			},
+			{
+				RuleID:    "sg2",
+				Direction: "ingress",
+				Port:      PortRange{"tcp", p(22), p(22)},
+				PeerCIDR:  "10.0.0.0/8",
+				Summary:   "sg ingress tcp/22 from 10.0.0.0/8",
+			},
 		},
 		References: []Reference{
-			{ID: "r1", Layer: "perimeter", Direction: "ingress", SrcKind: "endpoint_group", SrcRef: "Internet", DstKind: "service", DstRef: "ingress-nginx", Port: PortRange{"tcp", p(22), p(22)}},
+			{
+				ID:        "r1",
+				Layer:     "perimeter",
+				Direction: "ingress",
+				SrcKind:   "endpoint_group",
+				SrcRef:    "Internet",
+				DstKind:   "service",
+				DstRef:    "ingress-nginx",
+				Port:      PortRange{"tcp", p(22), p(22)},
+			},
 		},
 	}
 
@@ -36,13 +58,38 @@ func TestSynthesize_InternalConformeAndManquant(t *testing.T) {
 		ClusterID: "c1",
 		InternalRules: []NetPolRule{
 			// Matches reference r-int1 -> conforme on the actual side.
-			{RuleID: "np1", Direction: "ingress", Port: PortRange{"tcp", p(8080), p(8080)}, SrcWorkload: "frontend", DstWorkload: "backend", Summary: "np ingress tcp/8080 frontend->backend"},
+			{
+				RuleID:      "np1",
+				Direction:   "ingress",
+				Port:        PortRange{"tcp", p(8080), p(8080)},
+				SrcWorkload: "frontend",
+				DstWorkload: "backend",
+				Summary:     "np ingress tcp/8080 frontend->backend",
+			},
 		},
 		References: []Reference{
 			// Implemented by np1 -> conforme on the actual row, no manquant.
-			{ID: "r-int1", Layer: "internal", Direction: "ingress", SrcKind: "workload", SrcRef: "frontend", DstKind: "workload", DstRef: "backend", Port: PortRange{"tcp", p(8080), p(8080)}},
+			{
+				ID:        "r-int1",
+				Layer:     "internal",
+				Direction: "ingress",
+				SrcKind:   "workload",
+				SrcRef:    "frontend",
+				DstKind:   "workload",
+				DstRef:    "backend",
+				Port:      PortRange{"tcp", p(8080), p(8080)},
+			},
 			// No matching actual NetPol rule -> emits a manquant row.
-			{ID: "r-int2", Layer: "internal", Direction: "ingress", SrcKind: "workload", SrcRef: "frontend", DstKind: "workload", DstRef: "database", Port: PortRange{"tcp", p(5432), p(5432)}},
+			{
+				ID:        "r-int2",
+				Layer:     "internal",
+				Direction: "ingress",
+				SrcKind:   "workload",
+				SrcRef:    "frontend",
+				DstKind:   "workload",
+				DstRef:    "database",
+				Port:      PortRange{"tcp", p(5432), p(5432)},
+			},
 		},
 	}
 
@@ -73,7 +120,8 @@ func TestSynthesize_InternalConformeAndManquant(t *testing.T) {
 }
 
 func findState(flows []Flow, sourceID string) State {
-	for _, f := range flows {
+	for i := range flows {
+		f := &flows[i]
 		for _, s := range f.Sources {
 			if s.ID == sourceID {
 				return f.State

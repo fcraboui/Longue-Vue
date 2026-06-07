@@ -30,6 +30,22 @@ func TestMatchEndpointGroup_MostSpecificWins(t *testing.T) {
 	}
 }
 
+func TestMatchEndpointGroup_SameFamilyNotContained(t *testing.T) {
+	// A query in the same IPv4 family as the group but outside its range must
+	// fall through to Uncategorized rather than spuriously matching.
+	m := NewEndpointGroupMatcher([]NamedCIDRGroup{
+		{Name: "Corp-LAN", CIDRs: []string{"192.168.0.0/16"}},
+	})
+	if got := m.Match("10.0.0.0/8"); got != Uncategorized {
+		t.Errorf("Match(10.0.0.0/8) = %q, want %q", got, Uncategorized)
+	}
+
+	// Cross-family query (IPv6) against an IPv4-only group is skipped by family.
+	if got := m.Match("2001:db8::/32"); got != Uncategorized {
+		t.Errorf("Match(2001:db8::/32) = %q, want %q", got, Uncategorized)
+	}
+}
+
 func TestMatchEndpointGroup_InvalidInputs(t *testing.T) {
 	// Invalid CIDR in a group is skipped; invalid query CIDR returns Uncategorized.
 	m := NewEndpointGroupMatcher([]NamedCIDRGroup{

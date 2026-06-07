@@ -8,6 +8,7 @@ package flowmatrix
 // State is the classification of one synthesized flow.
 type State string
 
+// State classification values for a synthesized flow.
 const (
 	StateConforme    State = "conforme"     // actual rule fully covered by a reference row
 	StateNonDeclare  State = "non_declare"  // actual flow with no matching reference — drift

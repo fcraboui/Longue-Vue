@@ -2,12 +2,15 @@ package flowmatrix
 
 // Synthesize is the pure comparator: given already-loaded inputs it produces
 // the per-cluster synthesis. No I/O — the handler loads Inputs from the Store.
+//
+//nolint:gocritic // hugeParam: Inputs passed by value keeps the public read-time comparator API simple; called once per request.
 func Synthesize(in Inputs) Synthesis {
 	m := NewEndpointGroupMatcher(in.Groups)
 	out := Synthesis{ClusterID: in.ClusterID}
 
 	perimRefPorts := map[string][]PortRange{}
-	for _, r := range in.References {
+	for i := range in.References {
+		r := &in.References[i]
 		if r.Layer != "perimeter" {
 			continue
 		}
@@ -35,7 +38,8 @@ func Synthesize(in Inputs) Synthesis {
 	}
 
 	intRefPorts := map[string][]PortRange{}
-	for _, r := range in.References {
+	for i := range in.References {
+		r := &in.References[i]
 		if r.Layer != "internal" {
 			continue
 		}
@@ -43,7 +47,8 @@ func Synthesize(in Inputs) Synthesis {
 		intRefPorts[key] = append(intRefPorts[key], r.Port)
 	}
 
-	for _, np := range in.InternalRules {
+	for i := range in.InternalRules {
+		np := &in.InternalRules[i]
 		refs := intRefPorts[np.Direction+"|"+np.SrcWorkload+"|"+np.DstWorkload]
 		wideOpen := np.WideOpenSide != ""
 		state := ClassifyActual(np.Port, refs, wideOpen)
@@ -58,15 +63,16 @@ func Synthesize(in Inputs) Synthesis {
 		})
 	}
 
-	out.Perimeter = appendUnimplemented(out.Perimeter, in.References, "perimeter", perimActuals(in, m))
-	out.Internal = appendUnimplemented(out.Internal, in.References, "internal", intActuals(in))
+	out.Perimeter = appendUnimplemented(out.Perimeter, in.References, "perimeter", perimActuals(&in, m))
+	out.Internal = appendUnimplemented(out.Internal, in.References, "internal", intActuals(&in))
 
 	return out
 }
 
-func perimActuals(in Inputs, m *EndpointGroupMatcher) map[string][]PortRange {
+func perimActuals(in *Inputs, m *EndpointGroupMatcher) map[string][]PortRange {
 	res := map[string][]PortRange{}
-	for _, sg := range in.PerimeterRules {
+	for i := range in.PerimeterRules {
+		sg := &in.PerimeterRules[i]
 		zone := m.Match(sg.PeerCIDR)
 		key := sg.Direction + "|" + zone
 		res[key] = append(res[key], sg.Port)
@@ -74,9 +80,10 @@ func perimActuals(in Inputs, m *EndpointGroupMatcher) map[string][]PortRange {
 	return res
 }
 
-func intActuals(in Inputs) map[string][]PortRange {
+func intActuals(in *Inputs) map[string][]PortRange {
 	res := map[string][]PortRange{}
-	for _, np := range in.InternalRules {
+	for i := range in.InternalRules {
+		np := &in.InternalRules[i]
 		key := np.Direction + "|" + np.SrcWorkload + "|" + np.DstWorkload
 		res[key] = append(res[key], np.Port)
 	}
@@ -84,7 +91,8 @@ func intActuals(in Inputs) map[string][]PortRange {
 }
 
 func appendUnimplemented(flows []Flow, refs []Reference, layer string, actuals map[string][]PortRange) []Flow {
-	for _, r := range refs {
+	for i := range refs {
+		r := &refs[i]
 		if r.Layer != layer {
 			continue
 		}
