@@ -1308,25 +1308,10 @@ func (m *memStore) PerimeterSecurityGroupsForCluster(_ context.Context, _ uuid.U
 	return nil, nil
 }
 
-func (m *memStore) ListEndpointGroups(_ context.Context) ([]EndpointGroup, error) {
-	return nil, nil
-}
-
-func (m *memStore) GetEndpointGroup(_ context.Context, _ uuid.UUID) (EndpointGroup, error) {
-	return EndpointGroup{}, ErrNotFound
-}
-
-func (m *memStore) CreateEndpointGroup(_ context.Context, _ EndpointGroupInput, _ *uuid.UUID) (EndpointGroup, error) {
-	return EndpointGroup{}, nil
-}
-
-func (m *memStore) UpdateEndpointGroup(_ context.Context, _ uuid.UUID, _ EndpointGroupInput) (EndpointGroup, error) {
-	return EndpointGroup{}, ErrNotFound
-}
-
-func (m *memStore) DeleteEndpointGroup(_ context.Context, _ uuid.UUID) error {
-	return ErrNotFound
-}
+// Endpoint-group fake store methods live in
+// server_endpoint_group_fake_test.go (real in-memory impl) so the handler
+// tests in endpoint_group_handlers_test.go can drive the full CRUD surface
+// without a Postgres dependency.
 
 // Flow-reference fake store methods live in
 // server_flow_reference_fake_test.go (real in-memory impl, mirroring the
