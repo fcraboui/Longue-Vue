@@ -11,6 +11,7 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+// ListEndpointGroups returns every endpoint group with its CIDRs, ordered by name.
 func (p *PG) ListEndpointGroups(ctx context.Context) ([]api.EndpointGroup, error) {
 	rows, err := p.pool.Query(ctx,
 		`SELECT id, name, COALESCE(notes,''), created_by, created_at, updated_at
@@ -55,9 +56,13 @@ func (p *PG) endpointGroupCIDRs(ctx context.Context, id uuid.UUID) ([]string, er
 		}
 		cidrs = append(cidrs, c)
 	}
-	return cidrs, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate cidrs: %w", err)
+	}
+	return cidrs, nil
 }
 
+// GetEndpointGroup returns one endpoint group with its CIDRs, or api.ErrNotFound.
 func (p *PG) GetEndpointGroup(ctx context.Context, id uuid.UUID) (api.EndpointGroup, error) {
 	var eg api.EndpointGroup
 	err := p.pool.QueryRow(ctx,
@@ -78,6 +83,8 @@ func (p *PG) GetEndpointGroup(ctx context.Context, id uuid.UUID) (api.EndpointGr
 	return eg, nil
 }
 
+// CreateEndpointGroup inserts an endpoint group and its CIDRs in one
+// transaction and returns the persisted record.
 func (p *PG) CreateEndpointGroup(ctx context.Context, in api.EndpointGroupInput, createdBy *uuid.UUID) (api.EndpointGroup, error) {
 	id := uuid.New()
 	tx, err := p.pool.Begin(ctx)
@@ -102,6 +109,8 @@ func (p *PG) CreateEndpointGroup(ctx context.Context, in api.EndpointGroupInput,
 	return p.GetEndpointGroup(ctx, id)
 }
 
+// UpdateEndpointGroup replaces an endpoint group's fields and CIDRs in one
+// transaction, returning api.ErrNotFound if the group does not exist.
 func (p *PG) UpdateEndpointGroup(ctx context.Context, id uuid.UUID, in api.EndpointGroupInput) (api.EndpointGroup, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
@@ -131,6 +140,8 @@ func (p *PG) UpdateEndpointGroup(ctx context.Context, id uuid.UUID, in api.Endpo
 	return p.GetEndpointGroup(ctx, id)
 }
 
+// DeleteEndpointGroup removes an endpoint group by id (CIDRs cascade),
+// returning api.ErrNotFound if no row was deleted.
 func (p *PG) DeleteEndpointGroup(ctx context.Context, id uuid.UUID) error {
 	ct, err := p.pool.Exec(ctx, `DELETE FROM endpoint_groups WHERE id=$1`, id)
 	if err != nil {

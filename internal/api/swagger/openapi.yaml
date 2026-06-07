@@ -2798,6 +2798,181 @@ paths:
                         vpc_id: { type: string }
                         rules:  { type: array, items: { $ref: "#/components/schemas/SecurityGroupRule" } }
 
+  /v1/clusters/{id}/flow-matrix:
+    get:
+      operationId: getClusterFlowMatrix
+      summary: Synthesized reference-vs-discovered flow matrix for a cluster
+      description: >-
+        Read-time synthesis (ADR-0036) comparing the cluster's discovered
+        perimeter security-group rules and internal NetworkPolicy rules against
+        the operator-declared reference matrix. Gated by the admin-settings
+        flow_matrix_enabled toggle; returns 409 when disabled.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterFlowMatrix"
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "409":
+          $ref: '#/components/responses/Conflict'
+
+  /v1/clusters/{id}/flow-references:
+    get:
+      operationId: listFlowReferences
+      summary: List a cluster's reference flow rows
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/FlowReference" } }
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createFlowReference
+      summary: Create a reference flow row
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlowReferenceInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlowReference"
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "409":
+          $ref: '#/components/responses/Conflict'
+
+  /v1/clusters/{id}/flow-references/export:
+    get:
+      operationId: exportFlowReferences
+      summary: Export a cluster's reference flow rows as YAML
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            text/yaml:
+              schema:
+                type: string
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/clusters/{id}/flow-references/import:
+    post:
+      operationId: importFlowReferences
+      summary: Replace a cluster's reference flow rows from a YAML document
+      description: >-
+        Replace-all import (ADR-0036 OQ-1): the posted YAML document fully
+        supersedes the cluster's existing reference rows. Every row is validated
+        before any write; a single invalid row fails the whole import with 409.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          text/yaml:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/FlowReference" } }
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "409":
+          $ref: '#/components/responses/Conflict'
+
+  /v1/flow-references/{id}:
+    patch:
+      operationId: updateFlowReference
+      summary: Update a reference flow row
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlowReferenceInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlowReference"
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+        "409":
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteFlowReference
+      summary: Delete a reference flow row
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          $ref: '#/components/responses/BadRequest'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
   /v1/application-blocks:
     get:
       tags: [application-blocks]
@@ -4790,6 +4965,105 @@ components:
         peer_sg_provider_id:  { type: string, nullable: true }
         peer_prefix_id:       { type: string, nullable: true }
         description:          { type: string }
+
+    FlowReference:
+      type: object
+      description: One operator-declared row of a cluster's reference flow matrix (ADR-0036).
+      required: [id, cluster_id, layer, direction, src_kind, src_ref, dst_kind, dst_ref, protocol, justification, created_at, updated_at]
+      properties:
+        id:            { type: string, format: uuid }
+        cluster_id:    { type: string, format: uuid }
+        layer:         { type: string, enum: [perimeter, internal] }
+        direction:     { type: string, enum: [ingress, egress] }
+        src_kind:      { type: string, enum: [workload, service, namespace, endpoint_group, cidr] }
+        src_ref:       { type: string }
+        dst_kind:      { type: string, enum: [workload, service, namespace, endpoint_group, cidr] }
+        dst_ref:       { type: string }
+        protocol:      { type: string, enum: [tcp, udp, icmp, any] }
+        from_port:     { type: integer, nullable: true }
+        to_port:       { type: integer, nullable: true }
+        justification: { type: string }
+        created_by:    { type: string, format: uuid, nullable: true }
+        created_at:    { type: string, format: date-time }
+        updated_at:    { type: string, format: date-time }
+
+    FlowReferenceInput:
+      type: object
+      description: >-
+        Create/update payload for a FlowReference. A perimeter flow needs
+        exactly one endpoint_group side; an internal flow must reference none.
+        Justification is required.
+      required: [layer, direction, src_kind, src_ref, dst_kind, dst_ref, protocol, justification]
+      properties:
+        layer:         { type: string, enum: [perimeter, internal] }
+        direction:     { type: string, enum: [ingress, egress] }
+        src_kind:      { type: string, enum: [workload, service, namespace, endpoint_group, cidr] }
+        src_ref:       { type: string }
+        dst_kind:      { type: string, enum: [workload, service, namespace, endpoint_group, cidr] }
+        dst_ref:       { type: string }
+        protocol:      { type: string, enum: [tcp, udp, icmp, any] }
+        from_port:     { type: integer, nullable: true }
+        to_port:       { type: integer, nullable: true }
+        justification: { type: string }
+
+    FlowMatrixPortRange:
+      type: object
+      description: Inclusive port span. from omitted means "any port".
+      required: [protocol]
+      properties:
+        protocol: { type: string, enum: [tcp, udp, icmp, any] }
+        from:     { type: integer }
+        to:       { type: integer }
+
+    FlowMatrixEndpoint:
+      type: object
+      required: [kind, name]
+      properties:
+        kind: { type: string, enum: [workload, service, namespace, endpoint_group, cidr] }
+        name: { type: string }
+        cidr: { type: string }
+
+    FlowMatrixSource:
+      type: object
+      description: One contributing rule for a synthesized flow.
+      required: [kind, id, summary]
+      properties:
+        kind:    { type: string, enum: [sg_rule, netpol_rule, reference] }
+        id:      { type: string }
+        summary: { type: string }
+
+    FlowMatrixFlow:
+      type: object
+      description: One synthesized cell of the flow matrix.
+      required: [layer, direction, src, dst, ports, state, sources]
+      properties:
+        layer:        { type: string, enum: [perimeter, internal] }
+        direction:    { type: string, enum: [ingress, egress] }
+        src:          { $ref: "#/components/schemas/FlowMatrixEndpoint" }
+        dst:          { $ref: "#/components/schemas/FlowMatrixEndpoint" }
+        ports:        { type: array, items: { $ref: "#/components/schemas/FlowMatrixPortRange" } }
+        state:        { type: string, enum: [conforme, non_declare, manquant, large_ouvert] }
+        reference_id: { type: string }
+        sources:      { type: array, items: { $ref: "#/components/schemas/FlowMatrixSource" } }
+
+    FlowMatrixWarning:
+      type: object
+      description: A non-fatal synthesis issue (e.g. a dangling reference).
+      required: [kind]
+      properties:
+        kind:         { type: string }
+        reference_id: { type: string }
+        ref:          { type: string }
+
+    ClusterFlowMatrix:
+      type: object
+      description: Full per-cluster flow-matrix synthesis result (ADR-0036).
+      required: [cluster_id, perimeter, internal, warnings]
+      properties:
+        cluster_id: { type: string }
+        perimeter:  { type: array, items: { $ref: "#/components/schemas/FlowMatrixFlow" } }
+        internal:   { type: array, items: { $ref: "#/components/schemas/FlowMatrixFlow" } }
+        warnings:   { type: array, items: { $ref: "#/components/schemas/FlowMatrixWarning" } }
 
     ServiceType:
       type: string

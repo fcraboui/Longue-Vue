@@ -24,6 +24,19 @@ output-options:
     # place and codegen doesn't emit a parallel struct. The generated
     # Workload.EffectiveDict field references this hand-written type.
     - EffectiveDICT
+    # Flow-matrix P2 (ADR-0036): cluster reference flow matrix. FlowReference +
+    # FlowReferenceInput are hand-written (internal/api/flow_reference_types.go);
+    # the ClusterFlowMatrix synthesis schemas only document the read-time JSON
+    # emitted by the hand-written handler (no Go struct is generated). All are
+    # excluded so codegen does not emit parallel/duplicate types into api.gen.go.
+    - FlowReference
+    - FlowReferenceInput
+    - ClusterFlowMatrix
+    - FlowMatrixFlow
+    - FlowMatrixEndpoint
+    - FlowMatrixPortRange
+    - FlowMatrixSource
+    - FlowMatrixWarning
   exclude-operation-ids:
     # The extract endpoints are hand-written handlers mounted directly on
     # the mux in cmd/longue-vue/main.go. Documented in openapi.yaml so
@@ -67,6 +80,19 @@ output-options:
     - getSecurityGroup
     - getWorkloadNetworkRules
     - getVirtualMachineNetworkRules
+    # Flow-matrix P2 (ADR-0036): hand-written handlers on the main mux
+    # (flow_matrix_handlers.go, flow_reference_handlers.go). Documented in
+    # openapi.yaml so they appear in Swagger UI; excluded from the strict
+    # server to avoid duplicate registration / duplicate-type conflicts.
+    # Endpoint-group + admin-settings routes follow the /v1/admin/settings
+    # precedent and are intentionally absent from the OpenAPI spec.
+    - getClusterFlowMatrix
+    - listFlowReferences
+    - createFlowReference
+    - exportFlowReferences
+    - importFlowReferences
+    - updateFlowReference
+    - deleteFlowReference
 generate:
   models: true
   std-http-server: true

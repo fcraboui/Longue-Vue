@@ -20,9 +20,14 @@ func scanFlowRef(row pgx.Row) (api.FlowReference, error) {
 	err := row.Scan(&r.ID, &r.ClusterID, &r.Layer, &r.Direction, &r.SrcKind, &r.SrcRef,
 		&r.DstKind, &r.DstRef, &r.Protocol, &r.FromPort, &r.ToPort, &r.Justification,
 		&r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
-	return r, err
+	if err != nil {
+		return r, fmt.Errorf("scan flow reference: %w", err)
+	}
+	return r, nil
 }
 
+// ListFlowReferences returns every reference flow row for a cluster, ordered
+// for stable display and export.
 func (p *PG) ListFlowReferences(ctx context.Context, clusterID uuid.UUID) ([]api.FlowReference, error) {
 	rows, err := p.pool.Query(ctx,
 		`SELECT `+flowRefCols+` FROM cluster_flow_references WHERE cluster_id=$1 ORDER BY layer, direction, src_ref, dst_ref`,
@@ -39,10 +44,22 @@ func (p *PG) ListFlowReferences(ctx context.Context, clusterID uuid.UUID) ([]api
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate flow references: %w", err)
+	}
+	return out, nil
 }
 
-func (p *PG) CreateFlowReference(ctx context.Context, clusterID uuid.UUID, in api.FlowReferenceInput, createdBy *uuid.UUID) (api.FlowReference, error) {
+// CreateFlowReference inserts a new reference flow row for a cluster and
+// returns the persisted record.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
+func (p *PG) CreateFlowReference(
+	ctx context.Context,
+	clusterID uuid.UUID,
+	in api.FlowReferenceInput,
+	createdBy *uuid.UUID,
+) (api.FlowReference, error) {
 	id := uuid.New()
 	row := p.pool.QueryRow(ctx,
 		`INSERT INTO cluster_flow_references
@@ -59,6 +76,10 @@ func (p *PG) CreateFlowReference(ctx context.Context, clusterID uuid.UUID, in ap
 	return r, nil
 }
 
+// UpdateFlowReference overwrites an existing reference flow row by id and
+// returns the updated record, or api.ErrNotFound if no such row exists.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpdateFlowReference(ctx context.Context, id uuid.UUID, in api.FlowReferenceInput) (api.FlowReference, error) {
 	row := p.pool.QueryRow(ctx,
 		`UPDATE cluster_flow_references SET
@@ -77,6 +98,8 @@ func (p *PG) UpdateFlowReference(ctx context.Context, id uuid.UUID, in api.FlowR
 	return r, nil
 }
 
+// DeleteFlowReference removes a reference flow row by id, returning
+// api.ErrNotFound if no row was deleted.
 func (p *PG) DeleteFlowReference(ctx context.Context, id uuid.UUID) error {
 	ct, err := p.pool.Exec(ctx, `DELETE FROM cluster_flow_references WHERE id=$1`, id)
 	if err != nil {
@@ -88,7 +111,14 @@ func (p *PG) DeleteFlowReference(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (p *PG) ReplaceFlowReferences(ctx context.Context, clusterID uuid.UUID, ins []api.FlowReferenceInput, createdBy *uuid.UUID) ([]api.FlowReference, error) {
+// ReplaceFlowReferences performs a replace-all import: every existing reference
+// row for the cluster is deleted and replaced by ins in a single transaction.
+func (p *PG) ReplaceFlowReferences(
+	ctx context.Context,
+	clusterID uuid.UUID,
+	ins []api.FlowReferenceInput,
+	createdBy *uuid.UUID,
+) ([]api.FlowReference, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin: %w", err)
@@ -97,7 +127,8 @@ func (p *PG) ReplaceFlowReferences(ctx context.Context, clusterID uuid.UUID, ins
 	if _, err := tx.Exec(ctx, `DELETE FROM cluster_flow_references WHERE cluster_id=$1`, clusterID); err != nil {
 		return nil, fmt.Errorf("clear references: %w", err)
 	}
-	for _, in := range ins {
+	for i := range ins {
+		in := &ins[i]
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO cluster_flow_references
 			   (id, cluster_id, layer, direction, src_kind, src_ref, dst_kind, dst_ref,

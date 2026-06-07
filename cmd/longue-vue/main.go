@@ -604,6 +604,39 @@ func buildHTTPServer(
 	mux.Handle("GET /v1/virtual-machines/{id}/network-rules",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleVMNetworkRules(pg)))))
 
+	// Cluster flow matrix (ADR-0036, R2 Task 10) — hand-written handlers.
+	// The synthesis endpoint is read-scope but gated inside the handler by
+	// flow_matrix_enabled (409 when disabled). Flow references are read for
+	// list/export and editor (write) scope for the mutating routes.
+	mux.Handle("GET /v1/clusters/{id}/flow-matrix",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleClusterFlowMatrix(pg)))))
+	mux.Handle("GET /v1/clusters/{id}/flow-references",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListFlowReferences(pg)))))
+	mux.Handle("GET /v1/clusters/{id}/flow-references/export",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleExportFlowReferences(pg)))))
+	mux.Handle("POST /v1/clusters/{id}/flow-references",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleCreateFlowReference(pg)))))
+	mux.Handle("POST /v1/clusters/{id}/flow-references/import",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleImportFlowReferences(pg)))))
+	mux.Handle("PATCH /v1/flow-references/{id}",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleUpdateFlowReference(pg)))))
+	mux.Handle("DELETE /v1/flow-references/{id}",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleDeleteFlowReference(pg)))))
+
+	// Endpoint groups (ADR-0036) — admin scope, hand-written. /v1/admin/*
+	// GETs are audited automatically by AuditMiddleware (shouldAudit), so the
+	// read routes omit the explicit auditWrap, matching /v1/admin/settings.
+	mux.Handle("GET /v1/admin/endpoint-groups",
+		requireScope(auth.ScopeAdmin)(cloudAuth(api.HandleListEndpointGroups(pg))))
+	mux.Handle("GET /v1/admin/endpoint-groups/{id}",
+		requireScope(auth.ScopeAdmin)(cloudAuth(api.HandleGetEndpointGroup(pg))))
+	mux.Handle("POST /v1/admin/endpoint-groups",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleCreateEndpointGroup(pg)))))
+	mux.Handle("PATCH /v1/admin/endpoint-groups/{id}",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleUpdateEndpointGroup(pg)))))
+	mux.Handle("DELETE /v1/admin/endpoint-groups/{id}",
+		requireScope(auth.ScopeAdmin)(cloudAuth(auditWrap(api.HandleDeleteEndpointGroup(pg)))))
+
 	// Application + ApplicationBlock routes (ADR-0029) — extracted to keep
 	// buildHTTPServer within the maintainability-index ceiling.
 	mountApplicationRoutes(mux, pg, requireScope, cloudAuth, auditWrap, cfg.extractMaxRows)
