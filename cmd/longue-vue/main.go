@@ -610,6 +610,12 @@ func buildHTTPServer(
 	// list/export and editor (write) scope for the mutating routes.
 	mux.Handle("GET /v1/clusters/{id}/flow-matrix",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleClusterFlowMatrix(pg)))))
+	// Flow-matrix extracts (R3 Task 4) — GET-but-audited via the shouldAudit
+	// allowlist (SNC ch.8 exfiltration evidence), capped at extractMaxRows.
+	mux.Handle("GET /v1/clusters/{id}/flow-matrix/extract",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleFlowMatrixExtract(pg, cfg.extractMaxRows)))))
+	mux.Handle("GET /v1/clusters/{id}/flow-matrix/extract.zip",
+		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleFlowMatrixExtractZip(pg, cfg.extractMaxRows)))))
 	mux.Handle("GET /v1/clusters/{id}/flow-references",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListFlowReferences(pg)))))
 	mux.Handle("GET /v1/clusters/{id}/flow-references/export",

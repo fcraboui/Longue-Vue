@@ -47,6 +47,18 @@ func (z *extractZIPWriter) AddCSV(name string, header []string) (*extractCSVWrit
 	return newExtractCSVWriter(w, header), nil
 }
 
+// AddJSON opens a new entry inside the ZIP and returns a raw io.Writer for
+// it (e.g. a JSON sidecar manifest). Same single-entry-at-a-time contract as
+// AddCSV: finish writing before the next AddCSV/AddJSON or Close().
+func (z *extractZIPWriter) AddJSON(name string) (io.Writer, error) {
+	w, err := z.zw.Create(name)
+	if err != nil {
+		return nil, fmt.Errorf("zip: create %s: %w", name, err)
+	}
+	z.files = append(z.files, name)
+	return w, nil
+}
+
 // SetRowCount records the number of rows for the given CSV (for the
 // README). Must be called before Close().
 func (z *extractZIPWriter) SetRowCount(name string, n int) {
