@@ -121,7 +121,7 @@ func (p *PG) ReplaceSecurityGroupRules(ctx context.Context, sgID uuid.UUID, rule
 func (p *PG) ListSecurityGroupRules(ctx context.Context, sgID uuid.UUID) ([]api.SecurityGroupRuleRow, error) {
 	const q = `
 		SELECT id, security_group_id, direction, protocol, from_port, to_port,
-		       peer_kind, COALESCE(host(peer_cidr), ''),
+		       peer_kind, COALESCE(text(peer_cidr), ''),
 		       COALESCE(peer_sg_provider_id, ''),
 		       COALESCE(peer_prefix_id, ''),
 		       COALESCE(description, '')
