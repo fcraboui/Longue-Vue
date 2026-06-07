@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.25.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.24.0...chart-longue-vue-v0.25.0) (2026-06-07)
+
+
+### Features
+
+* **chart:** sample flow-matrix PrometheusRule (disabled by default) ([84b7405](https://github.com/sthalbert/Longue-Vue/commit/84b74052f9d4090c40b5728df42087b82ab6bf93))
+* cluster flow matrix — perimeter SG + internal NetPol synthesis vs declared reference ([40ad8b3](https://github.com/sthalbert/Longue-Vue/commit/40ad8b34abb82592247883a77bafd1cab8ab7af2))
+
 ## [0.24.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.23.0...chart-longue-vue-v0.24.0) (2026-06-05)
 
 
