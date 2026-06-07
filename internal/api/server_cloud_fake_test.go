@@ -1327,3 +1327,23 @@ func (m *memStore) UpdateEndpointGroup(_ context.Context, _ uuid.UUID, _ Endpoin
 func (m *memStore) DeleteEndpointGroup(_ context.Context, _ uuid.UUID) error {
 	return ErrNotFound
 }
+
+func (m *memStore) ListFlowReferences(_ context.Context, _ uuid.UUID) ([]FlowReference, error) {
+	return nil, nil
+}
+
+func (m *memStore) CreateFlowReference(_ context.Context, _ uuid.UUID, _ FlowReferenceInput, _ *uuid.UUID) (FlowReference, error) {
+	return FlowReference{}, nil
+}
+
+func (m *memStore) UpdateFlowReference(_ context.Context, _ uuid.UUID, _ FlowReferenceInput) (FlowReference, error) {
+	return FlowReference{}, ErrNotFound
+}
+
+func (m *memStore) DeleteFlowReference(_ context.Context, _ uuid.UUID) error {
+	return ErrNotFound
+}
+
+func (m *memStore) ReplaceFlowReferences(_ context.Context, _ uuid.UUID, _ []FlowReferenceInput, _ *uuid.UUID) ([]FlowReference, error) {
+	return nil, nil
+}

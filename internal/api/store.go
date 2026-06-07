@@ -824,6 +824,14 @@ type Store interface {
 	CreateEndpointGroup(ctx context.Context, in EndpointGroupInput, createdBy *uuid.UUID) (EndpointGroup, error)
 	UpdateEndpointGroup(ctx context.Context, id uuid.UUID, in EndpointGroupInput) (EndpointGroup, error)
 	DeleteEndpointGroup(ctx context.Context, id uuid.UUID) error
+
+	// --- Cluster flow references (flow-matrix R2) -------------------------
+
+	ListFlowReferences(ctx context.Context, clusterID uuid.UUID) ([]FlowReference, error)
+	CreateFlowReference(ctx context.Context, clusterID uuid.UUID, in FlowReferenceInput, createdBy *uuid.UUID) (FlowReference, error)
+	UpdateFlowReference(ctx context.Context, id uuid.UUID, in FlowReferenceInput) (FlowReference, error)
+	DeleteFlowReference(ctx context.Context, id uuid.UUID) error
+	ReplaceFlowReferences(ctx context.Context, clusterID uuid.UUID, ins []FlowReferenceInput, createdBy *uuid.UUID) ([]FlowReference, error)
 }
 
 // HistoryRow is a single entry from a <kind>_history table, returned by
