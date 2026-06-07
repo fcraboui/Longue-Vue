@@ -433,6 +433,43 @@ func TestSweepSecurityGroups_FlowMatrixOff_IgnoresEnrichment(t *testing.T) {
 	}
 }
 
+// TestSweepSecurityGroups_FlowMatrixOff_MalformedAttachments verifies the
+// "legacy sweep unchanged" guarantee: with the flag OFF, a sweep body whose
+// `attachments` is malformed JSON (a string, not an array) must still return
+// the normal sweep success status (204). Because attachments are decoded
+// lazily inside the gated enrichment path, the malformed array can never 400
+// the always-on legacy delete-unseen sweep.
+func TestSweepSecurityGroups_FlowMatrixOff_MalformedAttachments(t *testing.T) {
+	resetCloudFake()
+	resetSGFake()
+
+	accID := uuid.New()
+	cloudFake.mu.Lock()
+	cloudFake.accounts[accID] = CloudAccount{
+		ID:       accID,
+		Provider: testProviderOutscale,
+		Name:     "sweep-fm-off-malformed",
+		Region:   testRegionEUWest2,
+		Status:   CloudAccountStatusActive,
+	}
+	cloudFake.mu.Unlock()
+
+	store := newMemStore() // flow_matrix_enabled defaults to false
+	caller := collectorCaller(&accID)
+	h := buildCloudMux(t, store, nil, caller)
+
+	body := map[string]any{
+		testFieldSeenSGIDs: []string{"sg-perimeter"},
+		"attachments":      "not-an-array", // malformed: a string, not []sgAttachmentWireEntry
+	}
+	rr := doReq(t, h, http.MethodPost,
+		"/v1/ingest/cloud-accounts/"+accID.String()+"/security-groups/sweep", body)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("legacy sweep must succeed despite malformed attachments: got %d %s",
+			rr.Code, rr.Body.String())
+	}
+}
+
 // TestIngest_VMUpsert_SGFailure_DoesNotFailVM verifies the best-effort contract:
 // even if the SG store returns an error, the VM ingest still returns 200.
 // (This is inherently covered by the memStore never returning errors, but we
