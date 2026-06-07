@@ -80,3 +80,41 @@ func TestEndpointGroups_CRUD(t *testing.T) {
 		t.Errorf("update after delete should be ErrNotFound, got %v", err)
 	}
 }
+
+// TestEndpointGroups_DuplicateName asserts the endpoint_groups.name UNIQUE
+// constraint surfaces as api.ErrConflict (mapped to 409 by the handler) rather
+// than a raw 500 from the leaked pgx error.
+func TestEndpointGroups_DuplicateName(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := t.Context()
+
+	if _, err := pg.CreateEndpointGroup(ctx, api.EndpointGroupInput{
+		Name:  "internet",
+		CIDRs: []string{"0.0.0.0/0"},
+	}, nil); err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+
+	_, err := pg.CreateEndpointGroup(ctx, api.EndpointGroupInput{
+		Name:  "internet",
+		CIDRs: []string{"10.0.0.0/8"},
+	}, nil)
+	if !errors.Is(err, api.ErrConflict) {
+		t.Fatalf("duplicate create: want api.ErrConflict, got %v", err)
+	}
+
+	// Updating a second group's name to collide must also conflict.
+	second, err := pg.CreateEndpointGroup(ctx, api.EndpointGroupInput{
+		Name:  "corp-lan",
+		CIDRs: []string{"10.0.0.0/8"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("second create: %v", err)
+	}
+	if _, err := pg.UpdateEndpointGroup(ctx, second.ID, api.EndpointGroupInput{
+		Name:  "internet",
+		CIDRs: []string{"10.0.0.0/8"},
+	}); !errors.Is(err, api.ErrConflict) {
+		t.Fatalf("duplicate update: want api.ErrConflict, got %v", err)
+	}
+}

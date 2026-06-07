@@ -60,6 +60,11 @@ func (m *memStore) GetEndpointGroup(_ context.Context, id uuid.UUID) (EndpointGr
 func (m *memStore) CreateEndpointGroup(_ context.Context, in EndpointGroupInput, createdBy *uuid.UUID) (EndpointGroup, error) {
 	endpointGroupFake.mu.Lock()
 	defer endpointGroupFake.mu.Unlock()
+	for _, id := range endpointGroupFake.order {
+		if endpointGroupFake.byID[id].Name == in.Name {
+			return EndpointGroup{}, ErrConflict
+		}
+	}
 	now := time.Now().UTC()
 	cidrs := append([]string(nil), in.CIDRs...)
 	eg := EndpointGroup{
@@ -82,6 +87,11 @@ func (m *memStore) UpdateEndpointGroup(_ context.Context, id uuid.UUID, in Endpo
 	eg, ok := endpointGroupFake.byID[id]
 	if !ok {
 		return EndpointGroup{}, ErrNotFound
+	}
+	for _, oid := range endpointGroupFake.order {
+		if oid != id && endpointGroupFake.byID[oid].Name == in.Name {
+			return EndpointGroup{}, ErrConflict
+		}
 	}
 	eg.Name = in.Name
 	eg.Notes = in.Notes

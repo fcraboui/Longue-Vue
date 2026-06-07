@@ -57,6 +57,10 @@ func HandleCreateEndpointGroup(store Store) http.HandlerFunc {
 		}
 		eg, err := store.CreateEndpointGroup(r.Context(), in, callerUserID(r))
 		if err != nil {
+			if errors.Is(err, ErrConflict) {
+				writeProblem(w, http.StatusConflict, "endpoint group name already exists", err.Error())
+				return
+			}
 			writeProblem(w, http.StatusInternalServerError, "create endpoint group", err.Error())
 			return
 		}
@@ -81,6 +85,10 @@ func HandleUpdateEndpointGroup(store Store) http.HandlerFunc {
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				writeProblem(w, http.StatusNotFound, "endpoint group not found", err.Error())
+				return
+			}
+			if errors.Is(err, ErrConflict) {
+				writeProblem(w, http.StatusConflict, "endpoint group name already exists", err.Error())
 				return
 			}
 			writeProblem(w, http.StatusInternalServerError, "update endpoint group", err.Error())

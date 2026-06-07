@@ -95,6 +95,28 @@ func TestEndpointGroupCreateList(t *testing.T) {
 	}
 }
 
+// TestEndpointGroupCreateDuplicateName covers the conflict contract: POSTing a
+// second group with a name already in use → 409 (the store maps the
+// endpoint_groups.name UNIQUE violation to ErrConflict; the uniqueness-enforcing
+// fake reproduces that for the handler path).
+func TestEndpointGroupCreateDuplicateName(t *testing.T) {
+	resetEndpointGroupFake()
+	store := newMemStore()
+	caller := editorCaller()
+	h := buildEndpointGroupMux(t, store, caller)
+
+	seedEndpointGroup(t, h, caller)
+
+	dup := map[string]any{
+		"name":  "corp-vpn",
+		"cidrs": []string{"172.16.0.0/12"},
+	}
+	rr := doReq(t, h, http.MethodPost, "/v1/admin/endpoint-groups", dup)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("duplicate create: want 409, got %d (body=%s)", rr.Code, rr.Body.String())
+	}
+}
+
 // TestEndpointGroupGetDelete covers get-unknown → 404, delete → 204, and
 // get-after-delete → 404.
 func TestEndpointGroupGetDelete(t *testing.T) {

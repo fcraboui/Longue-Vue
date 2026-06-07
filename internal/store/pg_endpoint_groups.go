@@ -95,6 +95,9 @@ func (p *PG) CreateEndpointGroup(ctx context.Context, in api.EndpointGroupInput,
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO endpoint_groups (id, name, notes, created_by) VALUES ($1,$2,$3,$4)`,
 		id, in.Name, in.Notes, createdBy); err != nil {
+		if isUniqueViolation(err) {
+			return api.EndpointGroup{}, fmt.Errorf("endpoint group name %q already exists: %w", in.Name, api.ErrConflict)
+		}
 		return api.EndpointGroup{}, fmt.Errorf("insert endpoint group: %w", err)
 	}
 	for _, c := range in.CIDRs {
@@ -120,6 +123,9 @@ func (p *PG) UpdateEndpointGroup(ctx context.Context, id uuid.UUID, in api.Endpo
 	ct, err := tx.Exec(ctx,
 		`UPDATE endpoint_groups SET name=$2, notes=$3, updated_at=NOW() WHERE id=$1`, id, in.Name, in.Notes)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return api.EndpointGroup{}, fmt.Errorf("endpoint group name %q already exists: %w", in.Name, api.ErrConflict)
+		}
 		return api.EndpointGroup{}, fmt.Errorf("update endpoint group: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
