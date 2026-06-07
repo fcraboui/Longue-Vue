@@ -6,6 +6,49 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.2.0](https://github.com/sthalbert/Longue-Vue/compare/v1.1.0...v1.2.0) (2026-06-07)
+
+
+### Features
+
+* **api:** add GET /v1/clusters/{id}/flow-matrix read-time synthesis (gated) ([6258156](https://github.com/sthalbert/Longue-Vue/commit/6258156ffd06a55d03eba4e5a0a1dd39d9de8a4d))
+* **api:** admin endpoint-group CRUD handlers ([0d34554](https://github.com/sthalbert/Longue-Vue/commit/0d34554f59c438c6a7db74a43db94d09b8a55628))
+* **api:** audited flow-matrix CSV/JSON/ZIP extracts (capped) ([1536b30](https://github.com/sthalbert/Longue-Vue/commit/1536b306607431d68e148d7db1be4cc0a9c82145))
+* **api:** flow-reference CRUD + YAML import/export (replace-all) ([b9e6eb8](https://github.com/sthalbert/Longue-Vue/commit/b9e6eb89e71a0be25e3735057e19734a28aab7fa))
+* **api:** throttled flow_drift audit events at synthesis time ([d2bcbc0](https://github.com/sthalbert/Longue-Vue/commit/d2bcbc0e0f2a14b4018388e52309d46a96b14436))
+* **api:** wire flow-matrix routes + OpenAPI (codegen-excluded) ([dd5502e](https://github.com/sthalbert/Longue-Vue/commit/dd5502ebd160ad10671dce1d7326319ab258ff78))
+* **chart:** sample flow-matrix PrometheusRule (disabled by default) ([84b7405](https://github.com/sthalbert/Longue-Vue/commit/84b74052f9d4090c40b5728df42087b82ab6bf93))
+* cluster flow matrix — perimeter SG + internal NetPol synthesis vs declared reference ([40ad8b3](https://github.com/sthalbert/Longue-Vue/commit/40ad8b34abb82592247883a77bafd1cab8ab7af2))
+* **db:** endpoint_groups + cluster_flow_references tables ([38e9598](https://github.com/sthalbert/Longue-Vue/commit/38e9598c9eae5bd46d7aafb04f5e733ba7d06e8c))
+* **db:** flow_drift_seen throttle table ([152968a](https://github.com/sthalbert/Longue-Vue/commit/152968af27661bf5713309133a3087093e4937ed))
+* **db:** vm_security_group_attachments table for node-VM SG links ([a452f2a](https://github.com/sthalbert/Longue-Vue/commit/a452f2ad6687c0c5b409a399537733cfd3165c9b))
+* **flowmatrix:** most-specific endpoint-group CIDR matcher ([e303119](https://github.com/sthalbert/Longue-Vue/commit/e303119666ec49262bedcf162a8664cb32744827))
+* **flowmatrix:** port-range coverage + state classifier ([9dbe005](https://github.com/sthalbert/Longue-Vue/commit/9dbe0051fbb8fd82b89893a26e8ef5a46bfd180e))
+* **flowmatrix:** read-time per-cluster synthesizer ([99e393f](https://github.com/sthalbert/Longue-Vue/commit/99e393f57a2a19b958dc096ef16962d35a32ca2e))
+* **ingest:** persist account SGs + node attachments on sweep, gated by flow_matrix_enabled ([f9b3a84](https://github.com/sthalbert/Longue-Vue/commit/f9b3a84c3435499b85d27cd77af3f714347d64b4))
+* **metrics:** scrape-time flow-matrix gauges (clusters with references only) ([54fa1a8](https://github.com/sthalbert/Longue-Vue/commit/54fa1a883e595e1083ce4d8f5240e010f2c737a6))
+* **settings:** add flow_matrix_enabled toggle (env-seeded, EOL pattern) ([409dbdc](https://github.com/sthalbert/Longue-Vue/commit/409dbdc4d43b2850cb67fc95a477b12e745b2c7f))
+* **store:** cluster_flow_references CRUD + replace-all ([23b7706](https://github.com/sthalbert/Longue-Vue/commit/23b77069701bb42288ff09553c51553c16525dcf))
+* **store:** endpoint_groups CRUD ([ba40553](https://github.com/sthalbert/Longue-Vue/commit/ba405531d3e3ad6edd1360166e8f46328d1d278b))
+* **store:** flow-drift throttle + clusters-with-references query ([ea2f888](https://github.com/sthalbert/Longue-Vue/commit/ea2f888ff19dc967e1c3247cd33453f1cd1f2ef3))
+* **store:** vm_security_group_attachments upsert + sweep + perimeter query ([8fd0fb1](https://github.com/sthalbert/Longue-Vue/commit/8fd0fb1dc0176070760b95b5b277d0cacd6eb40a))
+* **ui:** endpoint-group admin page ([8580581](https://github.com/sthalbert/Longue-Vue/commit/85805818382cb9c2ee692574a5f1c5583459db70))
+* **ui:** reference editor + YAML import/export in Flows tool ([24b7b02](https://github.com/sthalbert/Longue-Vue/commit/24b7b028602f9a41b2827dbe7623931f241746e1))
+* **ui:** top-level Flows tool with perimeter + internal synthesis panels ([512c0e0](https://github.com/sthalbert/Longue-Vue/commit/512c0e033507891a7fd69484f647275c4f7eddce))
+* **vm-collector/apiclient:** send account SGs + attachments on SG sweep ([f0bcc09](https://github.com/sthalbert/Longue-Vue/commit/f0bcc098cffb75c0b47829642ec395f3c9a2ca3e))
+* **vm-collector:** enumerate account SGs + emit node-VM SG attachments ([6357a4f](https://github.com/sthalbert/Longue-Vue/commit/6357a4fc0af5d00d080b605e7f57cb687abf21da))
+
+
+### Bug Fixes
+
+* **api:** map endpoint-group duplicate name to 409 conflict ([59af135](https://github.com/sthalbert/Longue-Vue/commit/59af135b57d19960987b49ac834837bd5db80bb2))
+* **ingest:** decode sweep attachments lazily so a malformed array can't 400 the legacy sweep ([e2acf9e](https://github.com/sthalbert/Longue-Vue/commit/e2acf9ef3c7b257f03bd25ba12cf4e180ff23f1c))
+* **lint:** flowmatrix gocritic hugeParam/rangeValCopy + golines ([bee85d4](https://github.com/sthalbert/Longue-Vue/commit/bee85d403da8af52341d25e52b5f70849bc60482))
+* **lint:** wrap SG-sweep signatures + reduce runOnce complexity ([f0f5e66](https://github.com/sthalbert/Longue-Vue/commit/f0f5e66ddf850d7c0c763667893657d0bb58ac45))
+* **openapi:** document flow-matrix extract endpoints (codegen-excluded) ([c07cbdf](https://github.com/sthalbert/Longue-Vue/commit/c07cbdff5fd7c6be782a785fe1769920202fa84d))
+* **test:** implement FindImageOrigin on mirror integration fake ([e8b2501](https://github.com/sthalbert/Longue-Vue/commit/e8b250141a042d65b876b0533fd111947c95acf5))
+* **vm-collector:** preserve node perimeter SGs in sweep seen-set when SG enumeration fails ([c0e8db6](https://github.com/sthalbert/Longue-Vue/commit/c0e8db67cfc2550c421d4a9aa7370b7d74ea84a1))
+
 ## [1.1.0](https://github.com/sthalbert/Longue-Vue/compare/v1.0.1...v1.1.0) (2026-06-05)
 
 
