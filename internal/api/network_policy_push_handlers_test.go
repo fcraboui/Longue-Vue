@@ -184,6 +184,20 @@ func TestCreateNetworkPolicy_ResponseBody(t *testing.T) {
 	}
 }
 
+func TestReconcileNetworkPolicies_403WithoutDeleteScope(t *testing.T) {
+	resetNPFake()
+	// editorCaller has {read, write} but NOT delete scope.
+	h := buildPushMux(t, newMemStore(), editorCaller())
+
+	rr := doReq(t, h, http.MethodPost, "/v1/network-policies/reconcile", map[string]any{
+		"namespace_id": uuid.New(),
+		"keep_names":   []string{},
+	})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status: want 403, got %d (body=%s)", rr.Code, rr.Body.String())
+	}
+}
+
 func TestReconcileNetworkPolicies_DeletesAbsentRows(t *testing.T) {
 	resetNPFake()
 	// Reconcile requires delete scope; adminCaller holds {read, write, delete, admin, audit}.

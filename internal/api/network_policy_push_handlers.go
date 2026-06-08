@@ -172,5 +172,9 @@ func (s *Server) ReconcileNetworkPolicies(
 	if err != nil {
 		return nil, fmt.Errorf("sweep: %w", err)
 	}
+	if deleted == 0 {
+		SetAuditSkipReason(ctx, "reconcile_empty")
+		SetAuditSkip(ctx)
+	}
 	return ReconcileNetworkPolicies200JSONResponse{Deleted: deleted}, nil
 }
