@@ -33,18 +33,12 @@ func newFakeNetPolStore() *fakeNetPolStore {
 }
 
 //nolint:gocritic // hugeParam: store.NetworkPolicy must match the NetPolStore interface signature
-func (f *fakeNetPolStore) UpsertNetworkPolicy(_ context.Context, np store.NetworkPolicy) (uuid.UUID, error) {
+func (f *fakeNetPolStore) UpsertNetworkPolicy(_ context.Context, np store.NetworkPolicy, rules []store.NetworkPolicyRule) (uuid.UUID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.upserts = append(f.upserts, np)
+	f.replaces[f.upsertID] = rules
 	return f.upsertID, nil
-}
-
-func (f *fakeNetPolStore) ReplaceNetworkPolicyRules(_ context.Context, policyID uuid.UUID, rules []store.NetworkPolicyRule) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.replaces[policyID] = rules
-	return nil
 }
 
 func (f *fakeNetPolStore) SweepNetworkPoliciesByNamespace(_ context.Context, nsID uuid.UUID, seen []string) error {

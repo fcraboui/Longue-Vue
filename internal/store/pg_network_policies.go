@@ -27,30 +27,6 @@ const npSelect = `
 	id, cluster_id, namespace_id, name,
 	pod_selector, policy_types, spec_raw`
 
-// UpsertNetworkPolicy inserts or updates by (cluster_id, namespace_id, name).
-// Returns the stable row ID. Collector callers use this on every tick.
-//
-// NOTE: prefer UpsertNetworkPolicyAtomic which writes the policy + its rules
-// in one transaction. This method exists for backward compatibility with the
-// pre-ADR-0038 NetPolStore interface and will be deleted in Task 9.
-//
-//nolint:gocritic // hugeParam: NetworkPolicy matches the legacy NetPolStore interface
-func (p *PG) UpsertNetworkPolicy(ctx context.Context, np NetworkPolicy) (uuid.UUID, error) {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("begin upsert network_policy: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	id, err := upsertNetworkPolicyTx(ctx, tx, np)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return uuid.Nil, fmt.Errorf("commit upsert network_policy: %w", err)
-	}
-	return id, nil
-}
-
 // GetNetworkPolicy returns ErrNotFound on miss. Satisfies api.Store.
 func (p *PG) GetNetworkPolicy(ctx context.Context, id uuid.UUID) (api.NetworkPolicyRow, error) {
 	const q = `SELECT ` + npSelect + ` FROM network_policies WHERE id = $1`
@@ -68,24 +44,6 @@ func (p *PG) GetNetworkPolicy(ctx context.Context, id uuid.UUID) (api.NetworkPol
 	return np, nil
 }
 
-// ReplaceNetworkPolicyRules deletes then inserts in one transaction.
-//
-// NOTE: prefer UpsertNetworkPolicyAtomic. Will be deleted in Task 9.
-func (p *PG) ReplaceNetworkPolicyRules(ctx context.Context, policyID uuid.UUID, rules []NetworkPolicyRule) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin replace network_policy_rules: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := replaceNetworkPolicyRulesTx(ctx, tx, policyID, rules); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit replace network_policy_rules: %w", err)
-	}
-	return nil
-}
-
 // NetworkPolicyExists returns true when a row matching (clusterID,
 // namespaceID, name) already exists. Used by CreateNetworkPolicy to
 // distinguish 201 (insert) from 200 (update) without re-reading the whole row.
@@ -101,18 +59,17 @@ func (p *PG) NetworkPolicyExists(
 	return exists, nil
 }
 
-// UpsertNetworkPolicyAtomic upserts the policy and replaces its rules in one
-// transaction — both writes commit together or neither does. This is the
-// canonical write path (ADR-0038) used by both the in-process collector and
-// the HTTP push handler.
+// UpsertNetworkPolicy upserts a NetworkPolicy by (cluster_id, namespace_id,
+// name) and replaces its rules atomically in one transaction (ADR-0038).
+// Used by both the in-process pull collector and the HTTP push handler.
 //
 //nolint:gocritic // hugeParam: NetworkPolicy mirrors the NetPolStore interface
-func (p *PG) UpsertNetworkPolicyAtomic(
+func (p *PG) UpsertNetworkPolicy(
 	ctx context.Context, np NetworkPolicy, rules []NetworkPolicyRule,
 ) (uuid.UUID, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("begin upsert network_policy atomic: %w", err)
+		return uuid.Nil, fmt.Errorf("begin upsert network_policy: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	id, err := upsertNetworkPolicyTx(ctx, tx, np)
@@ -123,7 +80,7 @@ func (p *PG) UpsertNetworkPolicyAtomic(
 		return uuid.Nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return uuid.Nil, fmt.Errorf("commit upsert network_policy atomic: %w", err)
+		return uuid.Nil, fmt.Errorf("commit upsert network_policy: %w", err)
 	}
 	return id, nil
 }

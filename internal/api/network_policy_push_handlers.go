@@ -62,7 +62,7 @@ func rowToAPINetworkPolicy(row *NetworkPolicyRow) (NetworkPolicy, error) {
 // CreateNetworkPolicy is the strict-server impl for POST /v1/network-policies.
 //
 // Scope: write. Returns 201 on first write, 200 on subsequent upsert.
-// The policy and its rules are persisted atomically via UpsertNetworkPolicyAtomic.
+// The policy and its rules are persisted atomically via UpsertNetworkPolicy.
 //
 //nolint:gocyclo // nil-guards for optional rule fields inflate the score; each branch is a single assignment
 func (s *Server) CreateNetworkPolicy(
@@ -126,7 +126,7 @@ func (s *Server) CreateNetworkPolicy(
 		return nil, fmt.Errorf("exists check: %w", err)
 	}
 
-	id, err := s.store.UpsertNetworkPolicyAtomic(ctx, np, rules)
+	id, err := s.store.UpsertNetworkPolicy(ctx, np, rules)
 	if err != nil {
 		return nil, fmt.Errorf("upsert: %w", err)
 	}

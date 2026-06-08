@@ -59,7 +59,7 @@ func TestUpsertNetworkPolicy_InsertAndUpdate(t *testing.T) {
 		PolicyTypes: []string{testStorePolicyIngress},
 		SpecRaw:     json.RawMessage(`{"podSelector":{"matchLabels":{"app":"api"}},"policyTypes":["Ingress"]}`),
 	}
-	id1, err := pg.UpsertNetworkPolicy(ctx, np)
+	id1, err := pg.UpsertNetworkPolicy(ctx, np, nil)
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestUpsertNetworkPolicy_InsertAndUpdate(t *testing.T) {
 	// Second upsert with same (cluster, ns, name) → same ID, updated columns.
 	np.SpecRaw = json.RawMessage(`{"policyTypes":["Ingress","Egress"]}`)
 	np.PolicyTypes = []string{"Ingress", "Egress"}
-	id2, err := pg.UpsertNetworkPolicy(ctx, np)
+	id2, err := pg.UpsertNetworkPolicy(ctx, np, nil)
 	if err != nil {
 		t.Fatalf("second upsert: %v", err)
 	}
@@ -91,78 +91,6 @@ func TestGetNetworkPolicy_NotFound(t *testing.T) {
 	}
 }
 
-func TestReplaceNetworkPolicyRules(t *testing.T) {
-	pg := newTestPG(t)
-	ctx := context.Background()
-
-	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "np-rules-cluster"})
-	if err != nil {
-		t.Fatalf("ensure cluster: %v", err)
-	}
-	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: testStoreNSDefault})
-	if err != nil {
-		t.Fatalf("upsert namespace: %v", err)
-	}
-	policyID, err := pg.UpsertNetworkPolicy(ctx, NetworkPolicy{
-		ClusterID:   *cluster.Id,
-		NamespaceID: *ns.Id,
-		Name:        "allow-web",
-		PodSelector: json.RawMessage(`{}`),
-		PolicyTypes: []string{testStorePolicyIngress},
-		SpecRaw:     json.RawMessage(`{}`),
-	})
-	if err != nil {
-		t.Fatalf("upsert policy: %v", err)
-	}
-
-	// Replace with 2 rules: one selector, one ip_block.
-	rules2 := []NetworkPolicyRule{
-		{
-			Direction:             testStoreDirIngress,
-			PeerKind:              "selector",
-			PeerPodSelector:       json.RawMessage(`{"matchLabels":{"app":"api"}}`),
-			PeerNamespaceSelector: json.RawMessage(`null`),
-			PeerIPBlockCIDR:       "",
-			PeerIPBlockExcept:     json.RawMessage(`null`),
-			Ports:                 json.RawMessage(`[{"port":80,"protocol":"TCP"}]`),
-		},
-		{
-			Direction:             testStoreDirIngress,
-			PeerKind:              "ip_block",
-			PeerPodSelector:       json.RawMessage(`null`),
-			PeerNamespaceSelector: json.RawMessage(`null`),
-			PeerIPBlockCIDR:       "10.0.0.0/8",
-			PeerIPBlockExcept:     json.RawMessage(`["10.1.0.0/16"]`),
-			Ports:                 json.RawMessage(`[]`),
-		},
-	}
-	if err := pg.ReplaceNetworkPolicyRules(ctx, policyID, rules2); err != nil {
-		t.Fatalf("replace 2 rules: %v", err)
-	}
-
-	got, err := pg.ListNetworkPolicyRules(ctx, policyID)
-	if err != nil {
-		t.Fatalf("list after 2: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("want 2 rules after first replace, got %d", len(got))
-	}
-
-	// Shrink to 1 rule.
-	rules1 := rules2[:1]
-	if err := pg.ReplaceNetworkPolicyRules(ctx, policyID, rules1); err != nil {
-		t.Fatalf("replace 1 rule: %v", err)
-	}
-
-	got, err = pg.ListNetworkPolicyRules(ctx, policyID)
-	if err != nil {
-		t.Fatalf("list after 1: %v", err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("want 1 rule after shrink, got %d", len(got))
-	}
-}
-
 func TestSweepNetworkPoliciesByNamespace_DeletesUnseen(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -183,7 +111,7 @@ func TestSweepNetworkPoliciesByNamespace_DeletesUnseen(t *testing.T) {
 		PodSelector: json.RawMessage(`{}`),
 		PolicyTypes: []string{testStorePolicyIngress},
 		SpecRaw:     json.RawMessage(`{}`),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("upsert kept: %v", err)
 	}
@@ -194,7 +122,7 @@ func TestSweepNetworkPoliciesByNamespace_DeletesUnseen(t *testing.T) {
 		PodSelector: json.RawMessage(`{}`),
 		PolicyTypes: []string{"Egress"},
 		SpecRaw:     json.RawMessage(`{}`),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("upsert gone: %v", err)
 	}
@@ -240,7 +168,7 @@ func TestListNetworkPoliciesByCluster_PaginatesByLimit(t *testing.T) {
 			PodSelector: json.RawMessage(`{}`),
 			PolicyTypes: []string{testStorePolicyIngress},
 			SpecRaw:     json.RawMessage(`{}`),
-		}); err != nil {
+		}, nil); err != nil {
 			t.Fatalf("upsert %s: %v", name, err)
 		}
 	}
@@ -313,12 +241,12 @@ func TestListNetworkPoliciesByCluster_PaginatesByLimit(t *testing.T) {
 	}
 }
 
-// TestUpsertNetworkPolicyAtomic_PersistsPolicyAndRules verifies the
-// happy-path persistence: after a successful atomic upsert, the policy
-// row is retrievable and all rules are stored. This is a regression
-// test, not a true atomicity test — verifying rollback on mid-tx
-// failure would require error injection (deferred).
-func TestUpsertNetworkPolicyAtomic_PersistsPolicyAndRules(t *testing.T) {
+// TestUpsertNetworkPolicy_PersistsPolicyAndRules verifies the happy-path
+// persistence: after a successful atomic upsert, the policy row is
+// retrievable and all rules are stored. This is a regression test, not a
+// true atomicity test — verifying rollback on mid-tx failure would
+// require error injection (deferred).
+func TestUpsertNetworkPolicy_PersistsPolicyAndRules(t *testing.T) {
 	ctx := t.Context()
 	pg := newTestPG(t)
 	clusterID, namespaceID := seedClusterAndNamespace(t, pg)
@@ -332,9 +260,9 @@ func TestUpsertNetworkPolicyAtomic_PersistsPolicyAndRules(t *testing.T) {
 		{Direction: "ingress", PeerKind: "ip_block", PeerIPBlockCIDR: "10.0.0.0/8", PeerIPBlockExcept: []byte(`[]`), Ports: []byte(`[]`)},
 	}
 
-	id, err := pg.UpsertNetworkPolicyAtomic(ctx, np, rules)
+	id, err := pg.UpsertNetworkPolicy(ctx, np, rules)
 	if err != nil {
-		t.Fatalf("UpsertNetworkPolicyAtomic: %v", err)
+		t.Fatalf("UpsertNetworkPolicy: %v", err)
 	}
 	if id == uuid.Nil {
 		t.Fatal("expected non-nil id")
@@ -357,9 +285,9 @@ func TestUpsertNetworkPolicyAtomic_PersistsPolicyAndRules(t *testing.T) {
 	}
 }
 
-// TestUpsertNetworkPolicyAtomic_ReplacesRulesIdempotently re-runs the atomic
+// TestUpsertNetworkPolicy_ReplacesRulesIdempotently re-runs the atomic
 // upsert with a different rule set and asserts the old rules are gone.
-func TestUpsertNetworkPolicyAtomic_ReplacesRulesIdempotently(t *testing.T) {
+func TestUpsertNetworkPolicy_ReplacesRulesIdempotently(t *testing.T) {
 	ctx := t.Context()
 	pg := newTestPG(t)
 	clusterID, namespaceID := seedClusterAndNamespace(t, pg)
@@ -368,7 +296,7 @@ func TestUpsertNetworkPolicyAtomic_ReplacesRulesIdempotently(t *testing.T) {
 		ClusterID: clusterID, NamespaceID: namespaceID, Name: "p1",
 		PodSelector: []byte(`{}`), PolicyTypes: []string{"Ingress"}, SpecRaw: []byte(`{}`),
 	}
-	_, err := pg.UpsertNetworkPolicyAtomic(ctx, np, []NetworkPolicyRule{
+	_, err := pg.UpsertNetworkPolicy(ctx, np, []NetworkPolicyRule{
 		{Direction: "ingress", PeerKind: "selector", PeerPodSelector: []byte(`{"a":1}`), Ports: []byte(`[]`)},
 		{Direction: "ingress", PeerKind: "selector", PeerPodSelector: []byte(`{"a":2}`), Ports: []byte(`[]`)},
 	})
@@ -376,7 +304,7 @@ func TestUpsertNetworkPolicyAtomic_ReplacesRulesIdempotently(t *testing.T) {
 		t.Fatalf("first upsert: %v", err)
 	}
 
-	id, err := pg.UpsertNetworkPolicyAtomic(ctx, np, []NetworkPolicyRule{
+	id, err := pg.UpsertNetworkPolicy(ctx, np, []NetworkPolicyRule{
 		{Direction: "egress", PeerKind: "ip_block", PeerIPBlockCIDR: "0.0.0.0/0", PeerIPBlockExcept: []byte(`[]`), Ports: []byte(`[]`)},
 	})
 	if err != nil {

@@ -823,10 +823,10 @@ type Store interface {
 	// whole row.
 	NetworkPolicyExists(ctx context.Context, clusterID, namespaceID uuid.UUID, name string) (bool, error)
 
-	// UpsertNetworkPolicyAtomic upserts the policy and replaces its rules in
-	// one transaction. Returns the stable row UUID. This is the canonical
-	// write path (ADR-0038).
-	UpsertNetworkPolicyAtomic(ctx context.Context, np NetworkPolicyRow, rules []NetworkPolicyRuleRow) (uuid.UUID, error)
+	// UpsertNetworkPolicy upserts the policy and replaces its rules in one
+	// transaction. Returns the stable row UUID. This is the canonical write
+	// path (ADR-0038).
+	UpsertNetworkPolicy(ctx context.Context, np NetworkPolicyRow, rules []NetworkPolicyRuleRow) (uuid.UUID, error)
 
 	// SweepNetworkPoliciesByNamespaceWithCount deletes any policy in the
 	// namespace not in the keep-list and returns the count of deleted rows.

@@ -1203,7 +1203,7 @@ func (m *memStore) NetworkPolicyExists(_ context.Context, clusterID, namespaceID
 }
 
 //nolint:gocritic // hugeParam: NetworkPolicyRow matches the Store interface; value copy is fine in test fake
-func (m *memStore) UpsertNetworkPolicyAtomic(_ context.Context, np NetworkPolicyRow, rules []NetworkPolicyRuleRow) (uuid.UUID, error) {
+func (m *memStore) UpsertNetworkPolicy(_ context.Context, np NetworkPolicyRow, rules []NetworkPolicyRuleRow) (uuid.UUID, error) {
 	id := upsertNetworkPolicyFake(np)
 	replaceNetworkPolicyRulesFake(id, rules)
 	return id, nil

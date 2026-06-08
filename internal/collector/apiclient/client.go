@@ -299,7 +299,7 @@ func (s *Store) DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespace
 
 // UpsertNetworkPolicy upserts a NetworkPolicy and its rules atomically via
 // POST /v1/network-policies (ADR-0038). Push-collector replacement for the
-// in-process *store.PG.UpsertNetworkPolicyAtomic method.
+// in-process *store.PG.UpsertNetworkPolicy method.
 //
 //nolint:gocritic // hugeParam: signature mirrors the NetPolStore interface
 func (s *Store) UpsertNetworkPolicy(

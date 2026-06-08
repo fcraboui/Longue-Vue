@@ -50,7 +50,7 @@ func buildPushMux(t *testing.T, store Store, caller *auth.Caller) http.Handler {
 // seedClusterAndNamespaceInMemStore inserts a minimal cluster and namespace
 // into the global memStore fakes and returns their UUIDs.
 // The push handler validates cluster_id + namespace_id via FK semantics in
-// the real DB, but the memStore's UpsertNetworkPolicyAtomic does not enforce
+// the real DB, but the memStore's UpsertNetworkPolicy does not enforce
 // FKs — so we only need real UUIDs for the round-trip assertions.
 func seedClusterAndNamespaceInMemStore(_ *testing.T) (clusterID, nsID uuid.UUID) {
 	return uuid.New(), uuid.New()
