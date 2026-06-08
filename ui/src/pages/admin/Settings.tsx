@@ -27,7 +27,9 @@ function SettingsForm({
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const toggle = async (field: 'eol_enabled' | 'mcp_enabled' | 'image_versions_enabled') => {
+  const toggle = async (
+    field: 'eol_enabled' | 'mcp_enabled' | 'image_versions_enabled' | 'flow_matrix_enabled',
+  ) => {
     setSaving(field);
     setError('');
     try {
@@ -62,6 +64,13 @@ function SettingsForm({
         enabled={settings.image_versions_enabled}
         saving={saving === 'image_versions_enabled'}
         onToggle={() => toggle('image_versions_enabled')}
+      />
+      <SettingToggle
+        label="Flow matrix"
+        description="Per-cluster comparison of the discovered network posture (perimeter security-group rules and internal NetworkPolicy rules) against the operator-declared reference matrix. Powers the Flows tool."
+        enabled={settings.flow_matrix_enabled}
+        saving={saving === 'flow_matrix_enabled'}
+        onToggle={() => toggle('flow_matrix_enabled')}
       />
       <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
         Last updated: {new Date(settings.updated_at).toLocaleString()}

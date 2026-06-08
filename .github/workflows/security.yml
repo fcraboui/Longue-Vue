@@ -36,7 +36,7 @@ jobs:
       - uses: securego/gosec@master
         with:
           args: -fmt sarif -out gosec.sarif -no-fail -exclude-generated ./...
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: gosec.sarif
           category: gosec
@@ -67,8 +67,8 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           limit-severities-for-sarif: true
-      - uses: github/codeql-action/upload-sarif@v3
-        if: always()
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('trivy-fs.sarif') != ''
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
@@ -82,8 +82,8 @@ jobs:
           output: trivy-config.sarif
           severity: HIGH,CRITICAL
           limit-severities-for-sarif: true
-      - uses: github/codeql-action/upload-sarif@v3
-        if: always()
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('trivy-config.sarif') != ''
         with:
           sarif_file: trivy-config.sarif
           category: trivy-config
@@ -106,6 +106,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v4
+        with:
+          # Route docker.io pulls through Google's public mirror so a
+          # transient registry-1.docker.io outage doesn't fail the scan.
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
       - name: Build image (local, no push)
         uses: docker/build-push-action@v7
         with:
@@ -125,8 +131,8 @@ jobs:
           ignore-unfixed: true
           limit-severities-for-sarif: true
           exit-code: "1"
-      - uses: github/codeql-action/upload-sarif@v3
-        if: always()
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles(format('trivy-image-{0}.sarif', matrix.image)) != ''
         with:
           sarif_file: trivy-image-${{ matrix.image }}.sarif
           category: trivy-image-${{ matrix.image }}

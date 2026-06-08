@@ -282,6 +282,7 @@ export interface Settings {
   eol_enabled: boolean;
   mcp_enabled: boolean;
   image_versions_enabled: boolean;
+  flow_matrix_enabled: boolean;
   updated_at: string;
 }
 
@@ -289,6 +290,7 @@ export interface SettingsPatch {
   eol_enabled?: boolean;
   mcp_enabled?: boolean;
   image_versions_enabled?: boolean;
+  flow_matrix_enabled?: boolean;
 }
 
 export function getSettings() {
