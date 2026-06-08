@@ -85,6 +85,21 @@ func (p *PG) ReplaceNetworkPolicyRules(ctx context.Context, policyID uuid.UUID, 
 	return nil
 }
 
+// NetworkPolicyExists returns true when a row matching (clusterID,
+// namespaceID, name) already exists. Used by CreateNetworkPolicy to
+// distinguish 201 (insert) from 200 (update) without re-reading the whole row.
+func (p *PG) NetworkPolicyExists(
+	ctx context.Context, clusterID, namespaceID uuid.UUID, name string,
+) (bool, error) {
+	const q = `SELECT EXISTS (SELECT 1 FROM network_policies
+	                          WHERE cluster_id=$1 AND namespace_id=$2 AND name=$3)`
+	var exists bool
+	if err := p.pool.QueryRow(ctx, q, clusterID, namespaceID, name).Scan(&exists); err != nil {
+		return false, fmt.Errorf("network_policy exists check: %w", err)
+	}
+	return exists, nil
+}
+
 // UpsertNetworkPolicyAtomic upserts the policy and replaces its rules in one
 // transaction — both writes commit together or neither does. This is the
 // canonical write path (ADR-0038) used by both the in-process collector and

@@ -1191,6 +1191,24 @@ func (m *memStore) ListNetworkPoliciesForWorkload(_ context.Context, namespaceID
 	return out, nil
 }
 
+func (m *memStore) NetworkPolicyExists(_ context.Context, clusterID, namespaceID uuid.UUID, name string) (bool, error) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	for _, np := range npFake.nps { //nolint:gocritic // rangeValCopy: test fake
+		if np.ClusterID == clusterID && np.NamespaceID == namespaceID && np.Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+//nolint:gocritic // hugeParam: NetworkPolicyRow matches the Store interface; value copy is fine in test fake
+func (m *memStore) UpsertNetworkPolicyAtomic(_ context.Context, np NetworkPolicyRow, rules []NetworkPolicyRuleRow) (uuid.UUID, error) {
+	id := upsertNetworkPolicyFake(np)
+	replaceNetworkPolicyRulesFake(id, rules)
+	return id, nil
+}
+
 // upsertNetworkPolicyFake inserts or updates a network policy in the fake
 // store. Keyed on (clusterID, namespaceID, name). Returns the stable UUID.
 // Used by handler tests to seed the in-memory store.
