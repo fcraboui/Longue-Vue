@@ -13,9 +13,9 @@ import (
 
 func TestIngestRoutes_Length(t *testing.T) {
 	t.Parallel()
-	// IngestRoutes must contain exactly 19 entries:
-	// 18 write paths + 1 verify (POST /v1/auth/verify).
-	const wantRoutes = 19
+	// IngestRoutes must contain exactly 21 entries:
+	// 20 write paths + 1 verify (POST /v1/auth/verify).
+	const wantRoutes = 21
 	if len(IngestRoutes) != wantRoutes {
 		t.Errorf("len(IngestRoutes) = %d; want %d", len(IngestRoutes), wantRoutes)
 	}
@@ -134,6 +134,27 @@ func TestIngestMux_VerifyReachable(t *testing.T) {
 	// Empty body = 400 (handler runs, validates, rejects). Not 404.
 	if rr.Code == http.StatusNotFound {
 		t.Errorf("POST /v1/auth/verify returned 404; want it to be reachable on ingest mux")
+	}
+}
+
+// TestIngestMux_NetworkPolicyRoutesRegistered asserts both ADR-0038 push routes
+// appear in IngestRoutes (complements the dynamic AllRegisteredRoutesReachHandler test).
+func TestIngestMux_NetworkPolicyRoutesRegistered(t *testing.T) {
+	t.Parallel()
+	foundCreate, foundReconcile := false, false
+	for _, r := range IngestRoutes {
+		if r.Method == http.MethodPost && r.Pattern == "/v1/network-policies" {
+			foundCreate = true
+		}
+		if r.Method == http.MethodPost && r.Pattern == "/v1/network-policies/reconcile" {
+			foundReconcile = true
+		}
+	}
+	if !foundCreate {
+		t.Errorf("IngestRoutes missing POST /v1/network-policies")
+	}
+	if !foundReconcile {
+		t.Errorf("IngestRoutes missing POST /v1/network-policies/reconcile")
 	}
 }
 

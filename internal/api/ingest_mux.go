@@ -1,8 +1,8 @@
 package api
 
 // IngestMux — the strict-write-only HTTP router served on longue-vue's mTLS-only
-// ingest listener (ADR-0016 §3). Registers exactly nineteen routes: the
-// eighteen writes the K8s push collector uses (POST/PATCH only — no GETs),
+// ingest listener (ADR-0016 §3). Registers exactly twenty-one routes: the
+// twenty writes the K8s push collector uses (POST/PATCH only — no GETs),
 // plus POST /v1/auth/verify which the DMZ ingest gateway calls to
 // short-circuit invalid tokens before they cross the firewall.
 //
@@ -55,6 +55,9 @@ var IngestRoutes = []struct {
 	{http.MethodPost, "/v1/persistentvolumes/reconcile"},
 	{http.MethodPost, "/v1/persistentvolumeclaims"},
 	{http.MethodPost, "/v1/persistentvolumeclaims/reconcile"},
+	// NetworkPolicy push surface (ADR-0038).
+	{http.MethodPost, "/v1/network-policies"},
+	{http.MethodPost, "/v1/network-policies/reconcile"},
 }
 
 // IngestMuxConfig wires the strict-server backend, the auth + audit
@@ -158,6 +161,10 @@ func dispatchByOperation(method, pattern string, wrapper *ServerInterfaceWrapper
 		return wrapper.CreatePersistentVolumeClaim
 	case "POST /v1/persistentvolumeclaims/reconcile":
 		return wrapper.ReconcilePersistentVolumeClaims
+	case "POST /v1/network-policies":
+		return wrapper.CreateNetworkPolicy
+	case "POST /v1/network-policies/reconcile":
+		return wrapper.ReconcileNetworkPolicies
 	}
 	// IngestRoutes carries an entry without a matching wrapper case —
 	// produce a deliberate 500 so the test suite catches the gap rather
