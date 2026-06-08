@@ -313,11 +313,12 @@ func TestListNetworkPoliciesByCluster_PaginatesByLimit(t *testing.T) {
 	}
 }
 
-// TestUpsertNetworkPolicyAtomic_CommitsPolicyAndRulesTogether verifies that
-// the new atomic method writes the policy row and its rules in one
-// transaction. The existing Upsert + ReplaceRules pair did two separate
-// transactions which could be torn by a crash between calls.
-func TestUpsertNetworkPolicyAtomic_CommitsPolicyAndRulesTogether(t *testing.T) {
+// TestUpsertNetworkPolicyAtomic_PersistsPolicyAndRules verifies the
+// happy-path persistence: after a successful atomic upsert, the policy
+// row is retrievable and all rules are stored. This is a regression
+// test, not a true atomicity test — verifying rollback on mid-tx
+// failure would require error injection (deferred).
+func TestUpsertNetworkPolicyAtomic_PersistsPolicyAndRules(t *testing.T) {
 	ctx := t.Context()
 	pg := newTestPG(t)
 	clusterID, namespaceID := seedClusterAndNamespace(t, pg)
