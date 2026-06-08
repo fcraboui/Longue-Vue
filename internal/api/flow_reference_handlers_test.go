@@ -72,6 +72,24 @@ func postRaw(t *testing.T, h http.Handler, path, contentType string, body []byte
 	return rr
 }
 
+// TestHandleListFlowReferences_EmptyEmitsEmptyArray guards the JSON contract:
+// a cluster with no references must return {"items": []}, never
+// {"items": null}. The ReferenceEditor reads `references.length` which would
+// crash on null and blank the Flows page.
+func TestHandleListFlowReferences_EmptyEmitsEmptyArray(t *testing.T) {
+	resetFlowRefFake()
+	store := newMemStore()
+	h := buildFlowRefMux(t, store, editorCaller())
+
+	rr := doReq(t, h, http.MethodGet, "/v1/clusters/"+uuid.New().String()+"/flow-references", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: want 200, got %d (body=%s)", rr.Code, rr.Body.String())
+	}
+	if got := rr.Body.String(); !strings.Contains(got, `"items":[]`) {
+		t.Errorf("want {\"items\":[]}, got: %s", got)
+	}
+}
+
 // TestFlowReferenceCreate_InvalidLayer asserts Validate is wired: an internal
 // flow that references an endpoint_group is rejected with 409.
 func TestFlowReferenceCreate_InvalidLayer(t *testing.T) {

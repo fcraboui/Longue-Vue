@@ -1,6 +1,10 @@
 package flowmatrix
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestSynthesize_PerimeterConformeAndDrift(t *testing.T) {
 	in := Inputs{
@@ -116,6 +120,26 @@ func TestSynthesize_InternalConformeAndManquant(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a manquant reference flow for r-int2")
+	}
+}
+
+// TestSynthesize_EmptyInputsEmitsEmptyJSONArrays guards the JSON contract that
+// the UI relies on: with no rules and no references, the synthesis must
+// encode perimeter/internal/warnings as empty arrays, never JSON `null`.
+// A nil slice in Go encodes as `null`, which crashes the Flows page render
+// (TypeError on `.filter` / `.length` / spread of null).
+func TestSynthesize_EmptyInputsEmitsEmptyJSONArrays(t *testing.T) {
+	out := Synthesize(Inputs{ClusterID: "c1"})
+
+	b, _ := json.Marshal(out)
+	got := string(b)
+	for _, key := range []string{`"perimeter":[]`, `"internal":[]`, `"warnings":[]`} {
+		if !strings.Contains(got, key) {
+			t.Errorf("missing %s in JSON; got: %s", key, got)
+		}
+	}
+	if strings.Contains(got, "null") {
+		t.Errorf("encoded null where array expected; got: %s", got)
 	}
 }
 

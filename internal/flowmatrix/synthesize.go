@@ -6,7 +6,14 @@ package flowmatrix
 //nolint:gocritic // hugeParam: Inputs passed by value keeps the public read-time comparator API simple; called once per request.
 func Synthesize(in Inputs) Synthesis {
 	m := NewEndpointGroupMatcher(in.Groups)
-	out := Synthesis{ClusterID: in.ClusterID}
+	// Pre-allocate the slices so an empty cluster encodes as JSON arrays
+	// rather than `null` (which the Flows UI would crash on).
+	out := Synthesis{
+		ClusterID: in.ClusterID,
+		Perimeter: []Flow{},
+		Internal:  []Flow{},
+		Warnings:  []Warning{},
+	}
 
 	perimRefPorts := map[string][]PortRange{}
 	for i := range in.References {
