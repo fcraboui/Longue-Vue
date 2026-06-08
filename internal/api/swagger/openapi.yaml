@@ -562,7 +562,7 @@ paths:
         Push-collector write path added by ADR-0038. The server upserts the
         policy by (cluster_id, namespace_id, name) and replaces its full rule
         set in one transaction. Returns 201 on insert, 200 on update.
-      operationId: CreateNetworkPolicy
+      operationId: createNetworkPolicy
       security:
         - BearerAuth: [write]
       requestBody:
@@ -601,7 +601,7 @@ paths:
         Push-collector reconcile path added by ADR-0038. Deletes every
         network_policies row in the given namespace whose name is not in
         keep_names. Rule rows cascade.
-      operationId: ReconcileNetworkPolicies
+      operationId: reconcileNetworkPolicies
       security:
         - BearerAuth: [delete]
         - SessionCookie: [delete]
@@ -616,11 +616,7 @@ paths:
           description: Sweep complete.
           content:
             application/json:
-              schema:
-                type: object
-                required: [deleted]
-                properties:
-                  deleted: { type: integer, format: int64 }
+              schema: { $ref: '#/components/schemas/ReconcileResult' }
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
