@@ -65,7 +65,11 @@ func (m *memStore) ListFlowReferences(_ context.Context, clusterID uuid.UUID) ([
 	flowRefFake.mu.Lock()
 	defer flowRefFake.mu.Unlock()
 	ids := flowRefFake.byClus[clusterID]
-	out := make([]FlowReference, 0, len(ids))
+	// Match pg_flow_references.go: return nil for empty so the handler is
+	// exercised against production-shaped output (the JSON contract guarantees
+	// arrays, not null — the handler must normalize).
+	//nolint:prealloc // intentionally nil when ids is empty to mirror PG behaviour
+	var out []FlowReference
 	for _, id := range ids {
 		out = append(out, flowRefFake.byID[id])
 	}

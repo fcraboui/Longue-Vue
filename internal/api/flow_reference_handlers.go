@@ -72,6 +72,9 @@ func HandleListFlowReferences(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusInternalServerError, "list flow references", err.Error())
 			return
 		}
+		if refs == nil {
+			refs = []FlowReference{}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"items": refs})
 	}
 }
