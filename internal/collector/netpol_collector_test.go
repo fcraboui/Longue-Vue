@@ -17,7 +17,6 @@ type fakeNetPolStore struct {
 	upserts  []store.NetworkPolicy
 	replaces map[uuid.UUID][]store.NetworkPolicyRule
 	sweeps   []sweepCall
-	upsertID uuid.UUID // id returned for every upsert (defaults to a fixed uuid)
 }
 
 type sweepCall struct {
@@ -28,7 +27,6 @@ type sweepCall struct {
 func newFakeNetPolStore() *fakeNetPolStore {
 	return &fakeNetPolStore{
 		replaces: make(map[uuid.UUID][]store.NetworkPolicyRule),
-		upsertID: uuid.New(),
 	}
 }
 
@@ -36,9 +34,10 @@ func newFakeNetPolStore() *fakeNetPolStore {
 func (f *fakeNetPolStore) UpsertNetworkPolicy(_ context.Context, np store.NetworkPolicy, rules []store.NetworkPolicyRule) (uuid.UUID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	id := uuid.New()
 	f.upserts = append(f.upserts, np)
-	f.replaces[f.upsertID] = rules
-	return f.upsertID, nil
+	f.replaces[id] = rules
+	return id, nil
 }
 
 func (f *fakeNetPolStore) SweepNetworkPoliciesByNamespace(_ context.Context, nsID uuid.UUID, seen []string) error {
@@ -184,7 +183,13 @@ func TestCollectNetworkPolicies_IPBlockPeer(t *testing.T) {
 		t.Fatalf("CollectNetworkPolicies: %v", err)
 	}
 
-	rules := st.replaces[st.upsertID]
+	if len(st.replaces) != 1 {
+		t.Fatalf("want 1 replace call, got %d", len(st.replaces))
+	}
+	var rules []store.NetworkPolicyRule
+	for _, r := range st.replaces {
+		rules = r
+	}
 	if len(rules) != 1 {
 		t.Fatalf("want 1 rule, got %d", len(rules))
 	}
