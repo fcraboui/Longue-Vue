@@ -29,25 +29,23 @@ const npSelect = `
 // UpsertNetworkPolicy inserts or updates by (cluster_id, namespace_id, name).
 // Returns the stable row ID. Collector callers use this on every tick.
 //
-//nolint:gocritic // hugeParam: NetworkPolicy matches the NetPolStore interface; changing to pointer would break callers
+// NOTE: prefer UpsertNetworkPolicyAtomic which writes the policy + its rules
+// in one transaction. This method exists for backward compatibility with the
+// pre-ADR-0038 NetPolStore interface and will be deleted in Task 9.
+//
+//nolint:gocritic // hugeParam: NetworkPolicy matches the legacy NetPolStore interface
 func (p *PG) UpsertNetworkPolicy(ctx context.Context, np NetworkPolicy) (uuid.UUID, error) {
-	const q = `
-		INSERT INTO network_policies
-			(cluster_id, namespace_id, name, pod_selector, policy_types, spec_raw, reconcile_seen_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW())
-		ON CONFLICT (cluster_id, namespace_id, name) DO UPDATE SET
-			pod_selector      = EXCLUDED.pod_selector,
-			policy_types      = EXCLUDED.policy_types,
-			spec_raw          = EXCLUDED.spec_raw,
-			reconcile_seen_at = NOW()
-		RETURNING id`
-	var id uuid.UUID
-	err := p.pool.QueryRow(ctx, q,
-		np.ClusterID, np.NamespaceID, np.Name, np.PodSelector,
-		np.PolicyTypes, np.SpecRaw,
-	).Scan(&id)
+	tx, err := p.pool.Begin(ctx)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("upsert network_policy: %w", err)
+		return uuid.Nil, fmt.Errorf("begin upsert network_policy: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	id, err := upsertNetworkPolicyTx(ctx, tx, np)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return uuid.Nil, fmt.Errorf("commit upsert network_policy: %w", err)
 	}
 	return id, nil
 }
@@ -70,27 +68,85 @@ func (p *PG) GetNetworkPolicy(ctx context.Context, id uuid.UUID) (api.NetworkPol
 }
 
 // ReplaceNetworkPolicyRules deletes then inserts in one transaction.
-// Rule sets are small + atomic; finer diff is over-engineering.
+//
+// NOTE: prefer UpsertNetworkPolicyAtomic. Will be deleted in Task 9.
 func (p *PG) ReplaceNetworkPolicyRules(ctx context.Context, policyID uuid.UUID, rules []NetworkPolicyRule) error {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin replace network_policy_rules: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := replaceNetworkPolicyRulesTx(ctx, tx, policyID, rules); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit replace network_policy_rules: %w", err)
+	}
+	return nil
+}
 
+// UpsertNetworkPolicyAtomic upserts the policy and replaces its rules in one
+// transaction — both writes commit together or neither does. This is the
+// canonical write path (ADR-0038) used by both the in-process collector and
+// the HTTP push handler.
+//
+//nolint:gocritic // hugeParam: NetworkPolicy mirrors the NetPolStore interface
+func (p *PG) UpsertNetworkPolicyAtomic(
+	ctx context.Context, np NetworkPolicy, rules []NetworkPolicyRule,
+) (uuid.UUID, error) {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("begin upsert network_policy atomic: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	id, err := upsertNetworkPolicyTx(ctx, tx, np)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if err := replaceNetworkPolicyRulesTx(ctx, tx, id, rules); err != nil {
+		return uuid.Nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return uuid.Nil, fmt.Errorf("commit upsert network_policy atomic: %w", err)
+	}
+	return id, nil
+}
+
+//nolint:gocritic // hugeParam: NetworkPolicy mirrors the NetPolStore interface
+func upsertNetworkPolicyTx(ctx context.Context, tx pgx.Tx, np NetworkPolicy) (uuid.UUID, error) {
+	const q = `
+		INSERT INTO network_policies
+			(cluster_id, namespace_id, name, pod_selector, policy_types, spec_raw, reconcile_seen_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		ON CONFLICT (cluster_id, namespace_id, name) DO UPDATE SET
+			pod_selector      = EXCLUDED.pod_selector,
+			policy_types      = EXCLUDED.policy_types,
+			spec_raw          = EXCLUDED.spec_raw,
+			reconcile_seen_at = NOW()
+		RETURNING id`
+	var id uuid.UUID
+	err := tx.QueryRow(ctx, q,
+		np.ClusterID, np.NamespaceID, np.Name, np.PodSelector,
+		np.PolicyTypes, np.SpecRaw,
+	).Scan(&id)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("upsert network_policy: %w", err)
+	}
+	return id, nil
+}
+
+func replaceNetworkPolicyRulesTx(ctx context.Context, tx pgx.Tx, policyID uuid.UUID, rules []NetworkPolicyRule) error {
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM network_policy_rules WHERE network_policy_id = $1`, policyID,
 	); err != nil {
 		return fmt.Errorf("delete network_policy_rules: %w", err)
 	}
-
 	const ins = `
 		INSERT INTO network_policy_rules
 		  (network_policy_id, direction, peer_kind, peer_pod_selector,
 		   peer_namespace_selector, peer_ip_block_cidr, peer_ip_block_except, ports)
 		VALUES ($1, $2, $3, $4, $5, NULLIF($6,'')::cidr, $7, $8)`
-
-	for _, r := range rules { //nolint:gocritic // rangeValCopy: NetworkPolicyRuleRow contains JSONB slices; shallow copy is acceptable here
+	for _, r := range rules { //nolint:gocritic // rangeValCopy: NetworkPolicyRuleRow contains JSONB slices
 		if _, err := tx.Exec(ctx, ins,
 			policyID, r.Direction, r.PeerKind,
 			r.PeerPodSelector, r.PeerNamespaceSelector,
@@ -98,10 +154,6 @@ func (p *PG) ReplaceNetworkPolicyRules(ctx context.Context, policyID uuid.UUID, 
 		); err != nil {
 			return fmt.Errorf("insert network_policy_rule: %w", err)
 		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit replace network_policy_rules: %w", err)
 	}
 	return nil
 }

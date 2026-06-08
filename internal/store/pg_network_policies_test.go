@@ -12,6 +12,22 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+// seedClusterAndNamespace creates a cluster and namespace for use in
+// network policy tests, following the pattern used in pg_test.go.
+func seedClusterAndNamespace(t *testing.T, pg *PG) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "np-atomic-" + uuid.New().String()})
+	if err != nil {
+		t.Fatalf("seedClusterAndNamespace: ensure cluster: %v", err)
+	}
+	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	if err != nil {
+		t.Fatalf("seedClusterAndNamespace: upsert namespace: %v", err)
+	}
+	return *cluster.Id, *ns.Id
+}
+
 const (
 	testStoreNSProd        = "prod"
 	testStoreNSDefault     = "default"
@@ -294,5 +310,86 @@ func TestListNetworkPoliciesByCluster_PaginatesByLimit(t *testing.T) {
 
 	if totalFetched != 5 {
 		t.Fatalf("total fetched=%d, want 5", totalFetched)
+	}
+}
+
+// TestUpsertNetworkPolicyAtomic_CommitsPolicyAndRulesTogether verifies that
+// the new atomic method writes the policy row and its rules in one
+// transaction. The existing Upsert + ReplaceRules pair did two separate
+// transactions which could be torn by a crash between calls.
+func TestUpsertNetworkPolicyAtomic_CommitsPolicyAndRulesTogether(t *testing.T) {
+	ctx := t.Context()
+	pg := newTestPG(t)
+	clusterID, namespaceID := seedClusterAndNamespace(t, pg)
+
+	np := NetworkPolicy{
+		ClusterID: clusterID, NamespaceID: namespaceID, Name: "deny-all-ingress",
+		PodSelector: []byte(`{}`), PolicyTypes: []string{"Ingress"}, SpecRaw: []byte(`{}`),
+	}
+	rules := []NetworkPolicyRule{
+		{Direction: "ingress", PeerKind: "selector", PeerPodSelector: []byte(`{}`), Ports: []byte(`[]`)},
+		{Direction: "ingress", PeerKind: "ip_block", PeerIPBlockCIDR: "10.0.0.0/8", PeerIPBlockExcept: []byte(`[]`), Ports: []byte(`[]`)},
+	}
+
+	id, err := pg.UpsertNetworkPolicyAtomic(ctx, np, rules)
+	if err != nil {
+		t.Fatalf("UpsertNetworkPolicyAtomic: %v", err)
+	}
+	if id == uuid.Nil {
+		t.Fatal("expected non-nil id")
+	}
+
+	got, err := pg.GetNetworkPolicy(ctx, id)
+	if err != nil {
+		t.Fatalf("GetNetworkPolicy: %v", err)
+	}
+	if got.Name != np.Name {
+		t.Errorf("name: got %q, want %q", got.Name, np.Name)
+	}
+
+	gotRules, err := pg.ListNetworkPolicyRules(ctx, id)
+	if err != nil {
+		t.Fatalf("ListNetworkPolicyRules: %v", err)
+	}
+	if len(gotRules) != 2 {
+		t.Errorf("rule count: got %d, want 2", len(gotRules))
+	}
+}
+
+// TestUpsertNetworkPolicyAtomic_ReplacesRulesIdempotently re-runs the atomic
+// upsert with a different rule set and asserts the old rules are gone.
+func TestUpsertNetworkPolicyAtomic_ReplacesRulesIdempotently(t *testing.T) {
+	ctx := t.Context()
+	pg := newTestPG(t)
+	clusterID, namespaceID := seedClusterAndNamespace(t, pg)
+
+	np := NetworkPolicy{
+		ClusterID: clusterID, NamespaceID: namespaceID, Name: "p1",
+		PodSelector: []byte(`{}`), PolicyTypes: []string{"Ingress"}, SpecRaw: []byte(`{}`),
+	}
+	_, err := pg.UpsertNetworkPolicyAtomic(ctx, np, []NetworkPolicyRule{
+		{Direction: "ingress", PeerKind: "selector", PeerPodSelector: []byte(`{"a":1}`), Ports: []byte(`[]`)},
+		{Direction: "ingress", PeerKind: "selector", PeerPodSelector: []byte(`{"a":2}`), Ports: []byte(`[]`)},
+	})
+	if err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+
+	id, err := pg.UpsertNetworkPolicyAtomic(ctx, np, []NetworkPolicyRule{
+		{Direction: "egress", PeerKind: "ip_block", PeerIPBlockCIDR: "0.0.0.0/0", PeerIPBlockExcept: []byte(`[]`), Ports: []byte(`[]`)},
+	})
+	if err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+
+	rules, err := pg.ListNetworkPolicyRules(ctx, id)
+	if err != nil {
+		t.Fatalf("ListNetworkPolicyRules: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("rule count after 2nd upsert: got %d, want 1; rules=%+v", len(rules), rules)
+	}
+	if rules[0].Direction != "egress" {
+		t.Errorf("rule direction: got %q, want egress", rules[0].Direction)
 	}
 }
