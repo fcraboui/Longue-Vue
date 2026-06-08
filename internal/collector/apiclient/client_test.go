@@ -408,3 +408,31 @@ func TestStore_UpsertNetworkPolicy(t *testing.T) {
 	}
 }
 
+func TestStore_SweepNetworkPoliciesByNamespace(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"deleted": 2})
+	}))
+	defer srv.Close()
+
+	s := newTestStore(t, srv, nil)
+	nsID := uuid.New()
+	if err := s.SweepNetworkPoliciesByNamespace(context.Background(), nsID, []string{"keep-1"}); err != nil {
+		t.Fatalf("SweepNetworkPoliciesByNamespace: %v", err)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method: got %s, want POST", gotMethod)
+	}
+	if gotPath != "/v1/network-policies/reconcile" {
+		t.Errorf("path: got %s, want /v1/network-policies/reconcile", gotPath)
+	}
+	if gotBody["namespace_id"] != nsID.String() {
+		t.Errorf("body.namespace_id: got %v, want %s", gotBody["namespace_id"], nsID)
+	}
+}
+

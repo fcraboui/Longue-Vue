@@ -321,6 +321,17 @@ func (s *Store) UpsertNetworkPolicy(
 	return out.Id, nil
 }
 
+// SweepNetworkPoliciesByNamespace deletes every NetworkPolicy in the given
+// namespace whose name is not in seen. POST /v1/network-policies/reconcile
+// (ADR-0038). Mirror of the existing namespace-scoped sweeps for pods,
+// services, etc. — reuses the shared reconcileNamespaceScoped helper.
+func (s *Store) SweepNetworkPoliciesByNamespace(
+	ctx context.Context, nsID uuid.UUID, seen []string,
+) error {
+	_, err := s.reconcileNamespaceScoped(ctx, "/v1/network-policies/reconcile", nsID, seen)
+	return err
+}
+
 func toAPINetworkPolicyRules(in []store.NetworkPolicyRule) []api.NetworkPolicyRuleInput {
 	out := make([]api.NetworkPolicyRuleInput, 0, len(in))
 	for _, r := range in { //nolint:gocritic // rangeValCopy: NetworkPolicyRuleRow contains JSONB slices
