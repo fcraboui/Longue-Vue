@@ -20,12 +20,12 @@ import (
 // we guard defensively.
 var errMissingBody = errors.New("missing request body")
 
-// mustMarshalJSON serialises v to JSON. The blank error return is intentional:
-// callers only pass map[string]interface{} and []T values that are always
-// serialisable; if they somehow aren't, the resulting null is safe to store.
+// marshalJSONOrNull JSON-marshals v and returns the bytes; on error returns nil
+// (which pgx writes as SQL NULL). Acceptable here because the inputs are
+// guaranteed-valid map/array shapes from the codegen-validated request body.
 //
 //nolint:errchkjson // callers pass map/slice values that are always serialisable; nil result is safe sentinel
-func mustMarshalJSON(v any) json.RawMessage {
+func marshalJSONOrNull(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
 }
@@ -88,9 +88,9 @@ func (s *Server) CreateNetworkPolicy(
 		ClusterID:   body.ClusterId,
 		NamespaceID: body.NamespaceId,
 		Name:        body.Name,
-		PodSelector: mustMarshalJSON(body.PodSelector),
+		PodSelector: marshalJSONOrNull(body.PodSelector),
 		PolicyTypes: body.PolicyTypes,
-		SpecRaw:     mustMarshalJSON(body.SpecRaw),
+		SpecRaw:     marshalJSONOrNull(body.SpecRaw),
 	}
 
 	rules := make([]NetworkPolicyRuleRow, 0, len(body.Rules))
@@ -98,24 +98,29 @@ func (s *Server) CreateNetworkPolicy(
 		r := NetworkPolicyRuleRow{
 			Direction: string(in.Direction),
 			PeerKind:  string(in.PeerKind),
-			Ports:     mustMarshalJSON(in.Ports),
+			Ports:     marshalJSONOrNull(in.Ports),
 		}
 		if in.PeerPodSelector != nil {
-			r.PeerPodSelector = mustMarshalJSON(*in.PeerPodSelector)
+			r.PeerPodSelector = marshalJSONOrNull(*in.PeerPodSelector)
 		}
 		if in.PeerNamespaceSelector != nil {
-			r.PeerNamespaceSelector = mustMarshalJSON(*in.PeerNamespaceSelector)
+			r.PeerNamespaceSelector = marshalJSONOrNull(*in.PeerNamespaceSelector)
 		}
 		if in.PeerIpBlockCidr != nil {
 			r.PeerIPBlockCIDR = *in.PeerIpBlockCidr
 		}
 		if in.PeerIpBlockExcept != nil {
-			r.PeerIPBlockExcept = mustMarshalJSON(*in.PeerIpBlockExcept)
+			r.PeerIPBlockExcept = marshalJSONOrNull(*in.PeerIpBlockExcept)
 		}
 		rules = append(rules, r)
 	}
 
-	// Existence pre-check to decide 201 vs 200.
+	// Existence pre-check to decide 201 vs 200. TOCTOU: two concurrent POSTs
+	// for the same (cluster, namespace, name) can both see existed=false and
+	// both return 201. The upsert is still safe (ON CONFLICT DO UPDATE is
+	// idempotent) but the second caller gets a misleading 201. Acceptable
+	// for the push-collector use case where ticks are serialised per cluster;
+	// a strict guarantee would require SELECT FOR UPDATE.
 	existed, err := s.store.NetworkPolicyExists(ctx, np.ClusterID, np.NamespaceID, np.Name)
 	if err != nil {
 		return nil, fmt.Errorf("exists check: %w", err)

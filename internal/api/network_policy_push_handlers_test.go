@@ -11,7 +11,6 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/google/uuid"
@@ -179,7 +178,6 @@ func TestCreateNetworkPolicy_ResponseBody(t *testing.T) {
 	}
 
 	// Confirm the full-URL recorder has Content-Type application/json.
-	_ = httptest.NewRecorder() // suppress unused import warning
 	ct := rr.Result().Header.Get("Content-Type")
 	if ct == "" {
 		t.Error("Content-Type not set")
