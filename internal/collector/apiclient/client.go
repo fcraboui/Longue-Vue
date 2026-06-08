@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/store"
 )
 
 // Sentinel errors for the HTTP-backed store.
@@ -294,6 +295,92 @@ func (s *Store) UpsertPersistentVolumeClaim(
 // DeletePersistentVolumeClaimsNotIn removes PVCs not in the keepNames list for the given namespace.
 func (s *Store) DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error) {
 	return s.reconcileNamespaceScoped(ctx, "/v1/persistentvolumeclaims/reconcile", namespaceID, keepNames)
+}
+
+// UpsertNetworkPolicy upserts a NetworkPolicy and its rules atomically via
+// POST /v1/network-policies (ADR-0038). Push-collector replacement for the
+// in-process *store.PG.UpsertNetworkPolicyAtomic method.
+//
+//nolint:gocritic // hugeParam: signature mirrors the NetPolStore interface
+func (s *Store) UpsertNetworkPolicy(
+	ctx context.Context, np store.NetworkPolicy, rules []store.NetworkPolicyRule,
+) (uuid.UUID, error) {
+	in := api.NetworkPolicyCreate{
+		ClusterId:   np.ClusterID,
+		NamespaceId: np.NamespaceID,
+		Name:        np.Name,
+		PodSelector: rawToMap(np.PodSelector),
+		PolicyTypes: np.PolicyTypes,
+		SpecRaw:     rawToMap(np.SpecRaw),
+		Rules:       toAPINetworkPolicyRules(rules),
+	}
+	var out api.NetworkPolicy
+	if err := s.doJSON(ctx, http.MethodPost, "/v1/network-policies", in, &out); err != nil {
+		return uuid.Nil, fmt.Errorf("upsert network policy: %w", err)
+	}
+	return out.Id, nil
+}
+
+func toAPINetworkPolicyRules(in []store.NetworkPolicyRule) []api.NetworkPolicyRuleInput {
+	out := make([]api.NetworkPolicyRuleInput, 0, len(in))
+	for _, r := range in { //nolint:gocritic // rangeValCopy: NetworkPolicyRuleRow contains JSONB slices
+		e := api.NetworkPolicyRuleInput{
+			Direction: api.NetworkPolicyRuleInputDirection(r.Direction),
+			PeerKind:  api.NetworkPolicyRuleInputPeerKind(r.PeerKind),
+			Ports:     rawToMapSlice(r.Ports),
+		}
+		if len(r.PeerPodSelector) > 0 {
+			m := rawToMap(r.PeerPodSelector)
+			e.PeerPodSelector = &m
+		}
+		if len(r.PeerNamespaceSelector) > 0 {
+			m := rawToMap(r.PeerNamespaceSelector)
+			e.PeerNamespaceSelector = &m
+		}
+		if r.PeerIPBlockCIDR != "" {
+			c := r.PeerIPBlockCIDR
+			e.PeerIpBlockCidr = &c
+		}
+		if len(r.PeerIPBlockExcept) > 0 {
+			xs := rawToStringSlice(r.PeerIPBlockExcept)
+			e.PeerIpBlockExcept = &xs
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func rawToMap(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 || string(raw) == "null" {
+		return map[string]any{}
+	}
+	var m map[string]any
+	_ = json.Unmarshal(raw, &m)
+	if m == nil {
+		return map[string]any{}
+	}
+	return m
+}
+
+func rawToMapSlice(raw json.RawMessage) []map[string]any {
+	if len(raw) == 0 || string(raw) == "null" {
+		return []map[string]any{}
+	}
+	var s []map[string]any
+	_ = json.Unmarshal(raw, &s)
+	if s == nil {
+		return []map[string]any{}
+	}
+	return s
+}
+
+func rawToStringSlice(raw json.RawMessage) []string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var s []string
+	_ = json.Unmarshal(raw, &s)
+	return s
 }
 
 // ── HTTP helpers ────────────────────────────────────────────────────

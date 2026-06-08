@@ -12,6 +12,7 @@ import (
 
 	"github.com/sthalbert/longue-vue/internal/api"
 	"github.com/sthalbert/longue-vue/internal/collector"
+	"github.com/sthalbert/longue-vue/internal/store"
 )
 
 // Compile-time check: Store satisfies collector.CmdbStore.
@@ -355,3 +356,55 @@ func TestUpdateClusterMethod(t *testing.T) {
 		t.Errorf("path: want /v1/clusters/%s, got %s", id, gotPath)
 	}
 }
+
+func TestStore_UpsertNetworkPolicy(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody map[string]any
+	expectedID := uuid.New()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":           expectedID,
+			"cluster_id":   gotBody["cluster_id"],
+			"namespace_id": gotBody["namespace_id"],
+			"name":         gotBody["name"],
+		})
+	}))
+	defer srv.Close()
+
+	s := newTestStore(t, srv, nil)
+	clusterID, nsID := uuid.New(), uuid.New()
+	np := store.NetworkPolicy{
+		ClusterID: clusterID, NamespaceID: nsID, Name: "deny-all",
+		PodSelector: []byte(`{}`), PolicyTypes: []string{"Ingress"}, SpecRaw: []byte(`{}`),
+	}
+	rules := []store.NetworkPolicyRule{
+		{Direction: "ingress", PeerKind: "selector", PeerPodSelector: []byte(`{}`), Ports: []byte(`[]`)},
+	}
+
+	id, err := s.UpsertNetworkPolicy(context.Background(), np, rules)
+	if err != nil {
+		t.Fatalf("UpsertNetworkPolicy: %v", err)
+	}
+	if id != expectedID {
+		t.Errorf("id: got %s, want %s", id, expectedID)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method: got %s, want POST", gotMethod)
+	}
+	if gotPath != "/v1/network-policies" {
+		t.Errorf("path: got %s, want /v1/network-policies", gotPath)
+	}
+	if gotBody["name"] != "deny-all" {
+		t.Errorf("body.name: got %v", gotBody["name"])
+	}
+	rulesAny, _ := gotBody["rules"].([]any)
+	if len(rulesAny) != 1 {
+		t.Errorf("body.rules length: got %d, want 1", len(rulesAny))
+	}
+}
+
