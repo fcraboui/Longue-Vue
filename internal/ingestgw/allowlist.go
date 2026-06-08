@@ -19,7 +19,7 @@ type route struct {
 	Pattern string
 }
 
-// Routes is the hardcoded ingest allowlist (ADR-0016 §2). Twenty write
+// Routes is the hardcoded ingest allowlist (ADR-0016 §2). Twenty-one write
 // paths the K8s push collector touches every tick — no read endpoints, no
 // admin endpoints, no auth endpoints other than verify (which the gateway
 // doesn't expose to collectors anyway; verify is a server-side concern,
