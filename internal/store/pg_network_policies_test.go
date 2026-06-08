@@ -14,7 +14,7 @@ import (
 
 // seedClusterAndNamespace creates a cluster and namespace for use in
 // network policy tests, following the pattern used in pg_test.go.
-func seedClusterAndNamespace(t *testing.T, pg *PG) (uuid.UUID, uuid.UUID) {
+func seedClusterAndNamespace(t *testing.T, pg *PG) (clusterID, namespaceID uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
 	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "np-atomic-" + uuid.New().String()})

@@ -435,4 +435,3 @@ func TestStore_SweepNetworkPoliciesByNamespace(t *testing.T) {
 		t.Errorf("body.namespace_id: got %v, want %s", gotBody["namespace_id"], nsID)
 	}
 }
-

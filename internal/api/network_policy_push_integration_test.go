@@ -34,9 +34,9 @@ import (
 // netpolPushTestEnv holds the test server backed by a real PG instance and
 // an apiclient.Store wired to it.
 type netpolPushTestEnv struct {
-	srv   *httptest.Server
-	pg    *store.PG
-	apcl  *apiclient.Store
+	srv  *httptest.Server
+	pg   *store.PG
+	apcl *apiclient.Store
 }
 
 // newNetpolPushTestEnv opens a real PG, runs migrations, registers cleanup,
