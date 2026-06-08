@@ -106,6 +106,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v4
+        with:
+          # Route docker.io pulls through Google's public mirror so a
+          # transient registry-1.docker.io outage doesn't fail the scan.
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
       - name: Build image (local, no push)
         uses: docker/build-push-action@v7
         with:
