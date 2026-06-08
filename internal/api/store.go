@@ -828,6 +828,11 @@ type Store interface {
 	// write path (ADR-0038).
 	UpsertNetworkPolicyAtomic(ctx context.Context, np NetworkPolicyRow, rules []NetworkPolicyRuleRow) (uuid.UUID, error)
 
+	// SweepNetworkPoliciesByNamespaceWithCount deletes any policy in the
+	// namespace not in the keep-list and returns the count of deleted rows.
+	// Used by ReconcileNetworkPolicies (ADR-0038).
+	SweepNetworkPoliciesByNamespaceWithCount(ctx context.Context, nsID uuid.UUID, keep []string) (int64, error)
+
 	// --- Endpoint groups (flow-matrix R2) ---------------------------------
 
 	ListEndpointGroups(ctx context.Context) ([]EndpointGroup, error)

@@ -1209,6 +1209,29 @@ func (m *memStore) UpsertNetworkPolicyAtomic(_ context.Context, np NetworkPolicy
 	return id, nil
 }
 
+func (m *memStore) SweepNetworkPoliciesByNamespaceWithCount(
+	_ context.Context, nsID uuid.UUID, keep []string,
+) (int64, error) {
+	npFake.mu.Lock()
+	defer npFake.mu.Unlock()
+	keepSet := make(map[string]struct{}, len(keep))
+	for _, name := range keep {
+		keepSet[name] = struct{}{}
+	}
+	var deleted int64
+	for id, np := range npFake.nps { //nolint:gocritic // rangeValCopy: test fake
+		if np.NamespaceID != nsID {
+			continue
+		}
+		if _, ok := keepSet[np.Name]; !ok {
+			delete(npFake.rules, id)
+			delete(npFake.nps, id)
+			deleted++
+		}
+	}
+	return deleted, nil
+}
+
 // upsertNetworkPolicyFake inserts or updates a network policy in the fake
 // store. Keyed on (clusterID, namespaceID, name). Returns the stable UUID.
 // Used by handler tests to seed the in-memory store.

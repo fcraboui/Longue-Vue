@@ -183,3 +183,45 @@ func TestCreateNetworkPolicy_ResponseBody(t *testing.T) {
 		t.Error("Content-Type not set")
 	}
 }
+
+func TestReconcileNetworkPolicies_DeletesAbsentRows(t *testing.T) {
+	resetNPFake()
+	// Reconcile requires delete scope; adminCaller holds {read, write, delete, admin, audit}.
+	h := buildPushMux(t, newMemStore(), adminCaller())
+
+	clusterID, nsID := seedClusterAndNamespaceInMemStore(t)
+
+	// Seed two netpols via the create endpoint.
+	for _, name := range []string{"p1", "p2"} {
+		body := map[string]any{
+			"cluster_id":   clusterID,
+			"namespace_id": nsID,
+			"name":         name,
+			"pod_selector": map[string]any{},
+			"policy_types": []string{"Ingress"},
+			"spec_raw":     map[string]any{},
+			"rules":        []any{},
+		}
+		if rr := doReq(t, h, http.MethodPost, "/v1/network-policies", body); rr.Code != http.StatusCreated {
+			t.Fatalf("seed %s: want 201, got %d", name, rr.Code)
+		}
+	}
+
+	// Reconcile keeping only p1 → p2 should be deleted.
+	rr := doReq(t, h, http.MethodPost, "/v1/network-policies/reconcile", map[string]any{
+		"namespace_id": nsID,
+		"keep_names":   []string{"p1"},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("reconcile: want 200, got %d (body=%s)", rr.Code, rr.Body.String())
+	}
+	var got struct {
+		Deleted int64 `json:"deleted"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Deleted != 1 {
+		t.Errorf("deleted: got %d, want 1", got.Deleted)
+	}
+}

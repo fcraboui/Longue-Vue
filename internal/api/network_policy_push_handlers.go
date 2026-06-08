@@ -148,9 +148,29 @@ func (s *Server) CreateNetworkPolicy(
 }
 
 // ReconcileNetworkPolicies is the strict-server impl for POST
-// /v1/network-policies/reconcile. Real implementation lands in Task 4.
+// /v1/network-policies/reconcile.
+//
+// Scope: delete. Deletes every policy in the given namespace whose name is
+// NOT in keep_names, returning the count of deleted rows. The caller MUST
+// only invoke after a successful list tick (CLAUDE.md reconcile contract).
 func (s *Server) ReconcileNetworkPolicies(
-	_ context.Context, _ ReconcileNetworkPoliciesRequestObject,
+	ctx context.Context, req ReconcileNetworkPoliciesRequestObject,
 ) (ReconcileNetworkPoliciesResponseObject, error) {
-	return nil, fmt.Errorf("netpol reconcile handler not yet implemented (Task 4)")
+	caller := auth.CallerFromContext(ctx)
+	if caller == nil || !caller.HasScope(auth.ScopeDelete) {
+		return ReconcileNetworkPolicies403ApplicationProblemPlusJSONResponse{
+			ForbiddenApplicationProblemPlusJSONResponse{},
+		}, nil
+	}
+
+	body := req.Body
+	if body == nil {
+		return nil, errMissingBody
+	}
+
+	deleted, err := s.store.SweepNetworkPoliciesByNamespaceWithCount(ctx, body.NamespaceId, body.KeepNames)
+	if err != nil {
+		return nil, fmt.Errorf("sweep: %w", err)
+	}
+	return ReconcileNetworkPolicies200JSONResponse{Deleted: deleted}, nil
 }

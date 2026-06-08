@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/sthalbert/longue-vue/internal/api"
 )
@@ -224,6 +225,29 @@ func (p *PG) SweepNetworkPoliciesByNamespace(ctx context.Context, namespaceID uu
 		return fmt.Errorf("sweep network_policies: %w", err)
 	}
 	return nil
+}
+
+// SweepNetworkPoliciesByNamespaceWithCount deletes any policy in the namespace
+// not in the keep-list and returns the count of deleted rows. Mirror of
+// SweepNetworkPoliciesByNamespace but exposes the count for the HTTP
+// reconcile handler (ADR-0038).
+func (p *PG) SweepNetworkPoliciesByNamespaceWithCount(
+	ctx context.Context, nsID uuid.UUID, keep []string,
+) (int64, error) {
+	var ct pgconn.CommandTag
+	var err error
+	if len(keep) == 0 {
+		ct, err = p.pool.Exec(ctx,
+			`DELETE FROM network_policies WHERE namespace_id=$1`, nsID)
+	} else {
+		ct, err = p.pool.Exec(ctx,
+			`DELETE FROM network_policies WHERE namespace_id=$1 AND name <> ALL($2)`,
+			nsID, keep)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("sweep network_policies: %w", err)
+	}
+	return ct.RowsAffected(), nil
 }
 
 // ListNetworkPoliciesForWorkload returns every NetworkPolicy in the
