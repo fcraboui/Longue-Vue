@@ -21,7 +21,7 @@ func seedClusterAndNamespace(t *testing.T, pg *PG) (clusterID, namespaceID uuid.
 	if err != nil {
 		t.Fatalf("seedClusterAndNamespace: ensure cluster: %v", err)
 	}
-	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: "default"})
+	ns, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: *cluster.Id, Name: testStoreNSDefault})
 	if err != nil {
 		t.Fatalf("seedClusterAndNamespace: upsert namespace: %v", err)
 	}
@@ -36,6 +36,10 @@ const (
 	testStoreNameKept      = "kept"
 	testStoreSGProvider    = "outscale"
 	testStoreSGIDKeep      = "sg-keep"
+	netpolTestCIDRCorp     = "10.0.0.0/8"
+	netpolTestCIDRInternet = "0.0.0.0/0"
+	netpolTestPeerSelector = "selector"
+	netpolTestDirEgress    = "egress"
 )
 
 func TestUpsertNetworkPolicy_InsertAndUpdate(t *testing.T) {
@@ -66,7 +70,7 @@ func TestUpsertNetworkPolicy_InsertAndUpdate(t *testing.T) {
 
 	// Second upsert with same (cluster, ns, name) → same ID, updated columns.
 	np.SpecRaw = json.RawMessage(`{"policyTypes":["Ingress","Egress"]}`)
-	np.PolicyTypes = []string{"Ingress", "Egress"}
+	np.PolicyTypes = []string{testStorePolicyIngress, "Egress"}
 	id2, err := pg.UpsertNetworkPolicy(ctx, np, nil)
 	if err != nil {
 		t.Fatalf("second upsert: %v", err)
@@ -253,11 +257,17 @@ func TestUpsertNetworkPolicy_PersistsPolicyAndRules(t *testing.T) {
 
 	np := NetworkPolicy{
 		ClusterID: clusterID, NamespaceID: namespaceID, Name: "deny-all-ingress",
-		PodSelector: []byte(`{}`), PolicyTypes: []string{"Ingress"}, SpecRaw: []byte(`{}`),
+		PodSelector: []byte(`{}`), PolicyTypes: []string{testStorePolicyIngress}, SpecRaw: []byte(`{}`),
 	}
 	rules := []NetworkPolicyRule{
-		{Direction: "ingress", PeerKind: "selector", PeerPodSelector: []byte(`{}`), Ports: []byte(`[]`)},
-		{Direction: "ingress", PeerKind: "ip_block", PeerIPBlockCIDR: "10.0.0.0/8", PeerIPBlockExcept: []byte(`[]`), Ports: []byte(`[]`)},
+		{Direction: testStoreDirIngress, PeerKind: netpolTestPeerSelector, PeerPodSelector: []byte(`{}`), Ports: []byte(`[]`)},
+		{
+			Direction:         testStoreDirIngress,
+			PeerKind:          "ip_block",
+			PeerIPBlockCIDR:   netpolTestCIDRCorp,
+			PeerIPBlockExcept: []byte(`[]`),
+			Ports:             []byte(`[]`),
+		},
 	}
 
 	id, err := pg.UpsertNetworkPolicy(ctx, np, rules)
@@ -294,18 +304,24 @@ func TestUpsertNetworkPolicy_ReplacesRulesIdempotently(t *testing.T) {
 
 	np := NetworkPolicy{
 		ClusterID: clusterID, NamespaceID: namespaceID, Name: "p1",
-		PodSelector: []byte(`{}`), PolicyTypes: []string{"Ingress"}, SpecRaw: []byte(`{}`),
+		PodSelector: []byte(`{}`), PolicyTypes: []string{testStorePolicyIngress}, SpecRaw: []byte(`{}`),
 	}
 	_, err := pg.UpsertNetworkPolicy(ctx, np, []NetworkPolicyRule{
-		{Direction: "ingress", PeerKind: "selector", PeerPodSelector: []byte(`{"a":1}`), Ports: []byte(`[]`)},
-		{Direction: "ingress", PeerKind: "selector", PeerPodSelector: []byte(`{"a":2}`), Ports: []byte(`[]`)},
+		{Direction: testStoreDirIngress, PeerKind: netpolTestPeerSelector, PeerPodSelector: []byte(`{"a":1}`), Ports: []byte(`[]`)},
+		{Direction: testStoreDirIngress, PeerKind: netpolTestPeerSelector, PeerPodSelector: []byte(`{"a":2}`), Ports: []byte(`[]`)},
 	})
 	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
 
 	id, err := pg.UpsertNetworkPolicy(ctx, np, []NetworkPolicyRule{
-		{Direction: "egress", PeerKind: "ip_block", PeerIPBlockCIDR: "0.0.0.0/0", PeerIPBlockExcept: []byte(`[]`), Ports: []byte(`[]`)},
+		{
+			Direction:         netpolTestDirEgress,
+			PeerKind:          "ip_block",
+			PeerIPBlockCIDR:   netpolTestCIDRInternet,
+			PeerIPBlockExcept: []byte(`[]`),
+			Ports:             []byte(`[]`),
+		},
 	})
 	if err != nil {
 		t.Fatalf("second upsert: %v", err)
@@ -318,7 +334,7 @@ func TestUpsertNetworkPolicy_ReplacesRulesIdempotently(t *testing.T) {
 	if len(rules) != 1 {
 		t.Fatalf("rule count after 2nd upsert: got %d, want 1; rules=%+v", len(rules), rules)
 	}
-	if rules[0].Direction != "egress" {
+	if rules[0].Direction != netpolTestDirEgress {
 		t.Errorf("rule direction: got %q, want egress", rules[0].Direction)
 	}
 }

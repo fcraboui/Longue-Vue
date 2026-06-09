@@ -361,8 +361,12 @@ func toAPINetworkPolicyRules(in []store.NetworkPolicyRule) []api.NetworkPolicyRu
 	return out
 }
 
+// jsonNullLiteral is the wire form of a JSON null — used by the rawTo* helpers
+// to distinguish "no value" from a real empty container.
+const jsonNullLiteral = "null"
+
 func rawToMap(raw json.RawMessage) map[string]any {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == jsonNullLiteral {
 		return map[string]any{}
 	}
 	var m map[string]any
@@ -374,7 +378,7 @@ func rawToMap(raw json.RawMessage) map[string]any {
 }
 
 func rawToMapSlice(raw json.RawMessage) []map[string]any {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == jsonNullLiteral {
 		return []map[string]any{}
 	}
 	var s []map[string]any
@@ -386,7 +390,7 @@ func rawToMapSlice(raw json.RawMessage) []map[string]any {
 }
 
 func rawToStringSlice(raw json.RawMessage) []string {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == jsonNullLiteral {
 		return nil
 	}
 	var s []string

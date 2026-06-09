@@ -18,6 +18,21 @@ import (
 	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
+const (
+	netpolTestClusterIDField   = "cluster_id"
+	netpolTestNamespaceIDField = "namespace_id"
+	netpolTestPodSelectorField = "pod_selector"
+	netpolTestPolicyTypesField = "policy_types"
+	netpolTestSpecRawField     = "spec_raw"
+	netpolTestRulesField       = "rules"
+	netpolTestDirectionField   = "direction"
+	netpolTestPortsField       = "ports"
+	netpolTestDeniedScopeMsg   = "denied"
+	netpolTestPolicyName       = "test-policy"
+	netpolTestAppLabelValue    = "app"
+	netpolTestWebLabelValue    = "web"
+)
+
 // buildPushMux wires the two netpol push routes (POST /v1/network-policies
 // and POST /v1/network-policies/reconcile) through the strict-server machinery.
 // A caller-injection middleware wraps the whole handler so scope checks work.
@@ -63,14 +78,14 @@ func TestCreateNetworkPolicy_201OnFirstWrite(t *testing.T) {
 	clusterID, nsID := seedClusterAndNamespaceInMemStore(t)
 
 	body := map[string]any{
-		"cluster_id":   clusterID,
-		"namespace_id": nsID,
-		"name":         "deny-all-ingress",
-		"pod_selector": map[string]any{},
-		"policy_types": []string{"Ingress"},
-		"spec_raw":     map[string]any{},
-		"rules": []map[string]any{
-			{"direction": "ingress", "peer_kind": "selector", "ports": []any{}},
+		netpolTestClusterIDField:   clusterID,
+		netpolTestNamespaceIDField: nsID,
+		testFieldName:              "deny-all-ingress",
+		netpolTestPodSelectorField: map[string]any{},
+		netpolTestPolicyTypesField: []string{testPolicyIngress},
+		netpolTestSpecRawField:     map[string]any{},
+		netpolTestRulesField: []map[string]any{
+			{netpolTestDirectionField: testDirIngress, "peer_kind": "selector", netpolTestPortsField: []any{}},
 		},
 	}
 	rr := doReq(t, h, http.MethodPost, "/v1/network-policies", body)
@@ -81,8 +96,8 @@ func TestCreateNetworkPolicy_201OnFirstWrite(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if got["name"] != "deny-all-ingress" {
-		t.Errorf("name: got %v, want deny-all-ingress", got["name"])
+	if got[testFieldName] != "deny-all-ingress" {
+		t.Errorf("name: got %v, want deny-all-ingress", got[testFieldName])
 	}
 }
 
@@ -93,13 +108,13 @@ func TestCreateNetworkPolicy_200OnSecondWrite(t *testing.T) {
 	clusterID, nsID := seedClusterAndNamespaceInMemStore(t)
 
 	body := map[string]any{
-		"cluster_id":   clusterID,
-		"namespace_id": nsID,
-		"name":         "p1",
-		"pod_selector": map[string]any{},
-		"policy_types": []string{"Ingress"},
-		"spec_raw":     map[string]any{},
-		"rules":        []any{},
+		netpolTestClusterIDField:   clusterID,
+		netpolTestNamespaceIDField: nsID,
+		testFieldName:              "p1",
+		netpolTestPodSelectorField: map[string]any{},
+		netpolTestPolicyTypesField: []string{testPolicyIngress},
+		netpolTestSpecRawField:     map[string]any{},
+		netpolTestRulesField:       []any{},
 	}
 	rr1 := doReq(t, h, http.MethodPost, "/v1/network-policies", body)
 	if rr1.Code != http.StatusCreated {
@@ -118,13 +133,13 @@ func TestCreateNetworkPolicy_403WithoutWriteScope(t *testing.T) {
 
 	clusterID, nsID := seedClusterAndNamespaceInMemStore(t)
 	body := map[string]any{
-		"cluster_id":   clusterID,
-		"namespace_id": nsID,
-		"name":         "denied",
-		"pod_selector": map[string]any{},
-		"policy_types": []string{"Ingress"},
-		"spec_raw":     map[string]any{},
-		"rules":        []any{},
+		netpolTestClusterIDField:   clusterID,
+		netpolTestNamespaceIDField: nsID,
+		testFieldName:              netpolTestDeniedScopeMsg,
+		netpolTestPodSelectorField: map[string]any{},
+		netpolTestPolicyTypesField: []string{testPolicyIngress},
+		netpolTestSpecRawField:     map[string]any{},
+		netpolTestRulesField:       []any{},
 	}
 	rr := doReq(t, h, http.MethodPost, "/v1/network-policies", body)
 	if rr.Code != http.StatusForbidden {
@@ -141,13 +156,13 @@ func TestCreateNetworkPolicy_ResponseBody(t *testing.T) {
 
 	clusterID, nsID := seedClusterAndNamespaceInMemStore(t)
 	body := map[string]any{
-		"cluster_id":   clusterID,
-		"namespace_id": nsID,
-		"name":         "test-policy",
-		"pod_selector": map[string]any{"matchLabels": map[string]any{"app": "web"}},
-		"policy_types": []string{"Ingress", "Egress"},
-		"spec_raw":     map[string]any{},
-		"rules":        []any{},
+		netpolTestClusterIDField:   clusterID,
+		netpolTestNamespaceIDField: nsID,
+		testFieldName:              netpolTestPolicyName,
+		netpolTestPodSelectorField: map[string]any{"matchLabels": map[string]any{netpolTestAppLabelValue: netpolTestWebLabelValue}},
+		netpolTestPolicyTypesField: []string{testPolicyIngress, "Egress"},
+		netpolTestSpecRawField:     map[string]any{},
+		netpolTestRulesField:       []any{},
 	}
 	rr := doReq(t, h, http.MethodPost, "/v1/network-policies", body)
 	if rr.Code != http.StatusCreated {
@@ -163,12 +178,12 @@ func TestCreateNetworkPolicy_ResponseBody(t *testing.T) {
 	if _, ok := got["id"]; !ok {
 		t.Error("response missing 'id'")
 	}
-	if got["name"] != "test-policy" {
-		t.Errorf("name: got %v want test-policy", got["name"])
+	if got[testFieldName] != netpolTestPolicyName {
+		t.Errorf("name: got %v want test-policy", got[testFieldName])
 	}
 	// Ensure cluster_id and namespace_id are echoed back.
-	if got["cluster_id"] != clusterID.String() {
-		t.Errorf("cluster_id: got %v want %s", got["cluster_id"], clusterID)
+	if got[netpolTestClusterIDField] != clusterID.String() {
+		t.Errorf("cluster_id: got %v want %s", got[netpolTestClusterIDField], clusterID)
 	}
 
 	// Round-trip the Location-free 201: no Location header (codegen type alias
@@ -190,8 +205,8 @@ func TestReconcileNetworkPolicies_403WithoutDeleteScope(t *testing.T) {
 	h := buildPushMux(t, newMemStore(), editorCaller())
 
 	rr := doReq(t, h, http.MethodPost, "/v1/network-policies/reconcile", map[string]any{
-		"namespace_id": uuid.New(),
-		"keep_names":   []string{},
+		netpolTestNamespaceIDField: uuid.New(),
+		"keep_names":               []string{},
 	})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status: want 403, got %d (body=%s)", rr.Code, rr.Body.String())
@@ -208,13 +223,13 @@ func TestReconcileNetworkPolicies_DeletesAbsentRows(t *testing.T) {
 	// Seed two netpols via the create endpoint.
 	for _, name := range []string{"p1", "p2"} {
 		body := map[string]any{
-			"cluster_id":   clusterID,
-			"namespace_id": nsID,
-			"name":         name,
-			"pod_selector": map[string]any{},
-			"policy_types": []string{"Ingress"},
-			"spec_raw":     map[string]any{},
-			"rules":        []any{},
+			netpolTestClusterIDField:   clusterID,
+			netpolTestNamespaceIDField: nsID,
+			testFieldName:              name,
+			netpolTestPodSelectorField: map[string]any{},
+			netpolTestPolicyTypesField: []string{testPolicyIngress},
+			netpolTestSpecRawField:     map[string]any{},
+			netpolTestRulesField:       []any{},
 		}
 		if rr := doReq(t, h, http.MethodPost, "/v1/network-policies", body); rr.Code != http.StatusCreated {
 			t.Fatalf("seed %s: want 201, got %d", name, rr.Code)
@@ -223,8 +238,8 @@ func TestReconcileNetworkPolicies_DeletesAbsentRows(t *testing.T) {
 
 	// Reconcile keeping only p1 → p2 should be deleted.
 	rr := doReq(t, h, http.MethodPost, "/v1/network-policies/reconcile", map[string]any{
-		"namespace_id": nsID,
-		"keep_names":   []string{"p1"},
+		netpolTestNamespaceIDField: nsID,
+		"keep_names":               []string{"p1"},
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("reconcile: want 200, got %d (body=%s)", rr.Code, rr.Body.String())
