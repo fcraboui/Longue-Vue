@@ -6,6 +6,20 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.3.0](https://github.com/sthalbert/Longue-Vue/compare/v1.2.0...v1.3.0) (2026-06-08)
+
+
+### Features
+
+* **ui:** expose flow_matrix_enabled toggle in admin settings ([0f5a007](https://github.com/sthalbert/Longue-Vue/commit/0f5a007fa5805cc7da00e2b3f79b68ce87102a56))
+* **ui:** expose flow_matrix_enabled toggle in admin settings ([055c756](https://github.com/sthalbert/Longue-Vue/commit/055c75639ca48eeaf8d4ba6c9faf50b1b25f07b8))
+
+
+### Bug Fixes
+
+* **flow-matrix:** emit empty JSON arrays so Flows page does not crash ([264a546](https://github.com/sthalbert/Longue-Vue/commit/264a5469f04e74eea562014d8603b7ff358a4a8e))
+* **flow-matrix:** emit empty JSON arrays so Flows page does not crash ([e4994f0](https://github.com/sthalbert/Longue-Vue/commit/e4994f0554dac9f7e8cc8f9096477db21787589f))
+
 ## [1.2.0](https://github.com/sthalbert/Longue-Vue/compare/v1.1.0...v1.2.0) (2026-06-07)
 
 
