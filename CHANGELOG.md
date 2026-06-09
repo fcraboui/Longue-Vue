@@ -6,6 +6,28 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.4.0](https://github.com/sthalbert/Longue-Vue/compare/v1.3.0...v1.4.0) (2026-06-09)
+
+
+### Features
+
+* **api:** add CreateNetworkPolicy handler — atomic upsert with rules (ADR-0038) ([8506bda](https://github.com/sthalbert/Longue-Vue/commit/8506bda334e6346e902c78a6edebfb0929bade4e))
+* **api:** add NetworkPolicy push endpoints for air-gapped collectors (ADR-0038) ([263820c](https://github.com/sthalbert/Longue-Vue/commit/263820c0f071702f4677abf10b13a7d5ec45dcb5))
+* **api:** add ReconcileNetworkPolicies handler — namespace sweep with deleted count (ADR-0038) ([2c09283](https://github.com/sthalbert/Longue-Vue/commit/2c09283bf738d42d7c3fed5ebf8fe38f5fc2ceb9))
+* **apiclient:** add SweepNetworkPoliciesByNamespace HTTP method (ADR-0038) ([26fea6a](https://github.com/sthalbert/Longue-Vue/commit/26fea6a44071427c88d5243aa53e4a06621fd1e9))
+* **apiclient:** add UpsertNetworkPolicy HTTP method for push collector (ADR-0038) ([6aeef91](https://github.com/sthalbert/Longue-Vue/commit/6aeef91a27788be06f6d6bcd3e58a7be66b758db))
+* **api:** wire OpenAPI + stub handlers for netpol push endpoints (ADR-0038) ([6706597](https://github.com/sthalbert/Longue-Vue/commit/67065978d7799a9850f9c47cce1328f809b37acd))
+* **cmd:** mount netpol push routes on public mux (ADR-0038) ([a424a6d](https://github.com/sthalbert/Longue-Vue/commit/a424a6d787bc49720995554967979d09ee1e319c))
+* **ingest:** allow netpol push routes through ingest mux + GW allowlist (ADR-0038) ([cb23600](https://github.com/sthalbert/Longue-Vue/commit/cb2360004fe23b5ad5a3101038af45635c90f434))
+* **store:** atomic UpsertNetworkPolicyAtomic wrapping policy+rules in one tx (ADR-0038) ([716e752](https://github.com/sthalbert/Longue-Vue/commit/716e752f2348684d60ad42ac5aefa2109853fc55))
+
+
+### Bug Fixes
+
+* **api:** camelCase operationIds + reuse ReconcileResult schema (ADR-0038) ([4ff1df7](https://github.com/sthalbert/Longue-Vue/commit/4ff1df778cb4e78fc0b1994dc05125e5fb5c7ae7))
+* **api:** skip audit on empty netpol reconcile + 403 scope test (ADR-0038) ([accf071](https://github.com/sthalbert/Longue-Vue/commit/accf07136485a366429bcf13e4f2a1e2a575decb))
+* **ingestgw:** allowlist comment count 20 -&gt; 21 to match Routes ([74c13ed](https://github.com/sthalbert/Longue-Vue/commit/74c13ed534857ccbaf65b9a58176f1979c9fd9f7))
+
 ## [1.3.0](https://github.com/sthalbert/Longue-Vue/compare/v1.2.0...v1.3.0) (2026-06-08)
 
 
