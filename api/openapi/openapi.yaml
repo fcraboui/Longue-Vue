@@ -76,6 +76,8 @@ tags:
     description: |
       Application Block — the SNC two-level grouping above Application
       (ADR-0029 §1). Operator-curated; never written by collectors.
+  - name: network-policies
+    description: Kubernetes NetworkPolicy resources — push-mode write surface added by ADR-0038.
 
 security:
   - BearerAuth: []
@@ -552,6 +554,75 @@ paths:
                 properties:
                   items:       { type: array, items: { $ref: "#/components/schemas/NetworkPolicy" } }
                   next_cursor: { type: string }
+
+    post:
+      tags: [network-policies]
+      summary: Upsert a NetworkPolicy with its rules atomically (push-mode collector)
+      description: |
+        Push-collector write path added by ADR-0038. The server upserts the
+        policy by (cluster_id, namespace_id, name) and replaces its full rule
+        set in one transaction. Returns 201 on insert, 200 on update.
+      operationId: createNetworkPolicy
+      security:
+        - BearerAuth: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NetworkPolicyCreate'
+      responses:
+        '200':
+          description: Updated existing row.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkPolicy'
+        '201':
+          description: Inserted new row.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworkPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /v1/network-policies/reconcile:
+    post:
+      tags: [network-policies]
+      summary: Sweep NetworkPolicies by namespace (push-mode collector)
+      description: |
+        Push-collector reconcile path added by ADR-0038. Deletes every
+        network_policies row in the given namespace whose name is not in
+        keep_names. Rule rows cascade.
+      operationId: reconcileNetworkPolicies
+      security:
+        - BearerAuth: [delete]
+        - SessionCookie: [delete]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileNamespaceScoped'
+      responses:
+        '200':
+          description: Sweep complete.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconcileResult' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /v1/network-policies/{id}:
     get:
@@ -4648,6 +4719,41 @@ components:
         peer_ip_block_cidr:       { type: string, nullable: true }
         peer_ip_block_except:     { type: array, items: { type: string }, nullable: true }
         ports:                    { type: array, items: { type: object, additionalProperties: true } }
+
+    NetworkPolicyCreate:
+      type: object
+      description: |
+        Push-collector input shape for upserting a NetworkPolicy with its
+        rules atomically (ADR-0038). The server resolves cluster_id +
+        namespace_id + name to an existing row (UPDATE) or inserts a new
+        one (INSERT) in a single transaction along with the full rule
+        replacement.
+      required: [cluster_id, namespace_id, name, pod_selector, policy_types, spec_raw, rules]
+      properties:
+        cluster_id:    { type: string, format: uuid }
+        namespace_id:  { type: string, format: uuid }
+        name:          { type: string }
+        pod_selector:  { type: object, additionalProperties: true, description: "K8s LabelSelector verbatim" }
+        policy_types:  { type: array, items: { type: string }, description: "K8s PolicyType enum values (Ingress, Egress)" }
+        spec_raw:      { type: object, additionalProperties: true, description: "Full K8s NetworkPolicySpec verbatim" }
+        rules:         { type: array, items: { $ref: '#/components/schemas/NetworkPolicyRuleInput' } }
+
+    NetworkPolicyRuleInput:
+      type: object
+      description: |
+        One flattened ingress/egress rule. peer_kind discriminates which
+        peer_* fields are populated: "selector" => peer_pod_selector +
+        peer_namespace_selector; "ip_block" => peer_ip_block_cidr +
+        peer_ip_block_except.
+      required: [direction, peer_kind, ports]
+      properties:
+        direction:               { type: string, enum: [ingress, egress] }
+        peer_kind:               { type: string, enum: [selector, ip_block] }
+        ports:                   { type: array, items: { type: object, additionalProperties: true } }
+        peer_pod_selector:       { type: object, nullable: true, additionalProperties: true }
+        peer_namespace_selector: { type: object, nullable: true, additionalProperties: true }
+        peer_ip_block_cidr:      { type: string, nullable: true }
+        peer_ip_block_except:    { type: array, items: { type: string }, nullable: true }
 
     ContainerList:
       type: array

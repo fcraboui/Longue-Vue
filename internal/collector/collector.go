@@ -332,7 +332,8 @@ type Collector struct {
 // state always matches the live cluster — required for ANSSI cartography
 // fidelity.
 //
-// If the supplied store also implements NetPolStore (i.e. it is *store.PG),
+// If the supplied store also implements NetPolStore (both *store.PG
+// in-process and apiclient.Store push-mode satisfy it — ADR-0038),
 // NetworkPolicy reconciliation is enabled automatically.
 func New(st CmdbStore, source KubeSource, clusterName string, interval, fetchTimeout time.Duration, reconcile bool) *Collector {
 	c := &Collector{
@@ -1166,11 +1167,12 @@ func (c *Collector) ingestPersistentVolumeClaims(ctx context.Context, namespaceI
 		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
 }
 
-// ingestNetworkPolicies runs one tick of NetworkPolicy reconciliation for
-// every namespace that was successfully ingested this tick. It is a no-op
-// when the store does not implement NetPolStore (e.g. the push-mode
-// apiclient.Store which reaches the server via REST, where netpol writes
-// go through the in-process path instead).
+// ingestNetworkPolicies runs one tick of NetworkPolicy reconciliation
+// for every namespace that was successfully ingested this tick. Runs in
+// both in-process (cmd/longue-vue → *store.PG direct) and push
+// (cmd/longue-vue-collector → apiclient.Store → ingest GW) modes since
+// ADR-0038. The c.netpolStore == nil guard exists for tests that inject
+// a stub store without netpol support.
 func (c *Collector) ingestNetworkPolicies(ctx context.Context, clusterID uuid.UUID, namespaceIDsByName map[string]uuid.UUID) {
 	if c.netpolStore == nil {
 		return

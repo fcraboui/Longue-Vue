@@ -19,7 +19,7 @@ type route struct {
 	Pattern string
 }
 
-// Routes is the hardcoded ingest allowlist (ADR-0016 §2). Eighteen write
+// Routes is the hardcoded ingest allowlist (ADR-0016 §2). Twenty-one write
 // paths the K8s push collector touches every tick — no read endpoints, no
 // admin endpoints, no auth endpoints other than verify (which the gateway
 // doesn't expose to collectors anyway; verify is a server-side concern,
@@ -50,6 +50,9 @@ var Routes = []route{ //nolint:gochecknoglobals // hardcoded allowlist; reads be
 	{http.MethodPost, "/v1/persistentvolumeclaims/reconcile"},
 	// vm-collector account-level SG sweep (flow-matrix P1, Task 14).
 	{http.MethodPost, "/v1/ingest/cloud-accounts/{uuid}/security-groups/sweep"},
+	// NetworkPolicy push surface (ADR-0038).
+	{http.MethodPost, "/v1/network-policies"},
+	{http.MethodPost, "/v1/network-policies/reconcile"},
 }
 
 // uuidPattern matches a canonical 8-4-4-4-12 hex UUID. Wider than

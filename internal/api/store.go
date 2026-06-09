@@ -817,6 +817,22 @@ type Store interface {
 	// support is deferred to P2.
 	ListNetworkPoliciesForWorkload(ctx context.Context, namespaceID uuid.UUID, workloadLabels json.RawMessage) ([]NetworkPolicyRow, error)
 
+	// NetworkPolicyExists returns true when a row matching (clusterID,
+	// namespaceID, name) already exists. Used by CreateNetworkPolicy to
+	// distinguish 201 (insert) from 200 (update) without re-reading the
+	// whole row.
+	NetworkPolicyExists(ctx context.Context, clusterID, namespaceID uuid.UUID, name string) (bool, error)
+
+	// UpsertNetworkPolicy upserts the policy and replaces its rules in one
+	// transaction. Returns the stable row UUID. This is the canonical write
+	// path (ADR-0038).
+	UpsertNetworkPolicy(ctx context.Context, np NetworkPolicyRow, rules []NetworkPolicyRuleRow) (uuid.UUID, error)
+
+	// SweepNetworkPoliciesByNamespaceWithCount deletes any policy in the
+	// namespace not in the keep-list and returns the count of deleted rows.
+	// Used by ReconcileNetworkPolicies (ADR-0038).
+	SweepNetworkPoliciesByNamespaceWithCount(ctx context.Context, nsID uuid.UUID, keep []string) (int64, error)
+
 	// --- Endpoint groups (flow-matrix R2) ---------------------------------
 
 	ListEndpointGroups(ctx context.Context) ([]EndpointGroup, error)

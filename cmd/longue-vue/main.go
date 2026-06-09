@@ -597,6 +597,10 @@ func buildHTTPServer(
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListNetworkPolicies(pg)))))
 	mux.Handle("GET /v1/network-policies/{id}",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetNetworkPolicy(pg)))))
+	// Network policies — push routes (ADR-0038): POST /v1/network-policies (write scope)
+	// and POST /v1/network-policies/reconcile (delete scope) are served by the
+	// codegen router (HandlerWithOptions above) which sets BearerAuthScopes in
+	// context and applies the shared AuthMiddleware + AuditMiddleware chain.
 
 	// Per-asset derived network-rules (flow-matrix P1, Tasks 20 + 21).
 	mux.Handle("GET /v1/workloads/{id}/network-rules",

@@ -15,14 +15,12 @@ const (
 	peerKindIPBlock  = "ip_block"
 )
 
-// NetPolStore is the slice of the store interface the netpol resource
-// handler uses. Defined here so a test fake can stub without dragging
-// the full *store.PG. The in-process *store.PG satisfies this interface;
-// the push-mode apiclient.Store does not (netpol writes go via the
-// in-process path on the server side).
+// NetPolStore is the slice of the store interface the netpol collector
+// uses. Both *store.PG (direct, in-process) and apiclient.Store (HTTP
+// push via the ingest GW, ADR-0038) satisfy this interface. Defined here
+// so a test fake can stub without dragging the full store.
 type NetPolStore interface {
-	UpsertNetworkPolicy(ctx context.Context, np store.NetworkPolicy) (uuid.UUID, error)
-	ReplaceNetworkPolicyRules(ctx context.Context, policyID uuid.UUID, rules []store.NetworkPolicyRule) error
+	UpsertNetworkPolicy(ctx context.Context, np store.NetworkPolicy, rules []store.NetworkPolicyRule) (uuid.UUID, error)
 	SweepNetworkPoliciesByNamespace(ctx context.Context, nsID uuid.UUID, seen []string) error
 }
 
@@ -37,20 +35,16 @@ func CollectNetworkPolicies(ctx context.Context, src KubeSource, st NetPolStore,
 	}
 	seen := make([]string, 0, len(infos))
 	for _, info := range infos { //nolint:gocritic // rangeValCopy: NetworkPolicyInfo has slices; shallow copy is safe here
-		id, err := st.UpsertNetworkPolicy(ctx, store.NetworkPolicy{
+		rules := flattenNetPolRules(info)
+		if _, err := st.UpsertNetworkPolicy(ctx, store.NetworkPolicy{
 			ClusterID:   clusterID,
 			NamespaceID: nsID,
 			Name:        info.Name,
 			PodSelector: info.PodSelector,
 			PolicyTypes: info.PolicyTypes,
 			SpecRaw:     info.SpecRaw,
-		})
-		if err != nil {
+		}, rules); err != nil {
 			return fmt.Errorf("upsert netpol %q: %w", info.Name, err)
-		}
-		rules := flattenNetPolRules(info)
-		if err := st.ReplaceNetworkPolicyRules(ctx, id, rules); err != nil {
-			return fmt.Errorf("replace rules for %q: %w", info.Name, err)
 		}
 		seen = append(seen, info.Name)
 	}

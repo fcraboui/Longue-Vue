@@ -169,19 +169,14 @@ func TestFlowInventoryEndToEnd(t *testing.T) {
 
 	// --- 2. Seed a NetworkPolicy -----------------------------------------
 
-	npID, err := pg.UpsertNetworkPolicy(ctx, api.NetworkPolicyRow{
+	if _, err := pg.UpsertNetworkPolicy(ctx, api.NetworkPolicyRow{
 		ClusterID:   clusterID,
 		NamespaceID: nsID,
 		Name:        "api-allow",
 		PodSelector: json.RawMessage(`{"matchLabels":{"app":"api"}}`),
 		PolicyTypes: []string{"Ingress"},
 		SpecRaw:     json.RawMessage(`{}`),
-	})
-	if err != nil {
-		t.Fatalf("upsert network policy: %v", err)
-	}
-
-	if err := pg.ReplaceNetworkPolicyRules(ctx, npID, []api.NetworkPolicyRuleRow{
+	}, []api.NetworkPolicyRuleRow{
 		{
 			Direction:       "ingress",
 			PeerKind:        "selector",
@@ -189,7 +184,7 @@ func TestFlowInventoryEndToEnd(t *testing.T) {
 			Ports:           json.RawMessage(`[{"protocol":"TCP","port":8080}]`),
 		},
 	}); err != nil {
-		t.Fatalf("replace network policy rules: %v", err)
+		t.Fatalf("upsert network policy: %v", err)
 	}
 
 	// --- 3. Seed cloud account + VM + canonical SGs ----------------------
