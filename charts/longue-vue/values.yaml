@@ -297,8 +297,8 @@ httpRoute:
 #    SecurityPolicy for overlapping settings on this route.
 securityPolicy:
   enabled: false
-  cors: {}              # e.g. allowOrigins: ["https://longue-vue.example.com"]
-  authorization: {}     # e.g. defaultAction: Deny + rules with client CIDR principals
+  cors: {}              # rendered verbatim under spec.cors — see Envoy Gateway SecurityPolicy CORS schema
+  authorization: {}     # rendered verbatim under spec.authorization — e.g. defaultAction: Deny + rules with client CIDR principals
 
 # -- Node selector, tolerations, affinity.
 nodeSelector: {}
