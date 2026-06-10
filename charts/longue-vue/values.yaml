@@ -261,7 +261,9 @@ flowMatrix:
     # Prometheus ruleSelector).
     labels: {}
 
-# -- Ingress (expose longue-vue outside the cluster).
+# -- DEPRECATED: legacy Ingress exposure. Removed in the next major chart version.
+#    Migrate to `httpRoute` above. Under Gateway API, TLS terminates on the Gateway
+#    listener (operator-owned), so `ingress.tls` has no Gateway-path equivalent here.
 ingress:
   enabled: false
   className: ""
@@ -275,6 +277,32 @@ ingress:
   #  - secretName: longue-vue-tls
   #    hosts:
   #      - longue-vue.example.com
+
+# -- HTTPRoute exposure via an existing (operator-owned) Gateway API Gateway.
+#    Replaces the deprecated `ingress` block. Requires Gateway API CRDs and an
+#    Envoy Gateway (or compatible) Gateway already present in the cluster.
+#    TLS terminates on the Gateway listener, not here.
+httpRoute:
+  enabled: false
+  # parentRefs: the shared Gateway(s) this route attaches to (REQUIRED when enabled).
+  parentRefs: []
+  #  - name: shared-gateway       # name of the Gateway to attach to
+  #    namespace: gateway-system  # omit to default to the release namespace
+  #    sectionName: https         # omit to attach to all listeners
+  hostnames: []
+  #  - longue-vue.example.com
+
+# -- Optional Envoy Gateway SecurityPolicy attached route-level to the HTTPRoute
+#    above (targetRef -> our HTTPRoute, never the shared Gateway). Off by default;
+#    longue-vue does its own session/PAT/OIDC auth. Use for edge CORS / IP allowlist.
+#    NOTE: a route-level policy REPLACES (does not merge with) any Gateway-level
+#    SecurityPolicy for overlapping settings on this route.
+#    When enabled, set at least one policy field (cors / authorization / or another
+#    Envoy Gateway SecurityPolicy field) — an empty policy is rejected by the webhook.
+securityPolicy:
+  enabled: false
+  cors: {}              # rendered verbatim under spec.cors — see Envoy Gateway SecurityPolicy CORS schema
+  authorization: {}     # rendered verbatim under spec.authorization — e.g. defaultAction: Deny + rules with client CIDR principals
 
 # -- Node selector, tolerations, affinity.
 nodeSelector: {}

@@ -139,6 +139,43 @@ jobs:
             --set postgresql.enabled=false \
             --set externalDatabase.url="postgres://longue_vue:test@pg:5432/longue_vue" > /dev/null
 
+      - name: Template renders cleanly (HTTPRoute exposure)
+        run: |
+          helm template longue-vue charts/longue-vue \
+            --set postgresql.enabled=false \
+            --set externalDatabase.url="postgres://longue_vue:test@pg:5432/longue_vue" \
+            --set httpRoute.enabled=true \
+            --set httpRoute.parentRefs[0].name=shared-gw \
+            --set httpRoute.parentRefs[0].namespace=envoy-gateway-system \
+            --set httpRoute.hostnames[0]=longue-vue.example.com > /dev/null
+
+      - name: Template renders cleanly (HTTPRoute + SecurityPolicy)
+        run: |
+          helm template longue-vue charts/longue-vue \
+            --set postgresql.enabled=false \
+            --set externalDatabase.url="postgres://longue_vue:test@pg:5432/longue_vue" \
+            --set httpRoute.enabled=true \
+            --set httpRoute.parentRefs[0].name=shared-gw \
+            --set securityPolicy.enabled=true \
+            --set securityPolicy.cors.allowOrigins[0]="https://longue-vue.example.com" > /dev/null
+
+      - name: Template guards fire on misconfiguration
+        run: |
+          set -e
+          if helm template longue-vue charts/longue-vue \
+            --set postgresql.enabled=false \
+            --set externalDatabase.url="postgres://longue_vue:test@pg:5432/longue_vue" \
+            --set httpRoute.enabled=true > /dev/null 2>&1; then
+            echo "FAIL: expected render error for httpRoute.enabled with empty parentRefs"; exit 1
+          fi
+          if helm template longue-vue charts/longue-vue \
+            --set postgresql.enabled=false \
+            --set externalDatabase.url="postgres://longue_vue:test@pg:5432/longue_vue" \
+            --set securityPolicy.enabled=true > /dev/null 2>&1; then
+            echo "FAIL: expected render error for securityPolicy without httpRoute"; exit 1
+          fi
+          echo "guards fired as expected"
+
   docker:
     name: docker build
     runs-on: ubuntu-latest

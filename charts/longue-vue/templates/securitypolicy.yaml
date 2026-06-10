@@ -1,0 +1,25 @@
+{{- if .Values.securityPolicy.enabled }}
+{{- if not .Values.httpRoute.enabled }}
+{{- fail "securityPolicy.enabled requires httpRoute.enabled=true (the policy targets the chart's HTTPRoute)" }}
+{{- end }}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ include "longue-vue.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "longue-vue.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ include "longue-vue.fullname" . }}
+  {{- with .Values.securityPolicy.cors }}
+  cors:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.securityPolicy.authorization }}
+  authorization:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
