@@ -139,6 +139,10 @@ func (f *fakeNetpolSource) ListNetworkPolicies(_ context.Context, ns string) ([]
 	return f.byNamespace[ns], nil
 }
 
+func (f *fakeNetpolSource) ListAllNetworkPolicies(_ context.Context) ([]collector.NetworkPolicyInfo, error) {
+	return nil, nil
+}
+
 // Stub all other KubeSource methods to satisfy the interface.
 
 func (f *fakeNetpolSource) ServerVersion(_ context.Context) (string, error) {

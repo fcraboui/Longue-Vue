@@ -901,6 +901,10 @@ func (f *fakeKubeSource) ListNetworkPolicies(_ context.Context, _ string) ([]col
 	return nil, nil
 }
 
+func (f *fakeKubeSource) ListAllNetworkPolicies(_ context.Context) ([]collector.NetworkPolicyInfo, error) {
+	return nil, nil
+}
+
 // notifyingStore wraps a CmdbStore and closes tickDone after the first
 // successful UpsertPersistentVolumeClaim, which is the last write in a tick.
 type notifyingStore struct {

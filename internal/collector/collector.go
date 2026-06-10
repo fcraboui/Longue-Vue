@@ -263,9 +263,18 @@ type NetworkPolicyPeerInfo struct {
 }
 
 // NetworkPolicyLister returns every NetworkPolicy visible to the configured
-// kubeconfig for a given namespace.
+// kubeconfig for a given namespace. Retained for back-compat; prefer
+// AllNetworkPolicyLister which makes a single cluster-wide call.
+// TODO(Task 3): remove once CollectNetworkPolicies no longer calls it.
 type NetworkPolicyLister interface {
 	ListNetworkPolicies(ctx context.Context, namespace string) ([]NetworkPolicyInfo, error)
+}
+
+// AllNetworkPolicyLister returns every NetworkPolicy across all namespaces in
+// a single cluster-wide list call — avoids the N per-namespace calls that
+// exhaust the client-go rate limiter in large clusters.
+type AllNetworkPolicyLister interface {
+	ListAllNetworkPolicies(ctx context.Context) ([]NetworkPolicyInfo, error)
 }
 
 // KubeSource is the composite contract the Collector consumes.
@@ -281,6 +290,7 @@ type KubeSource interface {
 	PersistentVolumeLister
 	PersistentVolumeClaimLister
 	NetworkPolicyLister
+	AllNetworkPolicyLister
 }
 
 // CmdbStore is the subset of api.Store the collector consumes. Exported so

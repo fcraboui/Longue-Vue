@@ -83,6 +83,10 @@ func (f *fakeSource) ListNetworkPolicies(_ context.Context, _ string) ([]Network
 	return f.netpols, f.listNetpolErr
 }
 
+func (f *fakeSource) ListAllNetworkPolicies(_ context.Context) ([]NetworkPolicyInfo, error) {
+	return nil, nil
+}
+
 type recordedUpdate struct {
 	id    uuid.UUID
 	patch api.ClusterUpdate

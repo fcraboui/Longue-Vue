@@ -99,3 +99,39 @@ func TestKubeSourceListNetworkPolicies_EmptyNamespace(t *testing.T) {
 		t.Fatalf("want 0 netpols, got %d", len(got))
 	}
 }
+
+// TestKubeSourceListAllNetworkPolicies_MultiNamespace asserts the cluster-wide
+// list returns NetworkPolicies from every namespace in one call, with each
+// item carrying the correct Namespace field.
+func TestKubeSourceListAllNetworkPolicies_MultiNamespace(t *testing.T) {
+	ctx := context.Background()
+	cs := fake.NewSimpleClientset(
+		&netv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "deny-all", Namespace: "team-a"},
+			Spec:       netv1.NetworkPolicySpec{PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress}},
+		},
+		&netv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "allow-dns", Namespace: "team-b"},
+			Spec:       netv1.NetworkPolicySpec{PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeEgress}},
+		},
+	)
+	src := &KubeClient{clientset: cs}
+
+	got, err := src.ListAllNetworkPolicies(ctx)
+	if err != nil {
+		t.Fatalf("ListAllNetworkPolicies: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 netpols, got %d: %+v", len(got), got)
+	}
+	nsByName := map[string]string{}
+	for _, np := range got {
+		nsByName[np.Name] = np.Namespace
+	}
+	if nsByName["deny-all"] != "team-a" {
+		t.Errorf("deny-all namespace: got %q, want team-a", nsByName["deny-all"])
+	}
+	if nsByName["allow-dns"] != "team-b" {
+		t.Errorf("allow-dns namespace: got %q, want team-b", nsByName["allow-dns"])
+	}
+}

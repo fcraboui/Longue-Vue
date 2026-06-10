@@ -762,6 +762,26 @@ func (k *KubeClient) listDaemonSets(ctx context.Context) ([]WorkloadInfo, error)
 	return out, nil
 }
 
+// ListAllNetworkPolicies returns every NetworkPolicy across every namespace
+// in one cluster-wide list call (mirror of ListServices/ListIngresses).
+// Replaces the per-namespace ListNetworkPolicies which fans out N calls
+// against the K8s API and exhausts client-go's rate limiter at scale.
+func (k *KubeClient) ListAllNetworkPolicies(ctx context.Context) ([]NetworkPolicyInfo, error) {
+	list, err := k.clientset.NetworkingV1().NetworkPolicies("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list netpols cluster-wide: %w", err)
+	}
+	out := make([]NetworkPolicyInfo, 0, len(list.Items))
+	for _, np := range list.Items { //nolint:gocritic // rangeValCopy: k8s NetworkPolicy is SDK-owned; indexing would couple to SDK internals
+		info, err := convertNetworkPolicy(np)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
 // ListNetworkPolicies returns every NetworkPolicy in the given namespace.
 // Selectors and the full spec are JSON-encoded so the store keeps them as
 // JSONB for later engine queries (Phase 2).
