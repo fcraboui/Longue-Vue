@@ -17,6 +17,14 @@ const (
 	testNetPolName  = "api-allow"
 	testNetPolPola  = "pol-a"
 	testLabelAppWeb = "web"
+
+	// Test namespace + netpol names shared across collector tests (extracted
+	// to satisfy goconst).
+	testNetpolNSTeamA  = "team-a"
+	testNetpolNSTeamB  = "team-b"
+	testNetpolNSGhost  = "ghost-ns"
+	testNetpolAllowDNS = "allow-dns"
+	testNetpolOrphan   = "orphan"
 )
 
 func TestKubeSourceListAllNetworkPolicies_SelectorPeer(t *testing.T) {
@@ -107,11 +115,11 @@ func TestKubeSourceListAllNetworkPolicies_MultiNamespace(t *testing.T) {
 	ctx := context.Background()
 	cs := fake.NewSimpleClientset(
 		&netv1.NetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{Name: "deny-all", Namespace: "team-a"},
+			ObjectMeta: metav1.ObjectMeta{Name: "deny-all", Namespace: testNetpolNSTeamA},
 			Spec:       netv1.NetworkPolicySpec{PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress}},
 		},
 		&netv1.NetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{Name: "allow-dns", Namespace: "team-b"},
+			ObjectMeta: metav1.ObjectMeta{Name: testNetpolAllowDNS, Namespace: testNetpolNSTeamB},
 			Spec:       netv1.NetworkPolicySpec{PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeEgress}},
 		},
 	)
@@ -128,10 +136,10 @@ func TestKubeSourceListAllNetworkPolicies_MultiNamespace(t *testing.T) {
 	for _, np := range got {
 		nsByName[np.Name] = np.Namespace
 	}
-	if nsByName["deny-all"] != "team-a" {
-		t.Errorf("deny-all namespace: got %q, want team-a", nsByName["deny-all"])
+	if nsByName["deny-all"] != testNetpolNSTeamA {
+		t.Errorf("deny-all namespace: got %q, want %s", nsByName["deny-all"], testNetpolNSTeamA)
 	}
-	if nsByName["allow-dns"] != "team-b" {
-		t.Errorf("allow-dns namespace: got %q, want team-b", nsByName["allow-dns"])
+	if nsByName[testNetpolAllowDNS] != testNetpolNSTeamB {
+		t.Errorf("allow-dns namespace: got %q, want %s", nsByName[testNetpolAllowDNS], testNetpolNSTeamB)
 	}
 }

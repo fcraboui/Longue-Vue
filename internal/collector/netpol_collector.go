@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -10,6 +11,12 @@ import (
 
 	"github.com/sthalbert/longue-vue/internal/store"
 )
+
+// errNetpolSweepFailed is a sentinel returned by CollectNetworkPolicies
+// when one or more per-namespace sweeps failed — individual failures are
+// already logged with full context inside the loop; this error gives the
+// caller a single signal for the tick outcome.
+var errNetpolSweepFailed = errors.New("sweep netpols: one or more namespaces failed")
 
 const (
 	peerKindSelector = "selector"
@@ -93,7 +100,7 @@ func CollectNetworkPolicies(
 		}
 	}
 	if sweepFailures > 0 {
-		return fmt.Errorf("sweep netpols: %d namespace(s) failed", sweepFailures)
+		return fmt.Errorf("%w (%d)", errNetpolSweepFailed, sweepFailures)
 	}
 	return nil
 }
