@@ -6,6 +6,20 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.5.0](https://github.com/sthalbert/Longue-Vue/compare/v1.4.0...v1.5.0) (2026-06-10)
+
+
+### Features
+
+* **collector:** add ListAllNetworkPolicies cluster-wide method ([5916588](https://github.com/sthalbert/Longue-Vue/commit/59165886e7e151ac30beb97e8c8ab7f109507ed5))
+
+
+### Bug Fixes
+
+* **collector:** log+continue on netpol sweep errors and include cluster context ([47f7821](https://github.com/sthalbert/Longue-Vue/commit/47f7821ab1981bfe9ae45dfaf9ca206371f488c7))
+* **collector:** single cluster-wide ListNetworkPolicies call per tick ([4130ee9](https://github.com/sthalbert/Longue-Vue/commit/4130ee916f97c6739b20c02c1e7d73480602d6b1))
+* **lint:** restore funcorder nolints on workload list helpers ([9bfa741](https://github.com/sthalbert/Longue-Vue/commit/9bfa7410700769a1671042d34c6f645460728cf7))
+
 ## [1.4.0](https://github.com/sthalbert/Longue-Vue/compare/v1.3.0...v1.4.0) (2026-06-09)
 
 
