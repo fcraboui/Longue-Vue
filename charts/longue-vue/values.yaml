@@ -276,6 +276,20 @@ ingress:
   #    hosts:
   #      - longue-vue.example.com
 
+# -- HTTPRoute exposure via an existing (operator-owned) Gateway API Gateway.
+#    Replaces the deprecated `ingress` block. Requires Gateway API CRDs and an
+#    Envoy Gateway (or compatible) Gateway already present in the cluster.
+#    TLS terminates on the Gateway listener, not here.
+httpRoute:
+  enabled: false
+  # parentRefs: the shared Gateway(s) this route attaches to.
+  parentRefs:
+    - name: ""          # REQUIRED when enabled — shared Gateway name
+      namespace: ""     # Gateway namespace (defaults to release namespace if empty)
+      sectionName: ""   # optional Gateway listener section (e.g. the HTTPS listener)
+  hostnames: []
+  #  - longue-vue.example.com
+
 # -- Node selector, tolerations, affinity.
 nodeSelector: {}
 tolerations: []
