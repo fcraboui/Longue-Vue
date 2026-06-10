@@ -19,7 +19,7 @@ const (
 	testLabelAppWeb = "web"
 )
 
-func TestKubeSourceListNetworkPolicies_FakeClient(t *testing.T) {
+func TestKubeSourceListAllNetworkPolicies_SelectorPeer(t *testing.T) {
 	ctx := context.Background()
 	port := intstr.FromInt(8080)
 	proto := corev1.ProtocolTCP
@@ -35,7 +35,7 @@ func TestKubeSourceListNetworkPolicies_FakeClient(t *testing.T) {
 		},
 	})
 	src := &KubeClient{clientset: cs}
-	got, err := src.ListNetworkPolicies(ctx, testNSProd)
+	got, err := src.ListAllNetworkPolicies(ctx)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestKubeSourceListNetworkPolicies_FakeClient(t *testing.T) {
 	}
 }
 
-func TestKubeSourceListNetworkPolicies_IPBlock(t *testing.T) {
+func TestKubeSourceListAllNetworkPolicies_IPBlock(t *testing.T) {
 	ctx := context.Background()
 	cs := fake.NewSimpleClientset(&netv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "egress-external", Namespace: testNSProd},
@@ -68,7 +68,7 @@ func TestKubeSourceListNetworkPolicies_IPBlock(t *testing.T) {
 		},
 	})
 	src := &KubeClient{clientset: cs}
-	got, err := src.ListNetworkPolicies(ctx, testNSProd)
+	got, err := src.ListAllNetworkPolicies(ctx)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -87,11 +87,11 @@ func TestKubeSourceListNetworkPolicies_IPBlock(t *testing.T) {
 	}
 }
 
-func TestKubeSourceListNetworkPolicies_EmptyNamespace(t *testing.T) {
+func TestKubeSourceListAllNetworkPolicies_Empty(t *testing.T) {
 	ctx := context.Background()
 	cs := fake.NewSimpleClientset()
 	src := &KubeClient{clientset: cs}
-	got, err := src.ListNetworkPolicies(ctx, testNSProd)
+	got, err := src.ListAllNetworkPolicies(ctx)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

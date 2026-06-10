@@ -79,10 +79,6 @@ func (f *fakeSource) ListPersistentVolumeClaims(_ context.Context) ([]PVCInfo, e
 	return f.pvcs, f.listPVCErr
 }
 
-func (f *fakeSource) ListNetworkPolicies(_ context.Context, _ string) ([]NetworkPolicyInfo, error) {
-	return f.netpols, f.listNetpolErr
-}
-
 func (f *fakeSource) ListAllNetworkPolicies(_ context.Context) ([]NetworkPolicyInfo, error) {
 	if f.listNetpolErr != nil {
 		return nil, f.listNetpolErr

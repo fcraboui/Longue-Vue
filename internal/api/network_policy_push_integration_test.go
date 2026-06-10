@@ -135,10 +135,6 @@ type fakeNetpolSource struct {
 	byNamespace map[string][]collector.NetworkPolicyInfo
 }
 
-func (f *fakeNetpolSource) ListNetworkPolicies(_ context.Context, ns string) ([]collector.NetworkPolicyInfo, error) {
-	return f.byNamespace[ns], nil
-}
-
 func (f *fakeNetpolSource) ListAllNetworkPolicies(_ context.Context) ([]collector.NetworkPolicyInfo, error) {
 	var out []collector.NetworkPolicyInfo
 	for ns, infos := range f.byNamespace {

@@ -262,14 +262,6 @@ type NetworkPolicyPeerInfo struct {
 	IPBlockExcept     []byte // JSON-encoded []string
 }
 
-// NetworkPolicyLister returns every NetworkPolicy visible to the configured
-// kubeconfig for a given namespace. Retained for back-compat; prefer
-// AllNetworkPolicyLister which makes a single cluster-wide call.
-// TODO(Task 3): remove once CollectNetworkPolicies no longer calls it.
-type NetworkPolicyLister interface {
-	ListNetworkPolicies(ctx context.Context, namespace string) ([]NetworkPolicyInfo, error)
-}
-
 // AllNetworkPolicyLister returns every NetworkPolicy across all namespaces in
 // a single cluster-wide list call — avoids the N per-namespace calls that
 // exhaust the client-go rate limiter in large clusters.
@@ -289,7 +281,6 @@ type KubeSource interface {
 	ReplicaSetOwnerLister
 	PersistentVolumeLister
 	PersistentVolumeClaimLister
-	NetworkPolicyLister
 	AllNetworkPolicyLister
 }
 
