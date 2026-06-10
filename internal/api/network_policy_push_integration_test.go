@@ -128,9 +128,9 @@ func newNetpolPushTestEnv(t *testing.T) *netpolPushTestEnv {
 }
 
 // fakeNetpolSource implements collector.KubeSource with only
-// ListNetworkPolicies populated — every other method returns empty results.
-// This is sufficient for CollectNetworkPolicies, which calls only
-// ListNetworkPolicies.
+// ListAllNetworkPolicies populated — every other method returns empty results.
+// This is sufficient for CollectNetworkPolicies, which issues a single
+// cluster-wide list call (bugfix 2026-06-10).
 type fakeNetpolSource struct {
 	byNamespace map[string][]collector.NetworkPolicyInfo
 }
@@ -140,7 +140,17 @@ func (f *fakeNetpolSource) ListNetworkPolicies(_ context.Context, ns string) ([]
 }
 
 func (f *fakeNetpolSource) ListAllNetworkPolicies(_ context.Context) ([]collector.NetworkPolicyInfo, error) {
-	return nil, nil
+	var out []collector.NetworkPolicyInfo
+	for ns, infos := range f.byNamespace {
+		for i := range infos {
+			info := infos[i]
+			if info.Namespace == "" {
+				info.Namespace = ns
+			}
+			out = append(out, info)
+		}
+	}
+	return out, nil
 }
 
 // Stub all other KubeSource methods to satisfy the interface.
@@ -255,7 +265,8 @@ func TestPushCollector_NetPol_EndToEnd(t *testing.T) {
 
 	// --- 3. Tick 1: both p1 + p2 must arrive in the DB -------------------
 
-	if err := collector.CollectNetworkPolicies(ctx, src, env.apcl, clusterID, nsID, nsName); err != nil {
+	nsByName := map[string]uuid.UUID{nsName: nsID}
+	if err := collector.CollectNetworkPolicies(ctx, src, env.apcl, clusterID, nsByName); err != nil {
 		t.Fatalf("tick 1: CollectNetworkPolicies: %v", err)
 	}
 
@@ -267,7 +278,7 @@ func TestPushCollector_NetPol_EndToEnd(t *testing.T) {
 
 	src.byNamespace[nsName] = src.byNamespace[nsName][:1] // keep only p1
 
-	if err := collector.CollectNetworkPolicies(ctx, src, env.apcl, clusterID, nsID, nsName); err != nil {
+	if err := collector.CollectNetworkPolicies(ctx, src, env.apcl, clusterID, nsByName); err != nil {
 		t.Fatalf("tick 2: CollectNetworkPolicies: %v", err)
 	}
 

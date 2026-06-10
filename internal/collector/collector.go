@@ -1177,24 +1177,19 @@ func (c *Collector) ingestPersistentVolumeClaims(ctx context.Context, namespaceI
 		slog.Int64("reconciled_deleted", reconciled), slog.String("cluster_name", c.clusterName))
 }
 
-// ingestNetworkPolicies runs one tick of NetworkPolicy reconciliation
-// for every namespace that was successfully ingested this tick. Runs in
-// both in-process (cmd/longue-vue → *store.PG direct) and push
-// (cmd/longue-vue-collector → apiclient.Store → ingest GW) modes since
-// ADR-0038. The c.netpolStore == nil guard exists for tests that inject
-// a stub store without netpol support.
+// ingestNetworkPolicies runs one tick of NetworkPolicy reconciliation for
+// the local cluster. Single cluster-wide list call (no per-namespace
+// fan-out — bugfix 2026-06-10). Runs in both in-process and push modes
+// since ADR-0038. The c.netpolStore == nil guard exists for tests that
+// inject a stub store without netpol support.
 func (c *Collector) ingestNetworkPolicies(ctx context.Context, clusterID uuid.UUID, namespaceIDsByName map[string]uuid.UUID) {
 	if c.netpolStore == nil {
 		return
 	}
-	for nsName, nsID := range namespaceIDsByName {
-		if err := CollectNetworkPolicies(ctx, c.source, c.netpolStore, clusterID, nsID, nsName); err != nil {
-			slog.Warn("collector: netpol tick failed",
-				slog.String("cluster", clusterID.String()),
-				slog.String("ns", nsName),
-				slog.Any("err", err),
-				slog.String("cluster_name", c.clusterName))
-			// per CLAUDE.md: do not return — other namespaces still need to land
-		}
+	if err := CollectNetworkPolicies(ctx, c.source, c.netpolStore, clusterID, namespaceIDsByName); err != nil {
+		slog.Warn("collector: netpol tick failed",
+			slog.String("cluster", clusterID.String()),
+			slog.Any("err", err),
+			slog.String("cluster_name", c.clusterName))
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 
@@ -24,17 +25,45 @@ type NetPolStore interface {
 	SweepNetworkPoliciesByNamespace(ctx context.Context, nsID uuid.UUID, seen []string) error
 }
 
-// CollectNetworkPolicies runs one tick of NetworkPolicy reconciliation
-// for a single (cluster, namespace). MUST only be called after the kube
-// list call succeeds — transient API errors must never wipe the store
-// (CLAUDE.md reconcile contract).
-func CollectNetworkPolicies(ctx context.Context, src KubeSource, st NetPolStore, clusterID, nsID uuid.UUID, nsName string) error {
-	infos, err := src.ListNetworkPolicies(ctx, nsName)
+// CollectNetworkPolicies runs one tick of NetworkPolicy reconciliation for
+// the local cluster. Issues ONE cluster-wide list call (replaces the
+// per-namespace fan-out that exhausted client-go's rate limiter on
+// large clusters — bugfix 2026-06-10). Groups results by namespace,
+// upserts each, and sweeps every known namespace (per the reconcile
+// contract — even empty ones, to clean up stale rows). Netpols in unknown
+// namespaces (created between ingestNamespaces and this call) are skipped
+// and picked up on the next tick — same pattern as ingestServices.
+//
+// MUST only be called after the kube list call succeeds — transient API
+// errors must never wipe the store (CLAUDE.md reconcile contract).
+func CollectNetworkPolicies(
+	ctx context.Context,
+	src KubeSource,
+	st NetPolStore,
+	clusterID uuid.UUID,
+	namespaceIDsByName map[string]uuid.UUID,
+) error {
+	infos, err := src.ListAllNetworkPolicies(ctx)
 	if err != nil {
-		return fmt.Errorf("list netpols in %s: %w", nsName, err)
+		return fmt.Errorf("list netpols cluster-wide: %w", err)
 	}
-	seen := make([]string, 0, len(infos))
+
+	// Pre-seed seen map for every known namespace so the sweep below runs
+	// even on namespaces with zero netpols (cleans up stale rows after a
+	// NetworkPolicy is deleted from K8s).
+	seenByNS := make(map[uuid.UUID][]string, len(namespaceIDsByName))
+	for _, nsID := range namespaceIDsByName {
+		seenByNS[nsID] = make([]string, 0)
+	}
+
 	for _, info := range infos { //nolint:gocritic // rangeValCopy: NetworkPolicyInfo has slices; shallow copy is safe here
+		nsID, ok := namespaceIDsByName[info.Namespace]
+		if !ok {
+			slog.Warn("collector: netpol in unknown namespace; skipping",
+				slog.String("netpol", info.Name),
+				slog.String("namespace", info.Namespace))
+			continue
+		}
 		rules := flattenNetPolRules(info)
 		if _, err := st.UpsertNetworkPolicy(ctx, store.NetworkPolicy{
 			ClusterID:   clusterID,
@@ -44,12 +73,15 @@ func CollectNetworkPolicies(ctx context.Context, src KubeSource, st NetPolStore,
 			PolicyTypes: info.PolicyTypes,
 			SpecRaw:     info.SpecRaw,
 		}, rules); err != nil {
-			return fmt.Errorf("upsert netpol %q: %w", info.Name, err)
+			return fmt.Errorf("upsert netpol %s/%s: %w", info.Namespace, info.Name, err)
 		}
-		seen = append(seen, info.Name)
+		seenByNS[nsID] = append(seenByNS[nsID], info.Name)
 	}
-	if err := st.SweepNetworkPoliciesByNamespace(ctx, nsID, seen); err != nil {
-		return fmt.Errorf("sweep: %w", err)
+
+	for _, nsID := range namespaceIDsByName {
+		if err := st.SweepNetworkPoliciesByNamespace(ctx, nsID, seenByNS[nsID]); err != nil {
+			return fmt.Errorf("sweep netpols in ns %s: %w", nsID, err)
+		}
 	}
 	return nil
 }

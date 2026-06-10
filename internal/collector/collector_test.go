@@ -84,7 +84,10 @@ func (f *fakeSource) ListNetworkPolicies(_ context.Context, _ string) ([]Network
 }
 
 func (f *fakeSource) ListAllNetworkPolicies(_ context.Context) ([]NetworkPolicyInfo, error) {
-	return nil, nil
+	if f.listNetpolErr != nil {
+		return nil, f.listNetpolErr
+	}
+	return f.netpols, nil
 }
 
 type recordedUpdate struct {
