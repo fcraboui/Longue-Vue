@@ -63,7 +63,6 @@ func (f *fakeNetPolStore) sweepNamesForNS(nsID uuid.UUID) (names []string, found
 	return nil, false
 }
 
-
 func TestCollectNetworkPolicies_HappyPath(t *testing.T) {
 	ctx := t.Context()
 	clusterID, nsA, nsB := uuid.New(), uuid.New(), uuid.New()
