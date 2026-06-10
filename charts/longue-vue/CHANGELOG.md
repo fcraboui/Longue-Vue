@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.26.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.25.0...chart-longue-vue-v0.26.0) (2026-06-10)
+
+
+### Features
+
+* **chart:** add Gateway API HTTPRoute exposure template ([34571a9](https://github.com/sthalbert/Longue-Vue/commit/34571a9897ba4ea9a3b2a95a844d83ac89bb354c))
+* **chart:** add optional route-level Envoy Gateway SecurityPolicy ([c6f7a32](https://github.com/sthalbert/Longue-Vue/commit/c6f7a32b4c2c37157dac48704fb28c58cc48e951))
+* **chart:** deprecate Ingress, surface HTTPRoute URL in NOTES ([ebb0bf4](https://github.com/sthalbert/Longue-Vue/commit/ebb0bf40c45df4bda4b956d5150b9f80141de124))
+* **chart:** expose longue-vue via Gateway API (HTTPRoute + Envoy Gateway SecurityPolicy) ([24b6641](https://github.com/sthalbert/Longue-Vue/commit/24b664159731dbad0e564e883ee780671dbd807e))
+
+
+### Bug Fixes
+
+* **chart:** guard HTTPRoute parentRefs and require gateway name ([543514a](https://github.com/sthalbert/Longue-Vue/commit/543514aff5e6a04274d3ac8c86fcf05d78423db6))
+* **chart:** make HTTPRoute/SecurityPolicy guards fire and use targetRefs ([834eb7a](https://github.com/sthalbert/Longue-Vue/commit/834eb7a620997f8142318240725b0c0fdd52539e))
+
 ## [0.25.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.24.0...chart-longue-vue-v0.25.0) (2026-06-07)
 
 
