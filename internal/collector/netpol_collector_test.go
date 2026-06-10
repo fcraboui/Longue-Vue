@@ -49,113 +49,97 @@ func (f *fakeNetPolStore) SweepNetworkPoliciesByNamespace(_ context.Context, nsI
 	return nil
 }
 
-func TestCollectNetworkPolicies_SinglePolicy(t *testing.T) {
-	ctx := context.Background()
-	clusterID := uuid.New()
-	nsID := uuid.New()
+// sweepNamesForNS returns the names from the most-recent sweep for nsID, and
+// whether any sweep for that namespace was recorded at all. Helps assertions
+// stay independent of sweep ordering.
+func (f *fakeNetPolStore) sweepNamesForNS(nsID uuid.UUID) (names []string, found bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.sweeps) - 1; i >= 0; i-- {
+		if f.sweeps[i].nsID == nsID {
+			return f.sweeps[i].names, true
+		}
+	}
+	return nil, false
+}
 
+func TestCollectNetworkPolicies_HappyPath(t *testing.T) {
+	ctx := t.Context()
+	clusterID, nsA, nsB := uuid.New(), uuid.New(), uuid.New()
 	src := &fakeSource{
 		netpols: []NetworkPolicyInfo{
-			{
-				Name:        testNetPolName,
-				Namespace:   testNSProd,
-				PolicyTypes: []string{"Ingress"},
-				Ingress: []NetworkPolicyRuleInfo{
-					{
-						Peers: []NetworkPolicyPeerInfo{{Kind: peerKindSelector}},
-						Ports: []byte(`[{"port":8080}]`),
-					},
-				},
-			},
+			{Name: "deny-all", Namespace: testNetpolNSTeamA, PodSelector: []byte(`{}`), SpecRaw: []byte(`{}`)},
+			{Name: "deny-egress", Namespace: testNetpolNSTeamA, PodSelector: []byte(`{}`), SpecRaw: []byte(`{}`)},
+			{Name: testNetpolAllowDNS, Namespace: testNetpolNSTeamB, PodSelector: []byte(`{}`), SpecRaw: []byte(`{}`)},
 		},
 	}
 	st := newFakeNetPolStore()
+	nsByName := map[string]uuid.UUID{testNetpolNSTeamA: nsA, testNetpolNSTeamB: nsB}
 
-	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, testNSProd); err != nil {
+	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsByName); err != nil {
 		t.Fatalf("CollectNetworkPolicies: %v", err)
 	}
+	if len(st.upserts) != 3 {
+		t.Errorf("upserts: got %d, want 3", len(st.upserts))
+	}
+	if len(st.sweeps) != 2 {
+		t.Errorf("sweeps: got %d, want 2 (one per known ns)", len(st.sweeps))
+	}
+	if got, ok := st.sweepNamesForNS(nsA); !ok || len(got) != 2 {
+		t.Errorf("nsA sweep seen: got %v (ok=%v), want 2 entries", got, ok)
+	}
+	if got, ok := st.sweepNamesForNS(nsB); !ok || len(got) != 1 || got[0] != testNetpolAllowDNS {
+		t.Errorf("nsB sweep seen: got %v (ok=%v), want [allow-dns]", got, ok)
+	}
+}
 
+func TestCollectNetworkPolicies_UnknownNamespaceSkipped(t *testing.T) {
+	ctx := t.Context()
+	clusterID, nsA := uuid.New(), uuid.New()
+	src := &fakeSource{
+		netpols: []NetworkPolicyInfo{
+			{Name: "good", Namespace: testNetpolNSTeamA, PodSelector: []byte(`{}`), SpecRaw: []byte(`{}`)},
+			{Name: testNetpolOrphan, Namespace: testNetpolNSGhost, PodSelector: []byte(`{}`), SpecRaw: []byte(`{}`)},
+		},
+	}
+	st := newFakeNetPolStore()
+	nsByName := map[string]uuid.UUID{testNetpolNSTeamA: nsA}
+
+	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsByName); err != nil {
+		t.Fatalf("CollectNetworkPolicies: %v", err)
+	}
 	if len(st.upserts) != 1 {
-		t.Fatalf("want 1 upsert, got %d", len(st.upserts))
+		t.Errorf("upserts: got %d, want 1 (orphan should be skipped)", len(st.upserts))
 	}
-	if st.upserts[0].Name != testNetPolName {
-		t.Fatalf("upserted name: %q", st.upserts[0].Name)
-	}
-	if len(st.replaces) != 1 {
-		t.Fatalf("want 1 replace call, got %d", len(st.replaces))
-	}
-	if len(st.sweeps) != 1 {
-		t.Fatalf("want 1 sweep call, got %d", len(st.sweeps))
-	}
-	if len(st.sweeps[0].names) != 1 || st.sweeps[0].names[0] != testNetPolName {
-		t.Fatalf("sweep names: %v", st.sweeps[0].names)
+	if got, ok := st.sweepNamesForNS(nsA); !ok || len(got) != 1 || got[0] != "good" {
+		t.Errorf("nsA sweep seen: got %v (ok=%v), want [good]", got, ok)
 	}
 }
 
-func TestCollectNetworkPolicies_SweepDropsGone(t *testing.T) {
-	ctx := context.Background()
-	clusterID := uuid.New()
-	nsID := uuid.New()
-
-	// Round 1: two policies.
+func TestCollectNetworkPolicies_EmptyNamespaceSweeps(t *testing.T) {
+	ctx := t.Context()
+	clusterID, nsA, nsB := uuid.New(), uuid.New(), uuid.New()
 	src := &fakeSource{
 		netpols: []NetworkPolicyInfo{
-			{Name: testNetPolPola, Namespace: testNSProd},
-			{Name: "pol-b", Namespace: testNSProd},
+			{Name: "only-one", Namespace: testNetpolNSTeamA, PodSelector: []byte(`{}`), SpecRaw: []byte(`{}`)},
 		},
 	}
 	st := newFakeNetPolStore()
+	nsByName := map[string]uuid.UUID{testNetpolNSTeamA: nsA, testNetpolNSTeamB: nsB}
 
-	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, testNSProd); err != nil {
-		t.Fatalf("round 1: %v", err)
-	}
-	if len(st.upserts) != 2 {
-		t.Fatalf("round 1: want 2 upserts, got %d", len(st.upserts))
-	}
-	sweep1 := st.sweeps[0].names
-	if len(sweep1) != 2 {
-		t.Fatalf("round 1 sweep names: %v", sweep1)
-	}
-
-	// Round 2: only pol-a remains.
-	src.netpols = []NetworkPolicyInfo{
-		{Name: testNetPolPola, Namespace: testNSProd},
-	}
-
-	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, testNSProd); err != nil {
-		t.Fatalf("round 2: %v", err)
-	}
-	sweep2 := st.sweeps[1].names
-	if len(sweep2) != 1 || sweep2[0] != testNetPolPola {
-		t.Fatalf("round 2 sweep should contain only pol-a, got %v", sweep2)
-	}
-}
-
-func TestCollectNetworkPolicies_EmptyNamespace(t *testing.T) {
-	ctx := context.Background()
-	clusterID := uuid.New()
-	nsID := uuid.New()
-
-	src := &fakeSource{netpols: nil}
-	st := newFakeNetPolStore()
-
-	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, testNSProd); err != nil {
+	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsByName); err != nil {
 		t.Fatalf("CollectNetworkPolicies: %v", err)
 	}
-
-	if len(st.upserts) != 0 {
-		t.Fatalf("want 0 upserts, got %d", len(st.upserts))
+	if len(st.sweeps) != 2 {
+		t.Errorf("sweeps: got %d, want 2 (every known ns gets a sweep)", len(st.sweeps))
 	}
-	if len(st.sweeps) != 1 {
-		t.Fatalf("want 1 sweep, got %d", len(st.sweeps))
-	}
-	if len(st.sweeps[0].names) != 0 {
-		t.Fatalf("want empty sweep names, got %v", st.sweeps[0].names)
+	if got, ok := st.sweepNamesForNS(nsB); !ok || len(got) != 0 {
+		t.Errorf("nsB sweep: got (%v, ok=%v), want ([], ok=true)", got, ok)
 	}
 }
 
 func TestCollectNetworkPolicies_IPBlockPeer(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	clusterID := uuid.New()
 	nsID := uuid.New()
 
@@ -178,8 +162,9 @@ func TestCollectNetworkPolicies_IPBlockPeer(t *testing.T) {
 		},
 	}
 	st := newFakeNetPolStore()
+	nsByName := map[string]uuid.UUID{testNSProd: nsID}
 
-	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsID, testNSProd); err != nil {
+	if err := CollectNetworkPolicies(ctx, src, st, clusterID, nsByName); err != nil {
 		t.Fatalf("CollectNetworkPolicies: %v", err)
 	}
 

@@ -897,7 +897,7 @@ func (f *fakeKubeSource) ListPersistentVolumeClaims(_ context.Context) ([]collec
 	return f.pvcs, nil
 }
 
-func (f *fakeKubeSource) ListNetworkPolicies(_ context.Context, _ string) ([]collector.NetworkPolicyInfo, error) {
+func (f *fakeKubeSource) ListAllNetworkPolicies(_ context.Context) ([]collector.NetworkPolicyInfo, error) {
 	return nil, nil
 }
 

@@ -690,7 +690,7 @@ func (k *KubeClient) ListWorkloads(ctx context.Context) ([]WorkloadInfo, error) 
 	return out, nil
 }
 
-//nolint:funcorder // pre-existing helper; flagged after ListNetworkPolicies was appended below
+//nolint:funcorder // workload helper kept adjacent to ListWorkloads; flagged because ListAllNetworkPolicies sits below
 func (k *KubeClient) listDeployments(ctx context.Context) ([]WorkloadInfo, error) {
 	deps, err := k.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -714,7 +714,7 @@ func (k *KubeClient) listDeployments(ctx context.Context) ([]WorkloadInfo, error
 	return out, nil
 }
 
-//nolint:funcorder // pre-existing helper; flagged after ListNetworkPolicies was appended below
+//nolint:funcorder // workload helper kept adjacent to ListWorkloads; flagged because ListAllNetworkPolicies sits below
 func (k *KubeClient) listStatefulSets(ctx context.Context) ([]WorkloadInfo, error) {
 	sfs, err := k.clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -738,7 +738,7 @@ func (k *KubeClient) listStatefulSets(ctx context.Context) ([]WorkloadInfo, erro
 	return out, nil
 }
 
-//nolint:funcorder // pre-existing helper; flagged after ListNetworkPolicies was appended below
+//nolint:funcorder // workload helper kept adjacent to ListWorkloads; flagged because ListAllNetworkPolicies sits below
 func (k *KubeClient) listDaemonSets(ctx context.Context) ([]WorkloadInfo, error) {
 	dss, err := k.clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -762,13 +762,14 @@ func (k *KubeClient) listDaemonSets(ctx context.Context) ([]WorkloadInfo, error)
 	return out, nil
 }
 
-// ListNetworkPolicies returns every NetworkPolicy in the given namespace.
-// Selectors and the full spec are JSON-encoded so the store keeps them as
-// JSONB for later engine queries (Phase 2).
-func (k *KubeClient) ListNetworkPolicies(ctx context.Context, namespace string) ([]NetworkPolicyInfo, error) {
-	list, err := k.clientset.NetworkingV1().NetworkPolicies(namespace).List(ctx, metav1.ListOptions{})
+// ListAllNetworkPolicies returns every NetworkPolicy across every namespace
+// in one cluster-wide list call (mirror of ListServices/ListIngresses).
+// Replaces the per-namespace ListNetworkPolicies which fans out N calls
+// against the K8s API and exhausts client-go's rate limiter at scale.
+func (k *KubeClient) ListAllNetworkPolicies(ctx context.Context) ([]NetworkPolicyInfo, error) {
+	list, err := k.clientset.NetworkingV1().NetworkPolicies("").List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("list netpols in %s: %w", namespace, err)
+		return nil, fmt.Errorf("list netpols cluster-wide: %w", err)
 	}
 	out := make([]NetworkPolicyInfo, 0, len(list.Items))
 	for _, np := range list.Items { //nolint:gocritic // rangeValCopy: k8s NetworkPolicy is SDK-owned; indexing would couple to SDK internals
