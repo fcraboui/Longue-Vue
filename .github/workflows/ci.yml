@@ -139,6 +139,26 @@ jobs:
             --set postgresql.enabled=false \
             --set externalDatabase.url="postgres://longue_vue:test@pg:5432/longue_vue" > /dev/null
 
+      - name: Template renders cleanly (HTTPRoute exposure)
+        run: |
+          helm template longue-vue charts/longue-vue \
+            --set postgresql.enabled=false \
+            --set externalDatabase.url="postgres://longue_vue:test@pg:5432/longue_vue" \
+            --set httpRoute.enabled=true \
+            --set httpRoute.parentRefs[0].name=shared-gw \
+            --set httpRoute.parentRefs[0].namespace=envoy-gateway-system \
+            --set httpRoute.hostnames[0]=longue-vue.example.com > /dev/null
+
+      - name: Template renders cleanly (HTTPRoute + SecurityPolicy)
+        run: |
+          helm template longue-vue charts/longue-vue \
+            --set postgresql.enabled=false \
+            --set externalDatabase.url="postgres://longue_vue:test@pg:5432/longue_vue" \
+            --set httpRoute.enabled=true \
+            --set httpRoute.parentRefs[0].name=shared-gw \
+            --set securityPolicy.enabled=true \
+            --set securityPolicy.cors.allowOrigins[0]="https://longue-vue.example.com" > /dev/null
+
   docker:
     name: docker build
     runs-on: ubuntu-latest
