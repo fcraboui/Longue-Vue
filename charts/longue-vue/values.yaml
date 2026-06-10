@@ -261,7 +261,9 @@ flowMatrix:
     # Prometheus ruleSelector).
     labels: {}
 
-# -- Ingress (expose longue-vue outside the cluster).
+# -- DEPRECATED: legacy Ingress exposure. Removed in the next major chart version.
+#    Migrate to `httpRoute` above. Under Gateway API, TLS terminates on the Gateway
+#    listener (operator-owned), so `ingress.tls` has no Gateway-path equivalent here.
 ingress:
   enabled: false
   className: ""

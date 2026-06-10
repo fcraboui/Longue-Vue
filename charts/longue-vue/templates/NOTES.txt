@@ -1,7 +1,14 @@
 longue-vue has been installed.
 
 1. Get the application URL:
-{{- if .Values.ingress.enabled }}
+{{- if .Values.httpRoute.enabled }}
+  (Requires Gateway API CRDs + an Envoy Gateway already installed; Helm does not install them.)
+{{- range $host := .Values.httpRoute.hostnames }}
+  https://{{ $host }}
+{{- else }}
+  (HTTPRoute enabled with no hostnames — reachable via the Gateway's address.)
+{{- end }}
+{{- else if .Values.ingress.enabled }}
 {{- range $host := .Values.ingress.hosts }}
   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}
 {{- end }}
@@ -26,3 +33,9 @@ longue-vue has been installed.
      -d '{"name":"my-cluster"}'
 
 Documentation: https://github.com/sthalbert/longue-vue/tree/main/docs
+
+{{- if .Values.ingress.enabled }}
+
+WARNING: `ingress.enabled` is DEPRECATED and will be removed in the next major
+chart version. Migrate to `httpRoute` (Gateway API). See ADR-0039.
+{{- end }}
