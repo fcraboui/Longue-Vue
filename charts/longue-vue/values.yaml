@@ -282,11 +282,11 @@ ingress:
 #    TLS terminates on the Gateway listener, not here.
 httpRoute:
   enabled: false
-  # parentRefs: the shared Gateway(s) this route attaches to.
-  parentRefs:
-    - name: ""          # REQUIRED when enabled — shared Gateway name
-      namespace: ""     # Gateway namespace (defaults to release namespace if empty)
-      sectionName: ""   # optional Gateway listener section (e.g. the HTTPS listener)
+  # parentRefs: the shared Gateway(s) this route attaches to (REQUIRED when enabled).
+  parentRefs: []
+  #  - name: shared-gateway       # name of the Gateway to attach to
+  #    namespace: gateway-system  # omit to default to the release namespace
+  #    sectionName: https         # omit to attach to all listeners
   hostnames: []
   #  - longue-vue.example.com
 

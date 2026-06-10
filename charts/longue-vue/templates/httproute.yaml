@@ -7,16 +7,18 @@ metadata:
   labels:
     {{- include "longue-vue.labels" . | nindent 4 }}
 spec:
+  {{- with .Values.httpRoute.parentRefs }}
   parentRefs:
-    {{- range .Values.httpRoute.parentRefs }}
-    - name: {{ .name }}
+    {{- range . }}
+    - name: {{ required "httpRoute.parentRefs[].name is required when httpRoute.enabled" .name | quote }}
       {{- with .namespace }}
-      namespace: {{ . }}
+      namespace: {{ . | quote }}
       {{- end }}
       {{- with .sectionName }}
-      sectionName: {{ . }}
+      sectionName: {{ . | quote }}
       {{- end }}
     {{- end }}
+  {{- end }}
   {{- with .Values.httpRoute.hostnames }}
   hostnames:
     {{- range . }}
