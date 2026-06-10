@@ -63,18 +63,6 @@ func (f *fakeNetPolStore) sweepNamesForNS(nsID uuid.UUID) (names []string, found
 	return nil, false
 }
 
-// sweepCountForNS returns how many sweep calls were recorded for nsID.
-func (f *fakeNetPolStore) sweepCountForNS(nsID uuid.UUID) int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	n := 0
-	for _, s := range f.sweeps {
-		if s.nsID == nsID {
-			n++
-		}
-	}
-	return n
-}
 
 func TestCollectNetworkPolicies_HappyPath(t *testing.T) {
 	ctx := t.Context()

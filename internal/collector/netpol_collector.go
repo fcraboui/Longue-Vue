@@ -60,6 +60,7 @@ func CollectNetworkPolicies(
 		nsID, ok := namespaceIDsByName[info.Namespace]
 		if !ok {
 			slog.Warn("collector: netpol in unknown namespace; skipping",
+				slog.String("cluster", clusterID.String()),
 				slog.String("netpol", info.Name),
 				slog.String("namespace", info.Namespace))
 			continue
@@ -78,10 +79,21 @@ func CollectNetworkPolicies(
 		seenByNS[nsID] = append(seenByNS[nsID], info.Name)
 	}
 
-	for _, nsID := range namespaceIDsByName {
+	var sweepFailures int
+	for nsName, nsID := range namespaceIDsByName {
 		if err := st.SweepNetworkPoliciesByNamespace(ctx, nsID, seenByNS[nsID]); err != nil {
-			return fmt.Errorf("sweep netpols in ns %s: %w", nsID, err)
+			slog.Warn("collector: sweep netpols failed",
+				slog.String("cluster", clusterID.String()),
+				slog.String("namespace", nsName),
+				slog.Any("err", err))
+			sweepFailures++
+			// per CLAUDE.md reconcile contract: other namespaces still need
+			// their sweep — don't let one failure block the rest
+			continue
 		}
+	}
+	if sweepFailures > 0 {
+		return fmt.Errorf("sweep netpols: %d namespace(s) failed", sweepFailures)
 	}
 	return nil
 }
