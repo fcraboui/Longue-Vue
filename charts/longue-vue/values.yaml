@@ -297,6 +297,8 @@ httpRoute:
 #    longue-vue does its own session/PAT/OIDC auth. Use for edge CORS / IP allowlist.
 #    NOTE: a route-level policy REPLACES (does not merge with) any Gateway-level
 #    SecurityPolicy for overlapping settings on this route.
+#    When enabled, set at least one policy field (cors / authorization / or another
+#    Envoy Gateway SecurityPolicy field) — an empty policy is rejected by the webhook.
 securityPolicy:
   enabled: false
   cors: {}              # rendered verbatim under spec.cors — see Envoy Gateway SecurityPolicy CORS schema

@@ -7,10 +7,12 @@ metadata:
   labels:
     {{- include "longue-vue.labels" . | nindent 4 }}
 spec:
-  {{- with .Values.httpRoute.parentRefs }}
+  {{- if not .Values.httpRoute.parentRefs }}
+  {{- fail "httpRoute.parentRefs must list at least one Gateway when httpRoute.enabled=true" }}
+  {{- end }}
   parentRefs:
-    {{- range . }}
-    - name: {{ required "httpRoute.parentRefs[].name is required when httpRoute.enabled" .name | quote }}
+    {{- range .Values.httpRoute.parentRefs }}
+    - name: {{ required "httpRoute.parentRefs[].name is required" .name | quote }}
       {{- with .namespace }}
       namespace: {{ . | quote }}
       {{- end }}
@@ -18,7 +20,6 @@ spec:
       sectionName: {{ . | quote }}
       {{- end }}
     {{- end }}
-  {{- end }}
   {{- with .Values.httpRoute.hostnames }}
   hostnames:
     {{- range . }}

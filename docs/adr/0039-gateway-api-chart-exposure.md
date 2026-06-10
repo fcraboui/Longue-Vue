@@ -31,7 +31,7 @@ separate, later effort and is out of scope here.
   `ingress.tls`.
 - An optional **Envoy Gateway `SecurityPolicy`** (`gateway.envoyproxy.io/v1alpha1`,
   `templates/securitypolicy.yaml`, gated on `securityPolicy.enabled`, default
-  off) attaches **route-level** via `targetRef` to our own HTTPRoute — never to
+  off) attaches **route-level** via `targetRefs` to our own HTTPRoute — never to
   the shared Gateway, which would affect every tenant on it. It is a scaffold
   for edge CORS / IP-allowlist (`authorization`); longue-vue keeps doing its own
   session/PAT/OIDC auth, so no edge auth is enabled by default.
@@ -52,10 +52,9 @@ separate, later effort and is out of scope here.
   `httpRoute.enabled` is set.
 - Operators move exposure-TLS configuration from `ingress.tls` to the shared
   Gateway listener.
-- `gatewayClassName` and `SecurityPolicy` are Envoy-Gateway-specific. Other
-  Gateway API implementations render the `HTTPRoute` fine but ignore the
-  `SecurityPolicy`; those operators apply equivalent edge policy by their own
-  means.
+- `SecurityPolicy` is Envoy-Gateway-specific. Other Gateway API implementations
+  render the `HTTPRoute` fine but ignore the `SecurityPolicy`; those operators
+  apply equivalent edge policy by their own means.
 - CI renders the chart with `httpRoute.enabled=true` and with
   `securityPolicy.enabled=true` (`helm template`, no cluster needed) so both new
   templates stay covered.

@@ -1,4 +1,7 @@
 {{- if .Values.securityPolicy.enabled }}
+{{- if not .Values.httpRoute.enabled }}
+{{- fail "securityPolicy.enabled requires httpRoute.enabled=true (the policy targets the chart's HTTPRoute)" }}
+{{- end }}
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:
@@ -7,10 +10,10 @@ metadata:
   labels:
     {{- include "longue-vue.labels" . | nindent 4 }}
 spec:
-  targetRef:
-    group: gateway.networking.k8s.io
-    kind: HTTPRoute
-    name: {{ include "longue-vue.fullname" . }}
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ include "longue-vue.fullname" . }}
   {{- with .Values.securityPolicy.cors }}
   cors:
     {{- toYaml . | nindent 4 }}
