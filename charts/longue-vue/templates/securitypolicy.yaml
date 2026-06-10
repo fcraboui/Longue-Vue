@@ -1,0 +1,22 @@
+{{- if .Values.securityPolicy.enabled }}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ include "longue-vue.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "longue-vue.labels" . | nindent 4 }}
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: {{ include "longue-vue.fullname" . }}
+  {{- with .Values.securityPolicy.cors }}
+  cors:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.securityPolicy.authorization }}
+  authorization:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

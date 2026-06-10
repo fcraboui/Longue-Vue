@@ -290,6 +290,16 @@ httpRoute:
   hostnames: []
   #  - longue-vue.example.com
 
+# -- Optional Envoy Gateway SecurityPolicy attached route-level to the HTTPRoute
+#    above (targetRef -> our HTTPRoute, never the shared Gateway). Off by default;
+#    longue-vue does its own session/PAT/OIDC auth. Use for edge CORS / IP allowlist.
+#    NOTE: a route-level policy REPLACES (does not merge with) any Gateway-level
+#    SecurityPolicy for overlapping settings on this route.
+securityPolicy:
+  enabled: false
+  cors: {}              # e.g. allowOrigins: ["https://longue-vue.example.com"]
+  authorization: {}     # e.g. defaultAction: Deny + rules with client CIDR principals
+
 # -- Node selector, tolerations, affinity.
 nodeSelector: {}
 tolerations: []
