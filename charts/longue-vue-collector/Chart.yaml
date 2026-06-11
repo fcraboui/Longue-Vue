@@ -24,3 +24,14 @@ keywords:
   - airgap
   - secnumcloud
   - anssi
+annotations:
+  artifacthub.io/changes: |
+    - kind: fixed
+      description: >-
+        Republish chart so the default image tag tracks appVersion 1.6.0
+        (was 1.1.0 in the previously published 2.1.0 chart). The 1.6.0 image
+        includes the apiclient.Store push surface for NetworkPolicies
+        (ADR-0038) and the cluster-wide ListNetworkPolicies optimization that
+        replaces the per-namespace fan-out — without this republish, chart
+        consumers get a binary that silently no-ops netpol collection in push
+        mode.

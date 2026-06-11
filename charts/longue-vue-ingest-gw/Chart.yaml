@@ -24,3 +24,12 @@ keywords:
   - mtls
   - secnumcloud
   - anssi
+annotations:
+  artifacthub.io/changes: |
+    - kind: fixed
+      description: >-
+        Republish chart so the default image tag tracks appVersion 1.6.0
+        (was 0.34.0 in the previously published 0.6.0 chart). The 1.6.0 image
+        adds POST /v1/network-policies and POST /v1/network-policies/reconcile
+        to the gateway's write allowlist (ADR-0038) — without this republish,
+        push collectors >= 1.4.0 hit 404 on the netpol routes.
