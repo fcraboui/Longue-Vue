@@ -24,3 +24,12 @@ keywords:
   - push
   - secnumcloud
   - anssi
+annotations:
+  artifacthub.io/changes: |
+    - kind: fixed
+      description: >-
+        Republish chart so the default image tag tracks appVersion 1.6.0
+        (was 0.34.0 in the previously published 0.6.0 chart). Brings VM
+        collector binaries up to current main, picking up the
+        provider-neutral canonical SG model and security-group sweep
+        (ADR-0035) and related collector improvements landed since 0.34.0.
