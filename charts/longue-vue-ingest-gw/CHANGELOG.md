@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-ingest-gw-v0.6.0...chart-longue-vue-ingest-gw-v0.6.1) (2026-06-11)
+
+
+### Bug Fixes
+
+* align default image tag with current version ([d8fb774](https://github.com/sthalbert/Longue-Vue/commit/d8fb77427661b67ffc7f247e877312bb68610927))
+* **chart-longue-vue-ingest-gw:** align default image tag with current appVersion ([992a19b](https://github.com/sthalbert/Longue-Vue/commit/992a19b2e46acfab4eada8a175c55d72ba50b7e3))
+
 ## [0.6.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-ingest-gw-v0.5.0...chart-longue-vue-ingest-gw-v0.6.0) (2026-06-02)
 
 
