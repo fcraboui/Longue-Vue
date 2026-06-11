@@ -275,32 +275,27 @@ func (p *PG) UpdateWorkload(ctx context.Context, id uuid.UUID, in api.WorkloadUp
 	appendSet("updated_at", time.Now().UTC())
 	args = append(args, id)
 
-	tx, txErr := p.pool.Begin(ctx)
-	if txErr != nil {
-		return api.Workload{}, fmt.Errorf("begin update workload: %w", txErr)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	if err := p.withTx(ctx, "update workload", func(tx pgx.Tx) error {
+		prev, _ := workloadRowMap(ctx, tx, id) // FOR UPDATE
 
-	prev, _ := workloadRowMap(ctx, tx, id) // FOR UPDATE
-
-	q := fmt.Sprintf("UPDATE workloads SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
-	tag, err := tx.Exec(ctx, q, args...)
-	if err != nil {
-		return api.Workload{}, fmt.Errorf("update workload: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return api.Workload{}, api.ErrNotFound
-	}
-
-	if prev != nil {
-		if next, err := workloadRowMapNoLock(ctx, tx, id); err == nil {
-			actor := timetravel.ActorFromContext(ctx)
-			_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, id, prev, next, changeTypeUpdate, actor)
+		q := fmt.Sprintf("UPDATE workloads SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
+		tag, err := tx.Exec(ctx, q, args...)
+		if err != nil {
+			return fmt.Errorf("update workload: %w", err)
 		}
-	}
+		if tag.RowsAffected() == 0 {
+			return api.ErrNotFound
+		}
 
-	if err := tx.Commit(ctx); err != nil {
-		return api.Workload{}, fmt.Errorf("commit update workload: %w", err)
+		if prev != nil {
+			if next, err := workloadRowMapNoLock(ctx, tx, id); err == nil {
+				actor := timetravel.ActorFromContext(ctx)
+				_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, id, prev, next, changeTypeUpdate, actor)
+			}
+		}
+		return nil
+	}); err != nil {
+		return api.Workload{}, err
 	}
 	return p.GetWorkload(ctx, id)
 }
@@ -337,30 +332,29 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 		return api.Workload{}, api.OutcomeNoChange, err
 	}
 
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("begin upsert workload: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	var (
+		w                         api.Workload
+		inserted, businessChanged bool
+	)
+	if err := p.withTx(ctx, "upsert workload", func(tx pgx.Tx) error {
+		var prevTerminatedAt *time.Time
+		var prevWLID *uuid.UUID
+		_ = tx.QueryRow(ctx,
+			`SELECT id, terminated_at FROM workloads WHERE namespace_id=$1 AND kind=$2 AND name=$3`,
+			in.NamespaceId, string(in.Kind), in.Name,
+		).Scan(&prevWLID, &prevTerminatedAt)
+		isCreate := prevWLID == nil
+		isRestore := prevWLID != nil && prevTerminatedAt != nil
 
-	var prevTerminatedAt *time.Time
-	var prevWLID *uuid.UUID
-	_ = tx.QueryRow(ctx,
-		`SELECT id, terminated_at FROM workloads WHERE namespace_id=$1 AND kind=$2 AND name=$3`,
-		in.NamespaceId, string(in.Kind), in.Name,
-	).Scan(&prevWLID, &prevTerminatedAt)
-	isCreate := prevWLID == nil
-	isRestore := prevWLID != nil && prevTerminatedAt != nil
-
-	// AUDIT_BUSINESS_FIELDS: replicas, ready_replicas, containers, labels, spec,
-	// terminated_at (restore flips it). updated_at is a clock field — excluded.
-	//
-	// COLLECTOR INVARIANT (ADR-0029 §7): application_id is operator-curated and
-	// MUST NOT be touched by collector ticks. The upsert deliberately omits it
-	// from both the INSERT column list and the ON CONFLICT SET list so that
-	// re-running reconcile preserves the curator's link. The PATCH path
-	// (UpdateWorkload) is the only place that writes this column.
-	const q = `
+		// AUDIT_BUSINESS_FIELDS: replicas, ready_replicas, containers, labels, spec,
+		// terminated_at (restore flips it). updated_at is a clock field — excluded.
+		//
+		// COLLECTOR INVARIANT (ADR-0029 §7): application_id is operator-curated and
+		// MUST NOT be touched by collector ticks. The upsert deliberately omits it
+		// from both the INSERT column list and the ON CONFLICT SET list so that
+		// re-running reconcile preserves the curator's link. The PATCH path
+		// (UpdateWorkload) is the only place that writes this column.
+		const q = `
 		WITH old AS (
 		  SELECT replicas, ready_replicas, containers, labels, spec, terminated_at
 		    FROM workloads WHERE namespace_id=$2 AND kind=$3 AND name=$4
@@ -395,90 +389,87 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 		       )) AS business_changed
 		  FROM upserted u LEFT JOIN old o ON true
 	`
-	row := tx.QueryRow(ctx, q,
-		id, in.NamespaceId, string(in.Kind), in.Name, in.Replicas, in.ReadyReplicas,
-		containersJSON, labelsJSON, specJSON, now,
-	)
+		row := tx.QueryRow(ctx, q,
+			id, in.NamespaceId, string(in.Kind), in.Name, in.Replicas, in.ReadyReplicas,
+			containersJSON, labelsJSON, specJSON, now,
+		)
 
-	var (
-		w               api.Workload
-		wID             uuid.UUID
-		namespaceID     uuid.UUID
-		kind            string
-		replicas        sql.NullInt32
-		readyReplicas   sql.NullInt32
-		createdAt       time.Time
-		updatedAt       time.Time
-		containersOut   []byte
-		labelsOut       []byte
-		specOut         []byte
-		inserted        bool
-		businessChanged bool
-	)
-	if err := row.Scan(
-		&wID, &namespaceID, &kind, &w.Name,
-		&replicas, &readyReplicas,
-		&containersOut, &labelsOut, &specOut,
-		&createdAt, &updatedAt,
-		&inserted, &businessChanged,
-	); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+		var (
+			wID           uuid.UUID
+			namespaceID   uuid.UUID
+			kind          string
+			replicas      sql.NullInt32
+			readyReplicas sql.NullInt32
+			createdAt     time.Time
+			updatedAt     time.Time
+			containersOut []byte
+			labelsOut     []byte
+			specOut       []byte
+		)
+		if err := row.Scan(
+			&wID, &namespaceID, &kind, &w.Name,
+			&replicas, &readyReplicas,
+			&containersOut, &labelsOut, &specOut,
+			&createdAt, &updatedAt,
+			&inserted, &businessChanged,
+		); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+				return fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+			}
+			return fmt.Errorf("upsert workload: %w", err)
 		}
-		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("upsert workload: %w", err)
-	}
-	w.Id = &wID
-	w.NamespaceId = namespaceID
-	w.Kind = api.WorkloadKind(kind)
-	w.CreatedAt = &createdAt
-	w.UpdatedAt = &updatedAt
-	if replicas.Valid {
-		v := int(replicas.Int32)
-		w.Replicas = &v
-	}
-	if readyReplicas.Valid {
-		v := int(readyReplicas.Int32)
-		w.ReadyReplicas = &v
-	}
-	if cs, err := unmarshalContainers(containersOut); err != nil {
-		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("unmarshal workload containers: %w", err)
-	} else if cs != nil {
-		w.Containers = cs
-	}
-	if len(labelsOut) > 0 {
-		var labels map[string]string
-		if err := json.Unmarshal(labelsOut, &labels); err != nil {
-			return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("unmarshal workload labels: %w", err)
+		w.Id = &wID
+		w.NamespaceId = namespaceID
+		w.Kind = api.WorkloadKind(kind)
+		w.CreatedAt = &createdAt
+		w.UpdatedAt = &updatedAt
+		if replicas.Valid {
+			v := int(replicas.Int32)
+			w.Replicas = &v
 		}
-		if len(labels) > 0 {
-			w.Labels = &labels
+		if readyReplicas.Valid {
+			v := int(readyReplicas.Int32)
+			w.ReadyReplicas = &v
 		}
-	}
-	if len(specOut) > 0 {
-		var spec map[string]interface{}
-		if err := json.Unmarshal(specOut, &spec); err != nil {
-			return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("unmarshal workload spec: %w", err)
+		if cs, err := unmarshalContainers(containersOut); err != nil {
+			return fmt.Errorf("unmarshal workload containers: %w", err)
+		} else if cs != nil {
+			w.Containers = cs
 		}
-		if len(spec) > 0 {
-			w.Spec = &spec
+		if len(labelsOut) > 0 {
+			var labels map[string]string
+			if err := json.Unmarshal(labelsOut, &labels); err != nil {
+				return fmt.Errorf("unmarshal workload labels: %w", err)
+			}
+			if len(labels) > 0 {
+				w.Labels = &labels
+			}
 		}
-	}
+		if len(specOut) > 0 {
+			var spec map[string]interface{}
+			if err := json.Unmarshal(specOut, &spec); err != nil {
+				return fmt.Errorf("unmarshal workload spec: %w", err)
+			}
+			if len(spec) > 0 {
+				w.Spec = &spec
+			}
+		}
 
-	actualID := *w.Id
-	if snap, err := workloadRowMapNoLock(ctx, tx, actualID); err == nil {
-		actor := timetravel.ActorFromContext(ctx)
-		changeType := changeTypeUpdate
-		if isCreate {
-			changeType = changeTypeCreate
-		} else if isRestore {
-			changeType = changeTypeRestore
+		actualID := *w.Id
+		if snap, err := workloadRowMapNoLock(ctx, tx, actualID); err == nil {
+			actor := timetravel.ActorFromContext(ctx)
+			changeType := changeTypeUpdate
+			if isCreate {
+				changeType = changeTypeCreate
+			} else if isRestore {
+				changeType = changeTypeRestore
+			}
+			_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, actualID, nil, snap, changeType, actor)
 		}
-		_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, actualID, nil, snap, changeType, actor)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return api.Workload{}, api.OutcomeNoChange, fmt.Errorf("commit upsert workload: %w", err)
+		return nil
+	}); err != nil {
+		return api.Workload{}, api.OutcomeNoChange, err
 	}
 	return w, classifyOutcome(inserted, businessChanged), nil
 }
@@ -488,59 +479,57 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 // already terminated. Per ADR-0021 §5; same semantics as DeleteNodesNotIn.
 // COALESCE guards against pgx encoding nil slices as SQL NULL.
 func (p *PG) DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error) {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("begin delete workloads not in: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	toDeleteRows, err := tx.Query(ctx,
-		`SELECT id FROM workloads
-		  WHERE namespace_id = $1
-		    AND (kind, name) NOT IN (
-		      SELECT k, n FROM UNNEST(
-		        COALESCE($2::text[], ARRAY[]::text[]),
-		        COALESCE($3::text[], ARRAY[]::text[])
-		      ) AS t(k, n)
-		    )
-		    AND terminated_at IS NULL`,
-		namespaceID, keepKinds, keepNames)
-	if err != nil {
-		return 0, fmt.Errorf("list workloads to soft-delete: %w", err)
-	}
-	toDelete, err := scanUUIDs(toDeleteRows)
-	if err != nil {
-		return 0, fmt.Errorf("scan workloads to soft-delete: %w", err)
-	}
-
-	tag, err := tx.Exec(ctx,
-		`UPDATE workloads
-		    SET terminated_at = NOW(), updated_at = NOW()
-		  WHERE namespace_id = $1
-		    AND (kind, name) NOT IN (
-		      SELECT k, n FROM UNNEST(
-		        COALESCE($2::text[], ARRAY[]::text[]),
-		        COALESCE($3::text[], ARRAY[]::text[])
-		      ) AS t(k, n)
-		    )
-		    AND terminated_at IS NULL`,
-		namespaceID, keepKinds, keepNames,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("soft-delete workloads not in: %w", err)
-	}
-
-	actor := timetravel.ActorFromContext(ctx)
-	for _, wlID := range toDelete {
-		if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
-			_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+	var affected int64
+	if err := p.withTx(ctx, "delete workloads not in", func(tx pgx.Tx) error {
+		toDeleteRows, err := tx.Query(ctx,
+			`SELECT id FROM workloads
+			  WHERE namespace_id = $1
+			    AND (kind, name) NOT IN (
+			      SELECT k, n FROM UNNEST(
+			        COALESCE($2::text[], ARRAY[]::text[]),
+			        COALESCE($3::text[], ARRAY[]::text[])
+			      ) AS t(k, n)
+			    )
+			    AND terminated_at IS NULL`,
+			namespaceID, keepKinds, keepNames)
+		if err != nil {
+			return fmt.Errorf("list workloads to soft-delete: %w", err)
 		}
-	}
+		toDelete, err := scanUUIDs(toDeleteRows)
+		if err != nil {
+			return fmt.Errorf("scan workloads to soft-delete: %w", err)
+		}
 
-	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("commit delete workloads not in: %w", err)
+		tag, err := tx.Exec(ctx,
+			`UPDATE workloads
+			    SET terminated_at = NOW(), updated_at = NOW()
+			  WHERE namespace_id = $1
+			    AND (kind, name) NOT IN (
+			      SELECT k, n FROM UNNEST(
+			        COALESCE($2::text[], ARRAY[]::text[]),
+			        COALESCE($3::text[], ARRAY[]::text[])
+			      ) AS t(k, n)
+			    )
+			    AND terminated_at IS NULL`,
+			namespaceID, keepKinds, keepNames,
+		)
+		if err != nil {
+			return fmt.Errorf("soft-delete workloads not in: %w", err)
+		}
+
+		actor := timetravel.ActorFromContext(ctx)
+		for _, wlID := range toDelete {
+			if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
+				_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+			}
+		}
+
+		affected = tag.RowsAffected()
+		return nil
+	}); err != nil {
+		return 0, err
 	}
-	return tag.RowsAffected(), nil
+	return affected, nil
 }
 
 func marshalSpec(spec *map[string]interface{}) ([]byte, error) { //nolint:gocritic // ptrToRefParam: callers pass *map from generated API types

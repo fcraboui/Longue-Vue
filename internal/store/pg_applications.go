@@ -410,26 +410,21 @@ func (p *PG) UpdateApplication(ctx context.Context, id uuid.UUID, in api.Applica
 // JSONB is NOT covered by PG FKs — sweep it inside the same
 // transaction so a deleted application leaves no dangling references.
 func (p *PG) DeleteApplication(ctx context.Context, id uuid.UUID) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin delete application: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Strip application_id from any JSONB entries referencing this app.
-	// The CASE expression preserves the surrounding entry (product,
-	// version, name, …) and only removes the application_id key so
-	// curated VM-app curation is not lost on application delete.
-	//
-	// We pass the id twice: once as a uuid (for the WHERE-row predicate
-	// inside the SET projection, which compares uuid-cast JSONB text to
-	// the parameter) and once as text (for the @> JSONB containment
-	// pre-filter, which compares the raw stringified application_id).
-	// Using two parameters avoids the "operator does not exist: uuid =
-	// text" ambiguity pgx hits when one parameter is used in both
-	// contexts.
-	idStr := id.String()
-	if _, err := tx.Exec(ctx, `
+	return p.withTx(ctx, "delete application", func(tx pgx.Tx) error {
+		// Strip application_id from any JSONB entries referencing this app.
+		// The CASE expression preserves the surrounding entry (product,
+		// version, name, …) and only removes the application_id key so
+		// curated VM-app curation is not lost on application delete.
+		//
+		// We pass the id twice: once as a uuid (for the WHERE-row predicate
+		// inside the SET projection, which compares uuid-cast JSONB text to
+		// the parameter) and once as text (for the @> JSONB containment
+		// pre-filter, which compares the raw stringified application_id).
+		// Using two parameters avoids the "operator does not exist: uuid =
+		// text" ambiguity pgx hits when one parameter is used in both
+		// contexts.
+		idStr := id.String()
+		if _, err := tx.Exec(ctx, `
 		UPDATE virtual_machines
 		SET applications = (
 			SELECT COALESCE(jsonb_agg(
@@ -440,20 +435,18 @@ func (p *PG) DeleteApplication(ctx context.Context, id uuid.UUID) error {
 		)
 		WHERE applications @> jsonb_build_array(jsonb_build_object('application_id', $2::text))
 	`, id, idStr); err != nil {
-		return fmt.Errorf("sweep vm-app references: %w", err)
-	}
+			return fmt.Errorf("sweep vm-app references: %w", err)
+		}
 
-	ct, err := tx.Exec(ctx, `DELETE FROM applications WHERE id = $1`, id)
-	if err != nil {
-		return fmt.Errorf("delete application: %w", err)
-	}
-	if ct.RowsAffected() == 0 {
-		return api.ErrNotFound
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit delete application: %w", err)
-	}
-	return nil
+		ct, err := tx.Exec(ctx, `DELETE FROM applications WHERE id = $1`, id)
+		if err != nil {
+			return fmt.Errorf("delete application: %w", err)
+		}
+		if ct.RowsAffected() == 0 {
+			return api.ErrNotFound
+		}
+		return nil
+	})
 }
 
 // memberCursor is the small opaque cursor carried across pages of

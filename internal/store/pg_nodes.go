@@ -332,33 +332,28 @@ func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (a
 	idx := len(sets) + 1
 	args = append(args, id)
 
-	tx, txErr := p.pool.Begin(ctx)
-	if txErr != nil {
-		return api.Node{}, fmt.Errorf("begin update node: %w", txErr)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	if err := p.withTx(ctx, "update node", func(tx pgx.Tx) error {
+		prev, _ := nodeRowMap(ctx, tx, id) // FOR UPDATE; ignore error for capture
+		if prev == nil {
+			return api.ErrNotFound
+		}
 
-	prev, _ := nodeRowMap(ctx, tx, id) // FOR UPDATE; ignore error for capture
-	if prev == nil {
-		return api.Node{}, api.ErrNotFound
-	}
+		q := fmt.Sprintf("UPDATE nodes SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
+		tag, err := tx.Exec(ctx, q, args...)
+		if err != nil {
+			return fmt.Errorf("update node: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return api.ErrNotFound
+		}
 
-	q := fmt.Sprintf("UPDATE nodes SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
-	tag, err := tx.Exec(ctx, q, args...)
-	if err != nil {
-		return api.Node{}, fmt.Errorf("update node: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return api.Node{}, api.ErrNotFound
-	}
-
-	if next, err := nodeRowMapNoLock(ctx, tx, id); err == nil {
-		actor := timetravel.ActorFromContext(ctx)
-		_ = timetravel.Capture(ctx, tx, timetravel.KindNode, id, prev, next, changeTypeUpdate, actor)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return api.Node{}, fmt.Errorf("commit update node: %w", err)
+		if next, err := nodeRowMapNoLock(ctx, tx, id); err == nil {
+			actor := timetravel.ActorFromContext(ctx)
+			_ = timetravel.Capture(ctx, tx, timetravel.KindNode, id, prev, next, changeTypeUpdate, actor)
+		}
+		return nil
+	}); err != nil {
+		return api.Node{}, err
 	}
 	return p.GetNode(ctx, id)
 }
@@ -376,50 +371,48 @@ func (p *PG) UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (a
 // it, 'name <> ALL(NULL)' evaluates to NULL and the UPDATE matches nothing
 // instead of clearing the cluster's nodes.
 func (p *PG) DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("begin delete nodes not in: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Collect IDs that will be soft-deleted so we can write history after the UPDATE.
-	toDeleteRows, err := tx.Query(ctx,
-		`SELECT id FROM nodes
-		  WHERE cluster_id = $1
-		    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
-		    AND terminated_at IS NULL`,
-		clusterID, keepNames)
-	if err != nil {
-		return 0, fmt.Errorf("list nodes to soft-delete: %w", err)
-	}
-	toDelete, err := scanUUIDs(toDeleteRows)
-	if err != nil {
-		return 0, fmt.Errorf("scan nodes to soft-delete: %w", err)
-	}
-
-	tag, err := tx.Exec(ctx,
-		`UPDATE nodes
-		    SET terminated_at = NOW(), updated_at = NOW()
-		  WHERE cluster_id = $1
-		    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
-		    AND terminated_at IS NULL`,
-		clusterID, keepNames,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("soft-delete nodes not in: %w", err)
-	}
-
-	actor := timetravel.ActorFromContext(ctx)
-	for _, nodeID := range toDelete {
-		if snap, err := nodeRowMapNoLock(ctx, tx, nodeID); err == nil {
-			_ = timetravel.Capture(ctx, tx, timetravel.KindNode, nodeID, nil, snap, changeTypeSoftDelete, actor)
+	var affected int64
+	if err := p.withTx(ctx, "delete nodes not in", func(tx pgx.Tx) error {
+		// Collect IDs that will be soft-deleted so we can write history after the UPDATE.
+		toDeleteRows, err := tx.Query(ctx,
+			`SELECT id FROM nodes
+			  WHERE cluster_id = $1
+			    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
+			    AND terminated_at IS NULL`,
+			clusterID, keepNames)
+		if err != nil {
+			return fmt.Errorf("list nodes to soft-delete: %w", err)
 		}
-	}
+		toDelete, err := scanUUIDs(toDeleteRows)
+		if err != nil {
+			return fmt.Errorf("scan nodes to soft-delete: %w", err)
+		}
 
-	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("commit delete nodes not in: %w", err)
+		tag, err := tx.Exec(ctx,
+			`UPDATE nodes
+			    SET terminated_at = NOW(), updated_at = NOW()
+			  WHERE cluster_id = $1
+			    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
+			    AND terminated_at IS NULL`,
+			clusterID, keepNames,
+		)
+		if err != nil {
+			return fmt.Errorf("soft-delete nodes not in: %w", err)
+		}
+
+		actor := timetravel.ActorFromContext(ctx)
+		for _, nodeID := range toDelete {
+			if snap, err := nodeRowMapNoLock(ctx, tx, nodeID); err == nil {
+				_ = timetravel.Capture(ctx, tx, timetravel.KindNode, nodeID, nil, snap, changeTypeSoftDelete, actor)
+			}
+		}
+
+		affected = tag.RowsAffected()
+		return nil
+	}); err != nil {
+		return 0, err
 	}
-	return tag.RowsAffected(), nil
+	return affected, nil
 }
 
 // DeleteNode removes a node by id.
@@ -470,24 +463,23 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, api.U
 		return api.Node{}, api.OutcomeNoChange, err
 	}
 
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return api.Node{}, api.OutcomeNoChange, fmt.Errorf("begin upsert node: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	var (
+		n                         api.Node
+		inserted, businessChanged bool
+	)
+	if err := p.withTx(ctx, "upsert node", func(tx pgx.Tx) error {
+		changeType := detectNodeUpsertChangeType(ctx, tx, in.ClusterId, in.Name)
 
-	changeType := detectNodeUpsertChangeType(ctx, tx, in.ClusterId, in.Name)
-
-	// AUDIT_BUSINESS_FIELDS: display_name, role, kubelet_version, kube_proxy_version,
-	// container_runtime_version, os_image, operating_system, kernel_version, architecture,
-	// internal_ip, external_ip, pod_cidr, provider_id, instance_type, zone,
-	// capacity_cpu, capacity_memory, capacity_pods, capacity_ephemeral_storage,
-	// allocatable_cpu, allocatable_memory, allocatable_pods, allocatable_ephemeral_storage,
-	// conditions, taints, unschedulable, ready, labels, terminated_at (restore flips it).
-	// updated_at is a clock field — excluded. Curator-only fields
-	// (owner/criticality/notes/runbook_url/annotations/hardware_model) are not touched
-	// by the collector upsert and excluded from the OR-chain.
-	const q = `
+		// AUDIT_BUSINESS_FIELDS: display_name, role, kubelet_version, kube_proxy_version,
+		// container_runtime_version, os_image, operating_system, kernel_version, architecture,
+		// internal_ip, external_ip, pod_cidr, provider_id, instance_type, zone,
+		// capacity_cpu, capacity_memory, capacity_pods, capacity_ephemeral_storage,
+		// allocatable_cpu, allocatable_memory, allocatable_pods, allocatable_ephemeral_storage,
+		// conditions, taints, unschedulable, ready, labels, terminated_at (restore flips it).
+		// updated_at is a clock field — excluded. Curator-only fields
+		// (owner/criticality/notes/runbook_url/annotations/hardware_model) are not touched
+		// by the collector upsert and excluded from the OR-chain.
+		const q = `
 		WITH old AS (
 		  SELECT display_name, role, kubelet_version, kube_proxy_version,
 		         container_runtime_version, os_image, operating_system, kernel_version,
@@ -571,25 +563,25 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, api.U
 		  LEFT JOIN old o      ON true
 		  LEFT JOIN clusters c ON c.id = u.cluster_id
 	`
-	row := tx.QueryRow(ctx, q, values...)
-	var inserted, businessChanged bool
-	n, err := scanNode(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Node{}, api.OutcomeNoChange, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+		row := tx.QueryRow(ctx, q, values...)
+		var scanErr error
+		n, scanErr = scanNode(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
+		if scanErr != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(scanErr, &pgErr) && pgErr.Code == "23503" {
+				return fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+			}
+			return fmt.Errorf("upsert node: %w", scanErr)
 		}
-		return api.Node{}, api.OutcomeNoChange, fmt.Errorf("upsert node: %w", err)
-	}
 
-	actualID := *n.Id
-	if snap, err := nodeRowMapNoLock(ctx, tx, actualID); err == nil {
-		actor := timetravel.ActorFromContext(ctx)
-		_ = timetravel.Capture(ctx, tx, timetravel.KindNode, actualID, nil, snap, changeType, actor)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return api.Node{}, api.OutcomeNoChange, fmt.Errorf("commit upsert node: %w", err)
+		actualID := *n.Id
+		if snap, err := nodeRowMapNoLock(ctx, tx, actualID); err == nil {
+			actor := timetravel.ActorFromContext(ctx)
+			_ = timetravel.Capture(ctx, tx, timetravel.KindNode, actualID, nil, snap, changeType, actor)
+		}
+		return nil
+	}); err != nil {
+		return api.Node{}, api.OutcomeNoChange, err
 	}
 	return n, classifyOutcome(inserted, businessChanged), nil
 }

@@ -29,90 +29,88 @@ import (
 //
 //nolint:gocyclo // cascade + history capture adds branches; mirrors SoftDeleteNamespace
 func (p *PG) DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error) {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("begin delete namespaces not in: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	toDeleteRows, err := tx.Query(ctx,
-		`SELECT id FROM namespaces
-		  WHERE cluster_id = $1
-		    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
-		    AND terminated_at IS NULL`,
-		clusterID, keepNames)
-	if err != nil {
-		return 0, fmt.Errorf("list namespaces to soft-delete: %w", err)
-	}
-	toDelete, err := scanUUIDs(toDeleteRows)
-	if err != nil {
-		return 0, fmt.Errorf("scan namespaces to soft-delete: %w", err)
-	}
-
-	actor := timetravel.ActorFromContext(ctx)
-
-	// Per-namespace cascade: capture each namespace's live workload IDs
-	// before mutating, hard-delete unhistoried children, soft-delete
-	// workloads, then capture workload snapshots so history reflects the
-	// final terminated state.
-	wlIDsByNS := make(map[uuid.UUID][]uuid.UUID, len(toDelete))
-	for _, nsID := range toDelete {
-		wlIDs, err := liveWorkloadIDsForNamespace(ctx, tx, nsID)
+	var affected int64
+	if err := p.withTx(ctx, "delete namespaces not in", func(tx pgx.Tx) error {
+		toDeleteRows, err := tx.Query(ctx,
+			`SELECT id FROM namespaces
+			  WHERE cluster_id = $1
+			    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
+			    AND terminated_at IS NULL`,
+			clusterID, keepNames)
 		if err != nil {
-			return 0, fmt.Errorf("list workloads for soft-delete namespace %s: %w", nsID, err)
+			return fmt.Errorf("list namespaces to soft-delete: %w", err)
 		}
-		wlIDsByNS[nsID] = wlIDs
+		toDelete, err := scanUUIDs(toDeleteRows)
+		if err != nil {
+			return fmt.Errorf("scan namespaces to soft-delete: %w", err)
+		}
 
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM pods WHERE namespace_id = $1`, nsID); err != nil {
-			return 0, fmt.Errorf("cascade-delete pods for %s: %w", nsID, err)
-		}
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM services WHERE namespace_id = $1`, nsID); err != nil {
-			return 0, fmt.Errorf("cascade-delete services for %s: %w", nsID, err)
-		}
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM ingresses WHERE namespace_id = $1`, nsID); err != nil {
-			return 0, fmt.Errorf("cascade-delete ingresses for %s: %w", nsID, err)
-		}
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM persistent_volume_claims WHERE namespace_id = $1`, nsID); err != nil {
-			return 0, fmt.Errorf("cascade-delete persistent_volume_claims for %s: %w", nsID, err)
-		}
-		if _, err := tx.Exec(ctx,
-			`UPDATE workloads SET terminated_at = NOW(), updated_at = NOW()
-			   WHERE namespace_id = $1 AND terminated_at IS NULL`, nsID); err != nil {
-			return 0, fmt.Errorf("soft-delete workloads for %s: %w", nsID, err)
-		}
-	}
+		actor := timetravel.ActorFromContext(ctx)
 
-	tag, err := tx.Exec(ctx,
-		`UPDATE namespaces
-		    SET terminated_at = NOW(), updated_at = NOW()
-		  WHERE cluster_id = $1
-		    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
-		    AND terminated_at IS NULL`,
-		clusterID, keepNames,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("soft-delete namespaces not in: %w", err)
-	}
+		// Per-namespace cascade: capture each namespace's live workload IDs
+		// before mutating, hard-delete unhistoried children, soft-delete
+		// workloads, then capture workload snapshots so history reflects the
+		// final terminated state.
+		wlIDsByNS := make(map[uuid.UUID][]uuid.UUID, len(toDelete))
+		for _, nsID := range toDelete {
+			wlIDs, err := liveWorkloadIDsForNamespace(ctx, tx, nsID)
+			if err != nil {
+				return fmt.Errorf("list workloads for soft-delete namespace %s: %w", nsID, err)
+			}
+			wlIDsByNS[nsID] = wlIDs
 
-	for _, nsID := range toDelete {
-		for _, wlID := range wlIDsByNS[nsID] {
-			if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
-				_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+			if _, err := tx.Exec(ctx,
+				`DELETE FROM pods WHERE namespace_id = $1`, nsID); err != nil {
+				return fmt.Errorf("cascade-delete pods for %s: %w", nsID, err)
+			}
+			if _, err := tx.Exec(ctx,
+				`DELETE FROM services WHERE namespace_id = $1`, nsID); err != nil {
+				return fmt.Errorf("cascade-delete services for %s: %w", nsID, err)
+			}
+			if _, err := tx.Exec(ctx,
+				`DELETE FROM ingresses WHERE namespace_id = $1`, nsID); err != nil {
+				return fmt.Errorf("cascade-delete ingresses for %s: %w", nsID, err)
+			}
+			if _, err := tx.Exec(ctx,
+				`DELETE FROM persistent_volume_claims WHERE namespace_id = $1`, nsID); err != nil {
+				return fmt.Errorf("cascade-delete persistent_volume_claims for %s: %w", nsID, err)
+			}
+			if _, err := tx.Exec(ctx,
+				`UPDATE workloads SET terminated_at = NOW(), updated_at = NOW()
+				   WHERE namespace_id = $1 AND terminated_at IS NULL`, nsID); err != nil {
+				return fmt.Errorf("soft-delete workloads for %s: %w", nsID, err)
 			}
 		}
-		if snap, err := namespaceRowMapNoLock(ctx, tx, nsID); err == nil {
-			_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, nsID, nil, snap, changeTypeSoftDelete, actor)
-		}
-	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("commit delete namespaces not in: %w", err)
+		tag, err := tx.Exec(ctx,
+			`UPDATE namespaces
+			    SET terminated_at = NOW(), updated_at = NOW()
+			  WHERE cluster_id = $1
+			    AND name <> ALL(COALESCE($2::text[], ARRAY[]::text[]))
+			    AND terminated_at IS NULL`,
+			clusterID, keepNames,
+		)
+		if err != nil {
+			return fmt.Errorf("soft-delete namespaces not in: %w", err)
+		}
+
+		for _, nsID := range toDelete {
+			for _, wlID := range wlIDsByNS[nsID] {
+				if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
+					_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+				}
+			}
+			if snap, err := namespaceRowMapNoLock(ctx, tx, nsID); err == nil {
+				_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, nsID, nil, snap, changeTypeSoftDelete, actor)
+			}
+		}
+
+		affected = tag.RowsAffected()
+		return nil
+	}); err != nil {
+		return 0, err
 	}
-	return tag.RowsAffected(), nil
+	return affected, nil
 }
 
 // CreateNamespace inserts a new namespace.
@@ -327,32 +325,27 @@ func (p *PG) UpdateNamespace(ctx context.Context, id uuid.UUID, in api.Namespace
 	appendSet("updated_at", time.Now().UTC())
 	args = append(args, id)
 
-	tx, txErr := p.pool.Begin(ctx)
-	if txErr != nil {
-		return api.Namespace{}, fmt.Errorf("begin update namespace: %w", txErr)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	if err := p.withTx(ctx, "update namespace", func(tx pgx.Tx) error {
+		prev, _ := namespaceRowMap(ctx, tx, id) // FOR UPDATE
 
-	prev, _ := namespaceRowMap(ctx, tx, id) // FOR UPDATE
-
-	q := fmt.Sprintf("UPDATE namespaces SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
-	tag, err := tx.Exec(ctx, q, args...)
-	if err != nil {
-		return api.Namespace{}, fmt.Errorf("update namespace: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return api.Namespace{}, api.ErrNotFound
-	}
-
-	if prev != nil {
-		if next, err := namespaceRowMapNoLock(ctx, tx, id); err == nil {
-			actor := timetravel.ActorFromContext(ctx)
-			_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, id, prev, next, changeTypeUpdate, actor)
+		q := fmt.Sprintf("UPDATE namespaces SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
+		tag, err := tx.Exec(ctx, q, args...)
+		if err != nil {
+			return fmt.Errorf("update namespace: %w", err)
 		}
-	}
+		if tag.RowsAffected() == 0 {
+			return api.ErrNotFound
+		}
 
-	if err := tx.Commit(ctx); err != nil {
-		return api.Namespace{}, fmt.Errorf("commit update namespace: %w", err)
+		if prev != nil {
+			if next, err := namespaceRowMapNoLock(ctx, tx, id); err == nil {
+				actor := timetravel.ActorFromContext(ctx)
+				_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, id, prev, next, changeTypeUpdate, actor)
+			}
+		}
+		return nil
+	}); err != nil {
+		return api.Namespace{}, err
 	}
 	return p.GetNamespace(ctx, id)
 }
@@ -375,73 +368,66 @@ func (p *PG) DeleteNamespace(ctx context.Context, id uuid.UUID) error {
 //
 //nolint:gocyclo // history capture adds branches; acceptable here
 func (p *PG) SoftDeleteNamespace(ctx context.Context, id uuid.UUID) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	return p.withTx(ctx, "soft-delete namespace", func(tx pgx.Tx) error {
+		actor := timetravel.ActorFromContext(ctx)
 
-	actor := timetravel.ActorFromContext(ctx)
-
-	wlIDs, err := liveWorkloadIDsForNamespace(ctx, tx, id)
-	if err != nil {
-		return fmt.Errorf("list workloads for soft-delete namespace: %w", err)
-	}
-
-	// Hard-delete the unhistoried namespace-scoped children. FK ON DELETE
-	// CASCADE does not fire under soft-delete; do it manually.
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM pods WHERE namespace_id = $1`, id); err != nil {
-		return fmt.Errorf("cascade-delete pods: %w", err)
-	}
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM services WHERE namespace_id = $1`, id); err != nil {
-		return fmt.Errorf("cascade-delete services: %w", err)
-	}
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM ingresses WHERE namespace_id = $1`, id); err != nil {
-		return fmt.Errorf("cascade-delete ingresses: %w", err)
-	}
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM persistent_volume_claims WHERE namespace_id = $1`, id); err != nil {
-		return fmt.Errorf("cascade-delete persistent_volume_claims: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx,
-		`UPDATE workloads SET terminated_at = NOW(), updated_at = NOW()
-		   WHERE namespace_id = $1 AND terminated_at IS NULL`, id); err != nil {
-		return fmt.Errorf("soft-delete workloads: %w", err)
-	}
-	tag, err := tx.Exec(ctx,
-		`UPDATE namespaces SET terminated_at = NOW(), updated_at = NOW()
-		   WHERE id = $1 AND terminated_at IS NULL`, id)
-	if err != nil {
-		return fmt.Errorf("soft-delete namespace: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		var exists bool
-		if err := tx.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM namespaces WHERE id = $1)`, id).Scan(&exists); err != nil {
-			return fmt.Errorf("check namespace exists: %w", err)
+		wlIDs, err := liveWorkloadIDsForNamespace(ctx, tx, id)
+		if err != nil {
+			return fmt.Errorf("list workloads for soft-delete namespace: %w", err)
 		}
-		if !exists {
-			return api.ErrNotFound
-		}
-	}
 
-	for _, wlID := range wlIDs {
-		if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
-			_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+		// Hard-delete the unhistoried namespace-scoped children. FK ON DELETE
+		// CASCADE does not fire under soft-delete; do it manually.
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM pods WHERE namespace_id = $1`, id); err != nil {
+			return fmt.Errorf("cascade-delete pods: %w", err)
 		}
-	}
-	if snap, err := namespaceRowMapNoLock(ctx, tx, id); err == nil {
-		_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, id, nil, snap, changeTypeSoftDelete, actor)
-	}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM services WHERE namespace_id = $1`, id); err != nil {
+			return fmt.Errorf("cascade-delete services: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM ingresses WHERE namespace_id = $1`, id); err != nil {
+			return fmt.Errorf("cascade-delete ingresses: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM persistent_volume_claims WHERE namespace_id = $1`, id); err != nil {
+			return fmt.Errorf("cascade-delete persistent_volume_claims: %w", err)
+		}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit soft-delete namespace: %w", err)
-	}
-	return nil
+		if _, err := tx.Exec(ctx,
+			`UPDATE workloads SET terminated_at = NOW(), updated_at = NOW()
+			   WHERE namespace_id = $1 AND terminated_at IS NULL`, id); err != nil {
+			return fmt.Errorf("soft-delete workloads: %w", err)
+		}
+		tag, err := tx.Exec(ctx,
+			`UPDATE namespaces SET terminated_at = NOW(), updated_at = NOW()
+			   WHERE id = $1 AND terminated_at IS NULL`, id)
+		if err != nil {
+			return fmt.Errorf("soft-delete namespace: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			var exists bool
+			if err := tx.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM namespaces WHERE id = $1)`, id).Scan(&exists); err != nil {
+				return fmt.Errorf("check namespace exists: %w", err)
+			}
+			if !exists {
+				return api.ErrNotFound
+			}
+		}
+
+		for _, wlID := range wlIDs {
+			if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
+				_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+			}
+		}
+		if snap, err := namespaceRowMapNoLock(ctx, tx, id); err == nil {
+			_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, id, nil, snap, changeTypeSoftDelete, actor)
+		}
+
+		return nil
+	})
 }
 
 func liveWorkloadIDsForNamespace(ctx context.Context, tx pgx.Tx, namespaceID uuid.UUID) ([]uuid.UUID, error) {
@@ -466,27 +452,26 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 		return api.Namespace{}, api.OutcomeNoChange, err
 	}
 
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("begin upsert namespace: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	var (
+		n                         api.Namespace
+		inserted, businessChanged bool
+	)
+	if err := p.withTx(ctx, "upsert namespace", func(tx pgx.Tx) error {
+		// Snapshot the row before the upsert to detect create vs update vs restore.
+		var prevTerminatedAt *time.Time
+		var prevID *uuid.UUID
+		_ = tx.QueryRow(ctx,
+			`SELECT id, terminated_at FROM namespaces WHERE cluster_id=$1 AND name=$2`,
+			in.ClusterId, in.Name,
+		).Scan(&prevID, &prevTerminatedAt)
+		isCreate := prevID == nil
+		isRestore := prevID != nil && prevTerminatedAt != nil
 
-	// Snapshot the row before the upsert to detect create vs update vs restore.
-	var prevTerminatedAt *time.Time
-	var prevID *uuid.UUID
-	_ = tx.QueryRow(ctx,
-		`SELECT id, terminated_at FROM namespaces WHERE cluster_id=$1 AND name=$2`,
-		in.ClusterId, in.Name,
-	).Scan(&prevID, &prevTerminatedAt)
-	isCreate := prevID == nil
-	isRestore := prevID != nil && prevTerminatedAt != nil
-
-	// AUDIT_BUSINESS_FIELDS: display_name, phase, labels, terminated_at
-	// (restore flips it). updated_at is a clock field — excluded.
-	// Curator fields (owner/criticality/notes/runbook_url/annotations) are
-	// not touched by the collector upsert and excluded from the OR-chain.
-	const q = `
+		// AUDIT_BUSINESS_FIELDS: display_name, phase, labels, terminated_at
+		// (restore flips it). updated_at is a clock field — excluded.
+		// Curator fields (owner/criticality/notes/runbook_url/annotations) are
+		// not touched by the collector upsert and excluded from the OR-chain.
+		const q = `
 		WITH old AS (
 		  SELECT display_name, phase, labels, terminated_at
 		    FROM namespaces WHERE cluster_id=$2 AND name=$3
@@ -521,34 +506,34 @@ func (p *PG) UpsertNamespace(ctx context.Context, in api.NamespaceCreate) (api.N
 		  LEFT JOIN old o      ON true
 		  LEFT JOIN clusters c ON c.id = u.cluster_id
 	`
-	row := tx.QueryRow(ctx, q,
-		id, in.ClusterId, in.Name, in.DisplayName, in.Phase,
-		labelsJSON, now,
-	)
-	var inserted, businessChanged bool
-	n, err := scanNamespace(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+		row := tx.QueryRow(ctx, q,
+			id, in.ClusterId, in.Name, in.DisplayName, in.Phase,
+			labelsJSON, now,
+		)
+		var scanErr error
+		n, scanErr = scanNamespace(scanRowWith{row: row, extra: []any{&inserted, &businessChanged}})
+		if scanErr != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(scanErr, &pgErr) && pgErr.Code == "23503" {
+				return fmt.Errorf("cluster %s does not exist: %w", in.ClusterId, api.ErrNotFound)
+			}
+			return fmt.Errorf("upsert namespace: %w", scanErr)
 		}
-		return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("upsert namespace: %w", err)
-	}
 
-	actualID := *n.Id
-	if snap, err := namespaceRowMapNoLock(ctx, tx, actualID); err == nil {
-		actor := timetravel.ActorFromContext(ctx)
-		changeType := changeTypeUpdate
-		if isCreate {
-			changeType = changeTypeCreate
-		} else if isRestore {
-			changeType = changeTypeRestore
+		actualID := *n.Id
+		if snap, err := namespaceRowMapNoLock(ctx, tx, actualID); err == nil {
+			actor := timetravel.ActorFromContext(ctx)
+			changeType := changeTypeUpdate
+			if isCreate {
+				changeType = changeTypeCreate
+			} else if isRestore {
+				changeType = changeTypeRestore
+			}
+			_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, actualID, nil, snap, changeType, actor)
 		}
-		_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, actualID, nil, snap, changeType, actor)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return api.Namespace{}, api.OutcomeNoChange, fmt.Errorf("commit upsert namespace: %w", err)
+		return nil
+	}); err != nil {
+		return api.Namespace{}, api.OutcomeNoChange, err
 	}
 	return n, classifyOutcome(inserted, businessChanged), nil
 }

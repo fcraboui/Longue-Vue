@@ -341,34 +341,29 @@ func (p *PG) UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpda
 
 	// Wrap in a transaction so we can read prev, run the UPDATE, read next,
 	// and call Capture atomically.
-	tx, txErr := p.pool.Begin(ctx)
-	if txErr != nil {
-		return api.Cluster{}, fmt.Errorf("begin update cluster: %w", txErr)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	if err := p.withTx(ctx, "update cluster", func(tx pgx.Tx) error {
+		prev, prevErr := clusterRowMap(ctx, tx, id) // FOR UPDATE lock
+		if prevErr != nil {
+			return api.ErrNotFound
+		}
 
-	prev, prevErr := clusterRowMap(ctx, tx, id) // FOR UPDATE lock
-	if prevErr != nil {
-		return api.Cluster{}, api.ErrNotFound
-	}
+		q := fmt.Sprintf("UPDATE clusters SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
+		tag, err := tx.Exec(ctx, q, args...)
+		if err != nil {
+			return fmt.Errorf("update cluster: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return api.ErrNotFound
+		}
 
-	q := fmt.Sprintf("UPDATE clusters SET %s WHERE id=$%d", strings.Join(sets, ", "), idx)
-	tag, err := tx.Exec(ctx, q, args...)
-	if err != nil {
-		return api.Cluster{}, fmt.Errorf("update cluster: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return api.Cluster{}, api.ErrNotFound
-	}
-
-	next, nextErr := clusterRowMapNoLock(ctx, tx, id)
-	if nextErr == nil {
-		actor := timetravel.ActorFromContext(ctx)
-		_ = timetravel.Capture(ctx, tx, timetravel.KindCluster, id, prev, next, changeTypeUpdate, actor)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return api.Cluster{}, fmt.Errorf("commit update cluster: %w", err)
+		next, nextErr := clusterRowMapNoLock(ctx, tx, id)
+		if nextErr == nil {
+			actor := timetravel.ActorFromContext(ctx)
+			_ = timetravel.Capture(ctx, tx, timetravel.KindCluster, id, prev, next, changeTypeUpdate, actor)
+		}
+		return nil
+	}); err != nil {
+		return api.Cluster{}, err
 	}
 	return p.GetCluster(ctx, id)
 }
@@ -397,115 +392,108 @@ func (p *PG) DeleteCluster(ctx context.Context, id uuid.UUID) error {
 //
 //nolint:gocyclo // cascade + history capture per entity-kind add branches; acceptable here
 func (p *PG) SoftDeleteCluster(ctx context.Context, id uuid.UUID) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	return p.withTx(ctx, "soft-delete cluster", func(tx pgx.Tx) error {
+		actor := timetravel.ActorFromContext(ctx)
 
-	actor := timetravel.ActorFromContext(ctx)
-
-	// Collect live workload IDs before soft-deleting them so we can write history.
-	wlIDs, err := liveWorkloadIDsForCluster(ctx, tx, id)
-	if err != nil {
-		return fmt.Errorf("list workloads for soft-delete cluster: %w", err)
-	}
-	nsIDs, err := liveNamespaceIDsForCluster(ctx, tx, id)
-	if err != nil {
-		return fmt.Errorf("list namespaces for soft-delete cluster: %w", err)
-	}
-	nodeIDs, err := liveNodeIDsForCluster(ctx, tx, id)
-	if err != nil {
-		return fmt.Errorf("list nodes for soft-delete cluster: %w", err)
-	}
-
-	// Hard-delete the unhistoried children first. These tables have ON
-	// DELETE CASCADE from cluster/namespace, but FK CASCADE only fires
-	// on hard-delete; since we soft-delete the parent it never fires.
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM pods
-		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
-		return fmt.Errorf("cascade-delete pods: %w", err)
-	}
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM services
-		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
-		return fmt.Errorf("cascade-delete services: %w", err)
-	}
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM ingresses
-		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
-		return fmt.Errorf("cascade-delete ingresses: %w", err)
-	}
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM persistent_volume_claims
-		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
-		return fmt.Errorf("cascade-delete persistent_volume_claims: %w", err)
-	}
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM persistent_volumes WHERE cluster_id = $1`, id); err != nil {
-		return fmt.Errorf("cascade-delete persistent_volumes: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx,
-		`UPDATE workloads SET terminated_at = NOW(), updated_at = NOW()
-		   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)
-		     AND terminated_at IS NULL`, id); err != nil {
-		return fmt.Errorf("soft-delete workloads: %w", err)
-	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE namespaces SET terminated_at = NOW(), updated_at = NOW()
-		   WHERE cluster_id = $1 AND terminated_at IS NULL`, id); err != nil {
-		return fmt.Errorf("soft-delete namespaces: %w", err)
-	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE nodes SET terminated_at = NOW(), updated_at = NOW()
-		   WHERE cluster_id = $1 AND terminated_at IS NULL`, id); err != nil {
-		return fmt.Errorf("soft-delete nodes: %w", err)
-	}
-	tag, err := tx.Exec(ctx,
-		`UPDATE clusters SET terminated_at = NOW(), updated_at = NOW()
-		   WHERE id = $1 AND terminated_at IS NULL`, id)
-	if err != nil {
-		return fmt.Errorf("soft-delete cluster: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		var exists bool
-		if err := tx.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM clusters WHERE id = $1)`, id).Scan(&exists); err != nil {
-			return fmt.Errorf("check cluster exists: %w", err)
+		// Collect live workload IDs before soft-deleting them so we can write history.
+		wlIDs, err := liveWorkloadIDsForCluster(ctx, tx, id)
+		if err != nil {
+			return fmt.Errorf("list workloads for soft-delete cluster: %w", err)
 		}
-		if !exists {
-			return api.ErrNotFound
+		nsIDs, err := liveNamespaceIDsForCluster(ctx, tx, id)
+		if err != nil {
+			return fmt.Errorf("list namespaces for soft-delete cluster: %w", err)
 		}
-		// Already terminated → idempotent success.
-	}
+		nodeIDs, err := liveNodeIDsForCluster(ctx, tx, id)
+		if err != nil {
+			return fmt.Errorf("list nodes for soft-delete cluster: %w", err)
+		}
 
-	// Capture history for cascade-affected entities (after UPDATEs so
-	// the rows reflect terminated_at).
-	for _, wlID := range wlIDs {
-		if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
-			_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+		// Hard-delete the unhistoried children first. These tables have ON
+		// DELETE CASCADE from cluster/namespace, but FK CASCADE only fires
+		// on hard-delete; since we soft-delete the parent it never fires.
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM pods
+			   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+			return fmt.Errorf("cascade-delete pods: %w", err)
 		}
-	}
-	for _, nsID := range nsIDs {
-		if snap, err := namespaceRowMapNoLock(ctx, tx, nsID); err == nil {
-			_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, nsID, nil, snap, changeTypeSoftDelete, actor)
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM services
+			   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+			return fmt.Errorf("cascade-delete services: %w", err)
 		}
-	}
-	for _, nodeID := range nodeIDs {
-		if snap, err := nodeRowMapNoLock(ctx, tx, nodeID); err == nil {
-			_ = timetravel.Capture(ctx, tx, timetravel.KindNode, nodeID, nil, snap, changeTypeSoftDelete, actor)
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM ingresses
+			   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+			return fmt.Errorf("cascade-delete ingresses: %w", err)
 		}
-	}
-	if snap, err := clusterRowMapNoLock(ctx, tx, id); err == nil {
-		_ = timetravel.Capture(ctx, tx, timetravel.KindCluster, id, nil, snap, changeTypeSoftDelete, actor)
-	}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM persistent_volume_claims
+			   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)`, id); err != nil {
+			return fmt.Errorf("cascade-delete persistent_volume_claims: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM persistent_volumes WHERE cluster_id = $1`, id); err != nil {
+			return fmt.Errorf("cascade-delete persistent_volumes: %w", err)
+		}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit soft-delete cluster: %w", err)
-	}
-	return nil
+		if _, err := tx.Exec(ctx,
+			`UPDATE workloads SET terminated_at = NOW(), updated_at = NOW()
+			   WHERE namespace_id IN (SELECT id FROM namespaces WHERE cluster_id = $1)
+			     AND terminated_at IS NULL`, id); err != nil {
+			return fmt.Errorf("soft-delete workloads: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE namespaces SET terminated_at = NOW(), updated_at = NOW()
+			   WHERE cluster_id = $1 AND terminated_at IS NULL`, id); err != nil {
+			return fmt.Errorf("soft-delete namespaces: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE nodes SET terminated_at = NOW(), updated_at = NOW()
+			   WHERE cluster_id = $1 AND terminated_at IS NULL`, id); err != nil {
+			return fmt.Errorf("soft-delete nodes: %w", err)
+		}
+		tag, err := tx.Exec(ctx,
+			`UPDATE clusters SET terminated_at = NOW(), updated_at = NOW()
+			   WHERE id = $1 AND terminated_at IS NULL`, id)
+		if err != nil {
+			return fmt.Errorf("soft-delete cluster: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			var exists bool
+			if err := tx.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM clusters WHERE id = $1)`, id).Scan(&exists); err != nil {
+				return fmt.Errorf("check cluster exists: %w", err)
+			}
+			if !exists {
+				return api.ErrNotFound
+			}
+			// Already terminated → idempotent success.
+		}
+
+		// Capture history for cascade-affected entities (after UPDATEs so
+		// the rows reflect terminated_at).
+		for _, wlID := range wlIDs {
+			if snap, err := workloadRowMapNoLock(ctx, tx, wlID); err == nil {
+				_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, wlID, nil, snap, changeTypeSoftDelete, actor)
+			}
+		}
+		for _, nsID := range nsIDs {
+			if snap, err := namespaceRowMapNoLock(ctx, tx, nsID); err == nil {
+				_ = timetravel.Capture(ctx, tx, timetravel.KindNamespace, nsID, nil, snap, changeTypeSoftDelete, actor)
+			}
+		}
+		for _, nodeID := range nodeIDs {
+			if snap, err := nodeRowMapNoLock(ctx, tx, nodeID); err == nil {
+				_ = timetravel.Capture(ctx, tx, timetravel.KindNode, nodeID, nil, snap, changeTypeSoftDelete, actor)
+			}
+		}
+		if snap, err := clusterRowMapNoLock(ctx, tx, id); err == nil {
+			_ = timetravel.Capture(ctx, tx, timetravel.KindCluster, id, nil, snap, changeTypeSoftDelete, actor)
+		}
+
+		return nil
+	})
 }
 
 // liveWorkloadIDsForCluster returns ids of non-terminated workloads in namespaces of cluster.

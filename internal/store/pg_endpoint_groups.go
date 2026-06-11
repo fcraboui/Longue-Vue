@@ -87,27 +87,24 @@ func (p *PG) GetEndpointGroup(ctx context.Context, id uuid.UUID) (api.EndpointGr
 // transaction and returns the persisted record.
 func (p *PG) CreateEndpointGroup(ctx context.Context, in api.EndpointGroupInput, createdBy *uuid.UUID) (api.EndpointGroup, error) {
 	id := uuid.New()
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return api.EndpointGroup{}, fmt.Errorf("begin: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO endpoint_groups (id, name, notes, created_by) VALUES ($1,$2,$3,$4)`,
-		id, in.Name, in.Notes, createdBy); err != nil {
-		if isUniqueViolation(err) {
-			return api.EndpointGroup{}, fmt.Errorf("endpoint group name %q already exists: %w", in.Name, api.ErrConflict)
-		}
-		return api.EndpointGroup{}, fmt.Errorf("insert endpoint group: %w", err)
-	}
-	for _, c := range in.CIDRs {
+	if err := p.withTx(ctx, "create endpoint group", func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO endpoint_group_cidrs (endpoint_group_id, cidr) VALUES ($1,$2)`, id, c); err != nil {
-			return api.EndpointGroup{}, fmt.Errorf("insert cidr %q: %w", c, err)
+			`INSERT INTO endpoint_groups (id, name, notes, created_by) VALUES ($1,$2,$3,$4)`,
+			id, in.Name, in.Notes, createdBy); err != nil {
+			if isUniqueViolation(err) {
+				return fmt.Errorf("endpoint group name %q already exists: %w", in.Name, api.ErrConflict)
+			}
+			return fmt.Errorf("insert endpoint group: %w", err)
 		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return api.EndpointGroup{}, fmt.Errorf("commit: %w", err)
+		for _, c := range in.CIDRs {
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO endpoint_group_cidrs (endpoint_group_id, cidr) VALUES ($1,$2)`, id, c); err != nil {
+				return fmt.Errorf("insert cidr %q: %w", c, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return api.EndpointGroup{}, err
 	}
 	return p.GetEndpointGroup(ctx, id)
 }
@@ -115,33 +112,30 @@ func (p *PG) CreateEndpointGroup(ctx context.Context, in api.EndpointGroupInput,
 // UpdateEndpointGroup replaces an endpoint group's fields and CIDRs in one
 // transaction, returning api.ErrNotFound if the group does not exist.
 func (p *PG) UpdateEndpointGroup(ctx context.Context, id uuid.UUID, in api.EndpointGroupInput) (api.EndpointGroup, error) {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return api.EndpointGroup{}, fmt.Errorf("begin: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
-	ct, err := tx.Exec(ctx,
-		`UPDATE endpoint_groups SET name=$2, notes=$3, updated_at=NOW() WHERE id=$1`, id, in.Name, in.Notes)
-	if err != nil {
-		if isUniqueViolation(err) {
-			return api.EndpointGroup{}, fmt.Errorf("endpoint group name %q already exists: %w", in.Name, api.ErrConflict)
+	if err := p.withTx(ctx, "update endpoint group", func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx,
+			`UPDATE endpoint_groups SET name=$2, notes=$3, updated_at=NOW() WHERE id=$1`, id, in.Name, in.Notes)
+		if err != nil {
+			if isUniqueViolation(err) {
+				return fmt.Errorf("endpoint group name %q already exists: %w", in.Name, api.ErrConflict)
+			}
+			return fmt.Errorf("update endpoint group: %w", err)
 		}
-		return api.EndpointGroup{}, fmt.Errorf("update endpoint group: %w", err)
-	}
-	if ct.RowsAffected() == 0 {
-		return api.EndpointGroup{}, api.ErrNotFound
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM endpoint_group_cidrs WHERE endpoint_group_id=$1`, id); err != nil {
-		return api.EndpointGroup{}, fmt.Errorf("clear cidrs: %w", err)
-	}
-	for _, c := range in.CIDRs {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO endpoint_group_cidrs (endpoint_group_id, cidr) VALUES ($1,$2)`, id, c); err != nil {
-			return api.EndpointGroup{}, fmt.Errorf("insert cidr %q: %w", c, err)
+		if ct.RowsAffected() == 0 {
+			return api.ErrNotFound
 		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return api.EndpointGroup{}, fmt.Errorf("commit: %w", err)
+		if _, err := tx.Exec(ctx, `DELETE FROM endpoint_group_cidrs WHERE endpoint_group_id=$1`, id); err != nil {
+			return fmt.Errorf("clear cidrs: %w", err)
+		}
+		for _, c := range in.CIDRs {
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO endpoint_group_cidrs (endpoint_group_id, cidr) VALUES ($1,$2)`, id, c); err != nil {
+				return fmt.Errorf("insert cidr %q: %w", c, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return api.EndpointGroup{}, err
 	}
 	return p.GetEndpointGroup(ctx, id)
 }

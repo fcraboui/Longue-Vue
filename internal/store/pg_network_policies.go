@@ -67,20 +67,16 @@ func (p *PG) NetworkPolicyExists(
 func (p *PG) UpsertNetworkPolicy(
 	ctx context.Context, np NetworkPolicy, rules []NetworkPolicyRule,
 ) (uuid.UUID, error) {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("begin upsert network_policy: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	id, err := upsertNetworkPolicyTx(ctx, tx, np)
-	if err != nil {
+	var id uuid.UUID
+	if err := p.withTx(ctx, "upsert network_policy", func(tx pgx.Tx) error {
+		var err error
+		id, err = upsertNetworkPolicyTx(ctx, tx, np)
+		if err != nil {
+			return err
+		}
+		return replaceNetworkPolicyRulesTx(ctx, tx, id, rules)
+	}); err != nil {
 		return uuid.Nil, err
-	}
-	if err := replaceNetworkPolicyRulesTx(ctx, tx, id, rules); err != nil {
-		return uuid.Nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return uuid.Nil, fmt.Errorf("commit upsert network_policy: %w", err)
 	}
 	return id, nil
 }

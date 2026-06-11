@@ -113,6 +113,24 @@ func (p *PG) Migrate(ctx context.Context) error {
 	return nil
 }
 
+// withTx runs fn inside a transaction: rollback on error or panic,
+// commit when fn returns nil. op names the operation in the begin/commit
+// error wrapping (e.g. "update cluster").
+func (p *PG) withTx(ctx context.Context, op string, fn func(tx pgx.Tx) error) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin %s: %w", op, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit %s: %w", op, err)
+	}
+	return nil
+}
+
 // classifyOutcome maps the CTE's (inserted, business_changed) tuple to the
 // corresponding api.UpsertOutcome — used by every Upsert* impl that computes
 // audit-noop detection. See ADR-0024.
