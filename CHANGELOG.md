@@ -6,6 +6,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.6.1](https://github.com/sthalbert/Longue-Vue/compare/v1.6.0...v1.6.1) (2026-06-11)
+
+
+### Bug Fixes
+
+* align default image tag with current version ([d8fb774](https://github.com/sthalbert/Longue-Vue/commit/d8fb77427661b67ffc7f247e877312bb68610927))
+* **chart-longue-vue-collector:** align default image tag with current appVersion ([5a31bd2](https://github.com/sthalbert/Longue-Vue/commit/5a31bd2aba5f8060d6c690aa0a31ce99f92e5a2f))
+* **chart-longue-vue-ingest-gw:** align default image tag with current appVersion ([992a19b](https://github.com/sthalbert/Longue-Vue/commit/992a19b2e46acfab4eada8a175c55d72ba50b7e3))
+* **chart-longue-vue-vm-collector:** align default image tag with current appVersion ([29d7909](https://github.com/sthalbert/Longue-Vue/commit/29d790977c6d2882a60da6cf088e3481f8086f1c))
+
 ## [1.6.0](https://github.com/sthalbert/Longue-Vue/compare/v1.5.0...v1.6.0) (2026-06-10)
 
 
