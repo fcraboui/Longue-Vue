@@ -50,9 +50,7 @@ func HandleExtractApplicationsJSON(store ApplicationExtractStore, maxRows int) h
 // extract.json) is the format selector (no ?format= param needed).
 func handleApplicationsExtract(store ApplicationExtractStore, maxRows int, format string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeRead) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "read scope required")
+		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
 

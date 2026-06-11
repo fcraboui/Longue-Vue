@@ -20,36 +20,9 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/sthalbert/longue-vue/internal/auth"
 )
-
-// requireScope is a thin scope guard mirroring the inline pattern used by
-// the virtual-machine + extract handlers. Returns false (and writes a
-// 403) when the caller is missing or lacks the named scope.
-func requireScope(w http.ResponseWriter, r *http.Request, scope string) bool {
-	caller := auth.CallerFromContext(r.Context())
-	if caller == nil || !caller.HasScope(scope) {
-		writeProblem(w, http.StatusForbidden, "Forbidden", scope+" scope required")
-		return false
-	}
-	return true
-}
-
-// parseLimit pulls an optional `limit` from query string. Falls back to
-// the caller-supplied default when missing or unparseable. The store
-// itself clamps to a hard upper bound (200).
-func parseLimit(raw string, def int) int {
-	if raw == "" {
-		return def
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return def
-	}
-	return n
-}
 
 // HandleCreateApplicationBlock — write scope. POST /v1/application-blocks.
 // Idempotent on name: returns 200 with the existing row on a duplicate,

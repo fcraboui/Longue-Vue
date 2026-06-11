@@ -381,11 +381,10 @@ func HandleDeleteCloudAccount(store Store) http.HandlerFunc {
 // POST /v1/cloud-accounts. Idempotent first-contact registration.
 func HandleCollectorRegisterCloudAccount(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeVMCollector) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "vm-collector scope required")
+		if !requireScope(w, r, auth.ScopeVMCollector) {
 			return
 		}
+		caller := auth.CallerFromContext(r.Context())
 		var req collectorRegisterReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
@@ -418,11 +417,10 @@ func HandleCollectorRegisterCloudAccount(store Store) http.HandlerFunc {
 //nolint:gocyclo // status patch validates multiple optional fields; branching is unavoidable
 func HandleCollectorPatchCloudAccountStatus(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeVMCollector) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "vm-collector scope required")
+		if !requireScope(w, r, auth.ScopeVMCollector) {
 			return
 		}
+		caller := auth.CallerFromContext(r.Context())
 		id, ok := pathUUID(w, r, "id")
 		if !ok {
 			return
@@ -467,11 +465,10 @@ func HandleCollectorPatchCloudAccountStatus(store Store) http.HandlerFunc {
 // GET /v1/cloud-accounts/by-name/{name}/credentials. Returns plaintext SK.
 func HandleCollectorGetCredentialsByName(store Store, enc *secrets.Encrypter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeVMCollector) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "vm-collector scope required")
+		if !requireScope(w, r, auth.ScopeVMCollector) {
 			return
 		}
+		caller := auth.CallerFromContext(r.Context())
 		name := r.PathValue("name")
 		if name == "" {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "name required")
@@ -501,11 +498,10 @@ func HandleCollectorGetCredentialsByName(store Store, enc *secrets.Encrypter) ht
 // GET /v1/cloud-accounts/{id}/credentials.
 func HandleCollectorGetCredentialsByID(store Store, enc *secrets.Encrypter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeVMCollector) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "vm-collector scope required")
+		if !requireScope(w, r, auth.ScopeVMCollector) {
 			return
 		}
+		caller := auth.CallerFromContext(r.Context())
 		id, ok := pathUUID(w, r, "id")
 		if !ok {
 			return
@@ -617,24 +613,6 @@ func handleAccountLookupErr(w http.ResponseWriter, err error) {
 	writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 }
 
-// pathUUID extracts a UUID from a router path value. Returns (uuid, true)
-// on success or writes a 400 and returns (_, false).
-//
-//nolint:unparam // name is kept for error message clarity; future routes may use different parameter names
-func pathUUID(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
-	raw := r.PathValue(name)
-	if raw == "" {
-		writeProblem(w, http.StatusBadRequest, "Bad Request", "missing path parameter "+name)
-		return uuid.Nil, false
-	}
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid UUID")
-		return uuid.Nil, false
-	}
-	return id, true
-}
-
 // adminCreateCloudAccountTokenReq is the body for
 // POST /v1/admin/cloud-accounts/{id}/tokens — admin mints a vm-collector
 // PAT bound to this account.
@@ -732,27 +710,5 @@ func HandleCreateCloudAccountToken(store Store) http.HandlerFunc {
 			Token:               minted.Plaintext,
 		}
 		writeJSON(w, http.StatusCreated, resp)
-	}
-}
-
-// writeJSON writes an application/json response with the given status.
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(body); err != nil {
-		slog.Warn("writeJSON: encode error", slog.Any("error", err))
-	}
-}
-
-// writeProblem writes a minimal RFC 7807 application/problem+json response.
-func writeProblem(w http.ResponseWriter, status int, title, detail string) {
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(status)
-	body := map[string]any{"type": "about:blank", "title": title, "status": status}
-	if detail != "" {
-		body["detail"] = detail
-	}
-	if err := json.NewEncoder(w).Encode(body); err != nil {
-		slog.Warn("writeProblem: encode error", slog.Any("error", err))
 	}
 }
