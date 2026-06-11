@@ -76,12 +76,39 @@ type CascadeCounts struct {
 	PersistentVolumeClaims int `json:"persistent_volume_claims"`
 }
 
-// Store is the persistence contract consumed by the REST handlers.
+// Store is the persistence contract consumed by the REST handlers,
+// composed of per-domain interfaces so callers and test doubles can
+// depend on just the slice they use.
 // Implementations must be safe for concurrent use by multiple goroutines.
 type Store interface {
+	ClusterStore
+	NodeStore
+	NamespaceStore
+	PodStore
+	WorkloadStore
+	ServiceStore
+	IngressStore
+	PersistentVolumeStore
+	PersistentVolumeClaimStore
+	AuthStore
+	SettingsStore
+	AuditStore
+	CloudAccountStore
+	VirtualMachineStore
+	HistoryStore
+	ImageStore
+	ApplicationStore
+	SecurityGroupStore
+	NetworkPolicyStore
+	FlowStore
+
 	// Ping verifies that the underlying database is reachable.
 	Ping(ctx context.Context) error
+}
 
+// ClusterStore covers cluster CRUD, the idempotent EnsureCluster, and the
+// cascade soft-delete helpers.
+type ClusterStore interface {
 	// EnsureCluster reconciles a cluster row keyed by name with one of three
 	// outcomes:
 	//   - CREATE: no row exists, a new one is inserted and created=true.
@@ -128,7 +155,10 @@ type Store interface {
 	// when the given cluster is removed. Returns ErrNotFound if the cluster
 	// does not exist. Used to build the pre-deletion audit snapshot (ADR-0010).
 	CountClusterChildren(ctx context.Context, clusterID uuid.UUID) (CascadeCounts, error)
+}
 
+// NodeStore covers node CRUD, upsert, and reconcile.
+type NodeStore interface {
 	// CreateNode inserts a new node. Returns ErrNotFound when the parent
 	// cluster does not exist; ErrConflict when (cluster_id, name) already
 	// has a node.
@@ -167,7 +197,10 @@ type Store interface {
 	// not in keepNames. When keepNames is empty the entire set of nodes for
 	// that cluster is removed. Returns the number of rows deleted.
 	DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
+}
 
+// NamespaceStore covers namespace CRUD, upsert, soft-delete, and reconcile.
+type NamespaceStore interface {
 	// CreateNamespace inserts a new namespace. Returns ErrNotFound when the
 	// parent cluster does not exist; ErrConflict when (cluster_id, name)
 	// already has a namespace.
@@ -205,7 +238,10 @@ type Store interface {
 
 	// DeleteNamespacesNotIn mirrors DeleteNodesNotIn for namespaces.
 	DeleteNamespacesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
+}
 
+// PodStore covers pod CRUD, upsert, and reconcile.
+type PodStore interface {
 	// CreatePod inserts a new pod. Returns ErrNotFound when the parent
 	// namespace does not exist; ErrConflict when (namespace_id, name) already
 	// has a pod.
@@ -233,7 +269,10 @@ type Store interface {
 
 	// DeletePodsNotIn mirrors DeleteNodesNotIn, scoped to a single namespace.
 	DeletePodsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
+}
 
+// WorkloadStore covers workload CRUD, upsert, and reconcile.
+type WorkloadStore interface {
 	// CreateWorkload inserts a new workload. Returns ErrNotFound when the
 	// parent namespace does not exist; ErrConflict when (namespace_id, kind,
 	// name) already has a workload.
@@ -268,7 +307,10 @@ type Store interface {
 	// workload for that namespace. The two slices are parallel; callers
 	// must ensure len(keepKinds) == len(keepNames).
 	DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error)
+}
 
+// ServiceStore covers service CRUD, upsert, and reconcile.
+type ServiceStore interface {
 	// CreateService inserts a new service.
 	CreateService(ctx context.Context, in ServiceCreate) (Service, error)
 
@@ -292,7 +334,10 @@ type Store interface {
 
 	// DeleteServicesNotIn mirrors DeletePodsNotIn, scoped to a single namespace.
 	DeleteServicesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
+}
 
+// IngressStore covers ingress CRUD, upsert, and reconcile.
+type IngressStore interface {
 	// CreateIngress inserts a new ingress.
 	CreateIngress(ctx context.Context, in IngressCreate) (Ingress, error)
 
@@ -316,7 +361,10 @@ type Store interface {
 
 	// DeleteIngressesNotIn mirrors DeleteServicesNotIn.
 	DeleteIngressesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
+}
 
+// PersistentVolumeStore covers cluster-scoped PV CRUD, upsert, and reconcile.
+type PersistentVolumeStore interface {
 	// CreatePersistentVolume inserts a new cluster-scoped PV. Returns
 	// ErrNotFound when the parent cluster does not exist; ErrConflict when
 	// (cluster_id, name) already has a PV.
@@ -345,7 +393,10 @@ type Store interface {
 	// DeletePersistentVolumesNotIn removes cluster-scoped PVs whose name is
 	// not in keepNames. An empty keep slice clears every PV in that cluster.
 	DeletePersistentVolumesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
+}
 
+// PersistentVolumeClaimStore covers PVC CRUD, upsert, and reconcile.
+type PersistentVolumeClaimStore interface {
 	// CreatePersistentVolumeClaim inserts a new PVC. Returns ErrNotFound
 	// when the parent namespace or the bound volume does not exist;
 	// ErrConflict when (namespace_id, name) already has a PVC.
@@ -373,13 +424,14 @@ type Store interface {
 
 	// DeletePersistentVolumeClaimsNotIn mirrors DeletePodsNotIn.
 	DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
+}
 
-	// --- Auth substrate (ADR-0007) ---------------------------------------
-	//
-	// The auth package also defines a narrower `auth.Store` interface with
-	// just the lookup methods the middleware needs. The PG store satisfies
-	// both; see `internal/auth/middleware.go` for the contract.
-
+// AuthStore covers the auth substrate (ADR-0007): users, sessions, API
+// tokens, and the one-shot OIDC state rows. The auth package also defines
+// a narrower `auth.Store` interface with just the lookup methods the
+// middleware needs. The PG store satisfies both; see
+// `internal/auth/middleware.go` for the contract.
+type AuthStore interface {
 	// CountActiveAdmins returns the number of `admin`-role users without a
 	// `disabled_at` timestamp. Used by the first-install bootstrap check.
 	CountActiveAdmins(ctx context.Context) (int, error)
@@ -533,13 +585,19 @@ type Store interface {
 	// state, returning the code_verifier + nonce. Rejects expired rows
 	// with ErrNotFound. One-shot by design.
 	ConsumeOidcAuthState(ctx context.Context, state string) (codeVerifier, nonce string, err error)
+}
 
+// SettingsStore covers the single-row runtime feature-toggle table.
+type SettingsStore interface {
 	// GetSettings returns the current runtime settings (single-row table).
 	GetSettings(ctx context.Context) (Settings, error)
 
 	// UpdateSettings applies the merge-patch on the settings row.
 	UpdateSettings(ctx context.Context, in SettingsPatch) (Settings, error)
+}
 
+// AuditStore covers the append-only audit_events table (ADR-0010).
+type AuditStore interface {
 	// InsertAuditEvent appends one row to audit_events. Called from the
 	// audit middleware after the wrapped handler has produced a status.
 	// Never returns ErrConflict — id collisions are caller bugs.
@@ -548,9 +606,11 @@ type Store interface {
 	// ListAuditEvents returns the newest events first, paged by opaque
 	// cursor. filter fields are AND-combined; nil fields are ignored.
 	ListAuditEvents(ctx context.Context, filter AuditEventFilter, limit int, cursor string) (items []AuditEvent, nextCursor string, err error)
+}
 
-	// --- Cloud accounts (ADR-0015) -------------------------------------
-
+// CloudAccountStore covers cloud accounts (ADR-0015), including the
+// encrypted-credential paths.
+type CloudAccountStore interface {
 	// UpsertCloudAccount idempotently registers a cloud account by
 	// (provider, name). New rows are created in status='pending_credentials'.
 	UpsertCloudAccount(ctx context.Context, in CloudAccountUpsert) (CloudAccount, error)
@@ -605,9 +665,11 @@ type Store interface {
 	// CountCloudAccountsWithSecrets is used at startup to decide whether
 	// missing master-key configuration is fatal (see ADR-0015 §4).
 	CountCloudAccountsWithSecrets(ctx context.Context) (int, error)
+}
 
-	// --- Virtual machines (ADR-0015) -----------------------------------
-
+// VirtualMachineStore covers cloud VMs (ADR-0015): push-collector upsert,
+// curated patches, and soft-delete reconcile.
+type VirtualMachineStore interface {
 	// UpsertVirtualMachine inserts a new VM or updates the existing row by
 	// (cloud_account_id, provider_vm_id). Server-side dedup against
 	// nodes.provider_id: returns ErrConflict if the provider_vm_id already
@@ -656,9 +718,10 @@ type Store interface {
 	// whose parent VM is not itself linked. The full VM is returned so the
 	// caller can read its annotations and filter the matching entries.
 	ListVMsWithApplicationEntry(ctx context.Context, appID uuid.UUID) ([]VirtualMachine, error)
+}
 
-	// --- Time-travel history (ADR-0021 Phase 3) ----------------------------
-
+// HistoryStore covers time-travel history reads (ADR-0021 Phase 3).
+type HistoryStore interface {
 	// ListEntityHistory returns up to limit history rows for one entity,
 	// newest-first. kind must be one of "clusters", "namespaces", "nodes",
 	// "workloads". cursor is the opaque pagination token from a prior call
@@ -678,7 +741,12 @@ type Store interface {
 	// IsTimeTravelEnabled reports whether the time_travel_enabled setting is
 	// currently true. Used by history handlers to return 503 when disabled.
 	IsTimeTravelEnabled(ctx context.Context) (bool, error)
+}
 
+// ImageStore covers the image-versions subsystem: registries allowlist
+// (ADR-0022), discovered versions, mirror-origin resolutions (ADR-0026),
+// and manual origin mappings (ADR-0030).
+type ImageStore interface {
 	// Image registries
 	ListImageRegistries(ctx context.Context) ([]ImageRegistry, error)
 	GetImageRegistry(ctx context.Context, hostname, pathPrefix string) (ImageRegistry, error)
@@ -707,7 +775,12 @@ type Store interface {
 	PatchImageOriginMapping(ctx context.Context, imageName string, p ImageOriginMappingPatch, updatedBy string) (ImageOriginMapping, error)
 	DeleteImageOriginMapping(ctx context.Context, imageName string) error
 	FindImageOrigin(ctx context.Context, imageName string) (publicRegistry string, err error)
+}
 
+// ApplicationStore covers the operator-curated applicative layer
+// (ADR-0029): application blocks and applications, including the
+// effective-DICT helpers.
+type ApplicationStore interface {
 	// Application blocks (ADR-0029).
 	CreateApplicationBlock(ctx context.Context, in ApplicationBlockCreate) (ApplicationBlock, error)
 	GetApplicationBlock(ctx context.Context, id uuid.UUID) (ApplicationBlock, error)
@@ -738,9 +811,11 @@ type Store interface {
 	// effective-DICT source bucket (application | workload | none), feeding
 	// the longue_vue_dict_coverage gauge (ADR-0029 §6).
 	DICTCoverageCounts(ctx context.Context) (application, workload, none int, err error)
+}
 
-	// --- Security groups (flow-matrix P1) ---------------------------------
-
+// SecurityGroupStore covers provider security groups, their rules, and
+// VM attachments (flow-matrix P1).
+type SecurityGroupStore interface {
 	// UpsertSecurityGroup inserts or updates by (cloud_account_id,
 	// provider_sg_id). Returns the stable row UUID. Called on every
 	// collector tick; idempotent.
@@ -788,9 +863,11 @@ type Store interface {
 	// provider_vm_id via the same substring match the VM dedup trusts
 	// (ADR-0015).
 	PerimeterSecurityGroupsForCluster(ctx context.Context, clusterID uuid.UUID) ([]SecurityGroupRow, error)
+}
 
-	// --- Network policies (flow-matrix P1) ---------------------------------
-
+// NetworkPolicyStore covers Kubernetes NetworkPolicy rows and rules
+// (flow-matrix P1, ADR-0038).
+type NetworkPolicyStore interface {
 	// ListNetworkPoliciesByCluster returns a page of network policies for
 	// the given cluster, optionally filtered by namespace. Cursor-based
 	// pagination ordered by (reconcile_seen_at DESC, id DESC).
@@ -832,9 +909,11 @@ type Store interface {
 	// namespace not in the keep-list and returns the count of deleted rows.
 	// Used by ReconcileNetworkPolicies (ADR-0038).
 	SweepNetworkPoliciesByNamespaceWithCount(ctx context.Context, nsID uuid.UUID, keep []string) (int64, error)
+}
 
-	// --- Endpoint groups (flow-matrix R2) ---------------------------------
-
+// FlowStore covers the flow-matrix curation tables (R2): endpoint groups,
+// per-cluster flow references, and drift-detection bookkeeping.
+type FlowStore interface {
 	ListEndpointGroups(ctx context.Context) ([]EndpointGroup, error)
 	GetEndpointGroup(ctx context.Context, id uuid.UUID) (EndpointGroup, error)
 	CreateEndpointGroup(ctx context.Context, in EndpointGroupInput, createdBy *uuid.UUID) (EndpointGroup, error)
