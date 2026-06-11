@@ -254,8 +254,8 @@ func decodeCursor(c string) (time.Time, uuid.UUID, error) {
 }
 
 // isUniqueViolation reports whether err is a PostgreSQL unique-constraint
-// violation (SQLSTATE 23505). Used by CreateImageRegistry and other
-// single-row insert helpers that want to map the error to api.ErrConflict.
+// violation (SQLSTATE 23505). Insert/update paths use it to map the error
+// to api.ErrConflict with an entity-specific message.
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"

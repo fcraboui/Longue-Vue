@@ -47,8 +47,7 @@ func (p *PG) CreatePod(ctx context.Context, in api.PodCreate) (api.Pod, error) {
 		if pErr := classifyPodFKError(err, in.NamespaceId, in.WorkloadId); pErr != nil {
 			return api.Pod{}, pErr
 		}
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if isUniqueViolation(err) {
 			return api.Pod{}, fmt.Errorf("pod %q in namespace %s already exists: %w", in.Name, in.NamespaceId, api.ErrConflict)
 		}
 		return api.Pod{}, fmt.Errorf("insert pod: %w", err)

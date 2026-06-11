@@ -111,8 +111,7 @@ func (p *PG) CreateUser(ctx context.Context, in api.UserInsert) (api.User, error
 	if _, err := p.pool.Exec(ctx, q,
 		id, in.Username, in.PasswordHash, in.Role, in.MustChangePassword, now,
 	); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if isUniqueViolation(err) {
 			return api.User{}, fmt.Errorf("user %q already exists: %w", in.Username, api.ErrConflict)
 		}
 		return api.User{}, fmt.Errorf("insert user: %w", err)
@@ -1042,8 +1041,7 @@ func (p *PG) CreateUserWithIdentity(ctx context.Context, in api.UserInsert, iden
 		 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
 		id, in.Username, in.PasswordHash, in.Role, in.MustChangePassword, now,
 	); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if isUniqueViolation(err) {
 			return api.User{}, fmt.Errorf("user %q already exists: %w", in.Username, api.ErrConflict)
 		}
 		return api.User{}, fmt.Errorf("insert user: %w", err)
@@ -1058,8 +1056,7 @@ func (p *PG) CreateUserWithIdentity(ctx context.Context, in api.UserInsert, iden
 		 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
 		uuid.New(), id, ident.Issuer, ident.Subject, emailArg, now,
 	); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if isUniqueViolation(err) {
 			// Race: another login registered this (issuer, subject) between
 			// our GetUserByIdentity check and the insert. Surface as
 			// ErrConflict so the handler can re-read and issue a session.

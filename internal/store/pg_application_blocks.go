@@ -20,7 +20,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/sthalbert/longue-vue/internal/api"
 )
@@ -65,8 +64,7 @@ func (p *PG) CreateApplicationBlock(ctx context.Context, in api.ApplicationBlock
 	)
 	block, err := scanApplicationBlock(row)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if isUniqueViolation(err) {
 			return api.ApplicationBlock{}, fmt.Errorf("application_block name %q already exists: %w", name, api.ErrConflict)
 		}
 		return api.ApplicationBlock{}, fmt.Errorf("insert application_block: %w", err)

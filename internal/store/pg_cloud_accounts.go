@@ -16,7 +16,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/sthalbert/longue-vue/internal/api"
 	"github.com/sthalbert/longue-vue/internal/secrets"
@@ -221,8 +220,7 @@ func (p *PG) UpdateCloudAccount(ctx context.Context, id uuid.UUID, in api.CloudA
 
 	tag, err := p.pool.Exec(ctx, q, args...)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if isUniqueViolation(err) {
 			return api.CloudAccount{}, fmt.Errorf("cloud account name already exists: %w", api.ErrConflict)
 		}
 		return api.CloudAccount{}, fmt.Errorf("update cloud account: %w", err)

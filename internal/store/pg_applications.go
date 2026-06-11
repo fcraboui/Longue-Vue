@@ -32,7 +32,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/sthalbert/longue-vue/internal/api"
 )
@@ -124,8 +123,7 @@ func (p *PG) CreateApplication(ctx context.Context, in api.ApplicationCreate) (a
 		in.SecTracabilite, in.SecNotes,
 		now,
 	); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if isUniqueViolation(err) {
 			return api.Application{}, fmt.Errorf("application name %q already exists: %w", name, api.ErrConflict)
 		}
 		return api.Application{}, fmt.Errorf("insert application: %w", err)
