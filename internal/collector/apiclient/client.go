@@ -1,129 +1,46 @@
 // Package apiclient implements collector.CmdbStore over the longue-vue REST API.
 // It is the write-path for the push-mode collector (ADR-0009): every store
 // method maps to one HTTP call against a remote longue-vue instance.
+// Transport, retry, and header plumbing live in internal/httptransport;
+// this package only contributes the CMDB status→error mapping.
 package apiclient
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"math"
 	"net/http"
-	"net/url"
-	"os"
-	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/httptransport"
 	"github.com/sthalbert/longue-vue/internal/store"
 )
 
-// Sentinel errors for the HTTP-backed store.
-var (
-	errNoCACerts        = errors.New("CA cert file contains no valid certificates")
-	errHTTPRequest      = errors.New("HTTP request error")
-	errMaxRetries       = errors.New("max retries exceeded")
-	errBadTransportType = errors.New("unexpected default transport type")
-)
+// errHTTPRequest marks a non-2xx response that maps to no dedicated sentinel.
+var errHTTPRequest = errors.New("HTTP request error")
 
 // Config carries the knobs for building an HTTP-backed store.
-type Config struct {
-	// ServerURL is the longue-vue base URL, e.g. "https://longue-vue.internal:8080"
-	// or "https://gw:443/lv". A trailing path is prepended to every
-	// request so gateway path-prefix rewrite works transparently.
-	ServerURL string
-
-	// Token is the bearer token (PAT) injected into every request.
-	Token string
-
-	// CACert is the path to a PEM-encoded CA bundle for server TLS
-	// verification. Empty uses the system pool.
-	CACert string
-
-	// ClientCert and ClientKey are paths to a PEM-encoded client
-	// certificate and key for mTLS. Both must be set or both empty.
-	ClientCert string
-	ClientKey  string
-
-	// ExtraHeaders are injected into every outbound request. Typical
-	// use: gateway routing headers (X-Tenant-Id, X-Route-Key).
-	ExtraHeaders map[string]string
-}
+// See httptransport.Config for the field documentation.
+type Config = httptransport.Config
 
 // Store implements collector.CmdbStore by calling the longue-vue REST API.
 type Store struct {
-	client       *http.Client
-	baseURL      string // scheme + host + optional path prefix, no trailing slash
-	token        string
-	extraHeaders map[string]string
+	c *httptransport.Client
 }
 
 // NewStore builds an HTTP-backed store from cfg.
 //
 //nolint:gocritic // hugeParam: keeping value receiver for backward compatibility with external callers.
 func NewStore(cfg Config) (*Store, error) {
-	u, err := url.Parse(cfg.ServerURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse server URL: %w", err)
-	}
-	baseURL := strings.TrimRight(u.String(), "/")
-
-	transport, err := buildTransport(&cfg)
+	c, err := httptransport.New(&cfg)
 	if err != nil {
 		return nil, err
 	}
-
-	return &Store{
-		client:       &http.Client{Transport: transport, Timeout: 30 * time.Second},
-		baseURL:      baseURL,
-		token:        cfg.Token,
-		extraHeaders: cfg.ExtraHeaders,
-	}, nil
-}
-
-// buildTransport constructs an http.Transport with the TLS settings from cfg.
-func buildTransport(cfg *Config) (*http.Transport, error) {
-	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		return nil, errBadTransportType
-	}
-	transport := defaultTransport.Clone()
-
-	if cfg.CACert != "" {
-		pem, err := os.ReadFile(cfg.CACert)
-		if err != nil {
-			return nil, fmt.Errorf("read CA cert: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, errNoCACerts
-		}
-		if transport.TLSClientConfig == nil {
-			transport.TLSClientConfig = &tls.Config{}
-		}
-		transport.TLSClientConfig.RootCAs = pool
-	}
-
-	if cfg.ClientCert != "" && cfg.ClientKey != "" {
-		cert, err := tls.LoadX509KeyPair(cfg.ClientCert, cfg.ClientKey)
-		if err != nil {
-			return nil, fmt.Errorf("load client cert/key: %w", err)
-		}
-		if transport.TLSClientConfig == nil {
-			transport.TLSClientConfig = &tls.Config{}
-		}
-		transport.TLSClientConfig.Certificates = []tls.Certificate{cert}
-	}
-
-	return transport, nil
+	return &Store{c: c}, nil
 }
 
 // ── collector.CmdbStore implementation ──────────────────────────────
@@ -447,11 +364,6 @@ func (s *Store) reconcileNamespaceScoped(ctx context.Context, path string, names
 	return result.Deleted, nil
 }
 
-const (
-	maxRetries    = 3
-	retryBaseWait = 1 * time.Second
-)
-
 // doJSON sends an HTTP request with optional JSON body and decodes the
 // JSON response into dst. Retries transient 5xx errors with exponential
 // backoff; returns immediately on 401/403.
@@ -465,143 +377,33 @@ func (s *Store) doJSON(ctx context.Context, method, path string, body, dst any) 
 // distinguish between 200 and 201 (e.g. EnsureCluster) use this; everyone
 // else uses doJSON.
 func (s *Store) doJSONStatus(ctx context.Context, method, path string, body, dst any) (int, error) {
-	var marshaledBody []byte
-	if body != nil {
-		buf, err := json.Marshal(body)
-		if err != nil {
-			return 0, fmt.Errorf("marshal request body: %w", err)
-		}
-		marshaledBody = buf
-	}
-
-	fullURL := s.baseURL + path
-
-	var lastErr error
-	var lastStatus int
-	for attempt := range maxRetries {
-		status, result, err := s.doOnce(ctx, method, fullURL, marshaledBody, dst)
-		if err != nil {
-			lastErr = err
-			lastStatus = status
-			if result == attemptDone || ctx.Err() != nil {
-				return lastStatus, lastErr
-			}
-			backoff(ctx, attempt)
-			continue
-		}
-		return status, nil
-	}
-
-	return lastStatus, fmt.Errorf("%w: %w", errMaxRetries, lastErr)
+	return s.c.DoJSON(ctx, method, path, body, dst, mapCmdbError)
 }
 
-type attemptResult int
-
-const (
-	attemptDone  attemptResult = iota
-	attemptRetry               // transient failure, retry
-)
-
-// doOnce performs a single HTTP round-trip for doJSON. The first return value
-// is the HTTP status code of the response (0 when the request never reached
-// the server, e.g. on a transport error).
-func (s *Store) doOnce(
-	ctx context.Context, method, fullURL string, marshaledBody []byte, dst any,
-) (int, attemptResult, error) {
-	var bodyReader io.Reader
-	if marshaledBody != nil {
-		bodyReader = bytes.NewReader(marshaledBody)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
-	if err != nil {
-		return 0, attemptDone, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+s.token)
-	if marshaledBody != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	for k, v := range s.extraHeaders {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return 0, attemptRetry, fmt.Errorf("%s %s: %w", method, req.URL.Path, err)
-	}
-
-	respBody, readErr := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if readErr != nil {
-		return resp.StatusCode, attemptRetry, fmt.Errorf("%s %s: read response: %w", method, req.URL.Path, readErr)
-	}
-
-	result, err := s.handleResponse(method, req.URL.Path, resp.StatusCode, respBody, dst)
-	return resp.StatusCode, result, err
-}
-
-// handleResponse interprets the HTTP status code and body returned by a
-// single request attempt inside doJSON.
-func (s *Store) handleResponse(
-	method, path string, statusCode int, respBody []byte, dst any,
-) (attemptResult, error) {
-	if statusCode >= 200 && statusCode < 300 {
-		return s.handleSuccess(method, path, respBody, dst)
-	}
-	return s.handleError(method, path, statusCode, respBody)
-}
-
-// handleSuccess decodes a 2xx response body into dst.
-func (s *Store) handleSuccess(method, path string, respBody []byte, dst any) (attemptResult, error) {
-	if dst != nil && len(respBody) > 0 {
-		if err := json.Unmarshal(respBody, dst); err != nil {
-			return attemptDone, fmt.Errorf("%s %s: decode response: %w", method, path, err)
-		}
-	}
-	return attemptDone, nil
-}
-
-// handleError maps non-2xx HTTP statuses to the appropriate error and retry signal.
-func (s *Store) handleError(method, path string, statusCode int, respBody []byte) (attemptResult, error) {
+// mapCmdbError maps non-2xx statuses to the CMDB store contract: 404 →
+// api.ErrNotFound, 409 → api.ErrConflict, 401/403 terminal (the token is
+// wrong; retrying cannot help), 5xx transient.
+func mapCmdbError(method, path string, statusCode int, respBody []byte) (httptransport.Disposition, error) {
 	httpErr := func() error {
-		return fmt.Errorf("%s %s: %w: %d %s", method, path, errHTTPRequest, statusCode, truncate(string(respBody), 200))
+		return fmt.Errorf("%s %s: %w: %d %s", method, path, errHTTPRequest, statusCode, httptransport.Truncate(string(respBody), 200))
 	}
 
 	switch {
 	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden:
 		slog.Error("apiclient: auth error (not retrying)",
 			slog.String("method", method), slog.String("path", path),
-			slog.Int("status", statusCode), slog.String("body", truncate(string(respBody), 500)))
-		return attemptDone, httpErr()
+			slog.Int("status", statusCode), slog.String("body", httptransport.Truncate(string(respBody), 500)))
+		return httptransport.Done, httpErr()
 	case statusCode == http.StatusNotFound:
-		return attemptDone, api.ErrNotFound
+		return httptransport.Done, api.ErrNotFound
 	case statusCode == http.StatusConflict:
-		return attemptDone, api.ErrConflict
+		return httptransport.Done, api.ErrConflict
 	case statusCode >= 500:
 		slog.Warn("apiclient: transient error, retrying",
 			slog.String("method", method), slog.String("path", path),
-			slog.Int("status", statusCode), slog.String("body", truncate(string(respBody), 500)))
-		return attemptRetry, httpErr()
+			slog.Int("status", statusCode), slog.String("body", httptransport.Truncate(string(respBody), 500)))
+		return httptransport.Retry, httpErr()
 	default:
-		return attemptDone, httpErr()
+		return httptransport.Done, httpErr()
 	}
-}
-
-// backoff sleeps with exponential delay, respecting context cancellation.
-func backoff(ctx context.Context, attempt int) {
-	wait := time.Duration(math.Pow(2, float64(attempt))) * retryBaseWait
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-	case <-timer.C:
-	}
-}
-
-// truncate limits s to n bytes for log messages.
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
 }
