@@ -16,7 +16,8 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 - `cmd/longue-vue/` — main daemon (API + UI + in-process collectors).
 - `cmd/longue-vue-ingest-gw/` — stateless DMZ reverse-proxy (ADR-0016).
 - `cmd/longue-vue-vm-collector/` — push-mode cloud-VM collector (ADR-0015).
-- `internal/` — `api/`, `auth/`, `store/` (pgx/v5), `collector/` (K8s pull), `vmcollector/`, `ingestgw/`, `eol/`, `eolagg/`, `imageversions/`, `mcp/`, `impact/`, `metrics/`, `httputil/`, `secrets/`.
+- `internal/` — `api/`, `auth/`, `store/` (pgx/v5), `collector/` (K8s pull), `vmcollector/`, `ingestgw/`, `eol/`, `eolagg/`, `imageversions/`, `mcp/`, `impact/`, `metrics/`, `httputil/`, `httptransport/` (collector-side HTTP client shared by both apiclients: TLS/mTLS transport, retries, per-caller `ErrorMapper`), `secrets/`.
+- `internal/store/`: `pg.go` is the core (pool, migrations, shared helpers incl. `withTx` + `isUniqueViolation`); entity CRUD lives in per-entity `pg_*.go` files. `api.Store` is composed of per-domain interfaces (`ClusterStore`, `AuthStore`, …) — new consumers should depend on the narrowest slice that fits. Hand-written handler plumbing (`writeProblem`, `requireScope`, `pathUUID`, `parseLimit`) lives in `internal/api/httphelpers.go`.
 - **Applications (ADR-0029)**: `applications` + `application_blocks` are operator-curated top-level tables; Application is the first-class SNC applicative-layer entity (Block → Application → workloads/VMs). `workloads.application_id` + `virtual_machines.application_id` (and an optional per-entry `application_id` on the VM `applications` JSONB) link each asset to at most one Application, all `ON DELETE SET NULL`. Hand-written handlers under `internal/api/application_*` (documented in OpenAPI but not codegen'd).
 - `api/openapi/openapi.yaml` — contract source of truth (codegen drift checked in CI).
 - `migrations/` — goose-style timestamped SQL, embedded.
