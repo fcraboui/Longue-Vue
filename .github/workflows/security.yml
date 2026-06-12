@@ -37,6 +37,12 @@ jobs:
         with:
           args: -fmt sarif -out gosec.sarif -no-fail -exclude-generated ./...
       - uses: github/codeql-action/upload-sarif@v4
+        # Skip on release-please bot PRs — the bot's GITHUB_TOKEN doesn't get
+        # security-events: write even when the workflow requests it, causing
+        # an opaque "Requires authentication" failure that blocks the PR.
+        # The scan still runs and gosec findings still surface in workflow
+        # logs; only the Code Scanning dashboard upload is gated.
+        if: github.actor != 'release-please[bot]'
         with:
           sarif_file: gosec.sarif
           category: gosec
@@ -68,7 +74,7 @@ jobs:
           ignore-unfixed: true
           limit-severities-for-sarif: true
       - uses: github/codeql-action/upload-sarif@v4
-        if: always() && hashFiles('trivy-fs.sarif') != ''
+        if: always() && hashFiles('trivy-fs.sarif') != '' && github.actor != 'release-please[bot]'
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
@@ -83,7 +89,7 @@ jobs:
           severity: HIGH,CRITICAL
           limit-severities-for-sarif: true
       - uses: github/codeql-action/upload-sarif@v4
-        if: always() && hashFiles('trivy-config.sarif') != ''
+        if: always() && hashFiles('trivy-config.sarif') != '' && github.actor != 'release-please[bot]'
         with:
           sarif_file: trivy-config.sarif
           category: trivy-config
@@ -132,7 +138,7 @@ jobs:
           limit-severities-for-sarif: true
           exit-code: "1"
       - uses: github/codeql-action/upload-sarif@v4
-        if: always() && hashFiles(format('trivy-image-{0}.sarif', matrix.image)) != ''
+        if: always() && hashFiles(format('trivy-image-{0}.sarif', matrix.image)) != '' && github.actor != 'release-please[bot]'
         with:
           sarif_file: trivy-image-${{ matrix.image }}.sarif
           category: trivy-image-${{ matrix.image }}

@@ -6,6 +6,32 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.6.1](https://github.com/sthalbert/Longue-Vue/compare/v1.6.0...v1.6.1) (2026-06-11)
+
+
+### Bug Fixes
+
+* align default image tag with current version ([d8fb774](https://github.com/sthalbert/Longue-Vue/commit/d8fb77427661b67ffc7f247e877312bb68610927))
+* **chart-longue-vue-collector:** align default image tag with current appVersion ([5a31bd2](https://github.com/sthalbert/Longue-Vue/commit/5a31bd2aba5f8060d6c690aa0a31ce99f92e5a2f))
+* **chart-longue-vue-ingest-gw:** align default image tag with current appVersion ([992a19b](https://github.com/sthalbert/Longue-Vue/commit/992a19b2e46acfab4eada8a175c55d72ba50b7e3))
+* **chart-longue-vue-vm-collector:** align default image tag with current appVersion ([29d7909](https://github.com/sthalbert/Longue-Vue/commit/29d790977c6d2882a60da6cf088e3481f8086f1c))
+
+## [1.6.0](https://github.com/sthalbert/Longue-Vue/compare/v1.5.0...v1.6.0) (2026-06-10)
+
+
+### Features
+
+* **chart:** add Gateway API HTTPRoute exposure template ([34571a9](https://github.com/sthalbert/Longue-Vue/commit/34571a9897ba4ea9a3b2a95a844d83ac89bb354c))
+* **chart:** add optional route-level Envoy Gateway SecurityPolicy ([c6f7a32](https://github.com/sthalbert/Longue-Vue/commit/c6f7a32b4c2c37157dac48704fb28c58cc48e951))
+* **chart:** deprecate Ingress, surface HTTPRoute URL in NOTES ([ebb0bf4](https://github.com/sthalbert/Longue-Vue/commit/ebb0bf40c45df4bda4b956d5150b9f80141de124))
+* **chart:** expose longue-vue via Gateway API (HTTPRoute + Envoy Gateway SecurityPolicy) ([24b6641](https://github.com/sthalbert/Longue-Vue/commit/24b664159731dbad0e564e883ee780671dbd807e))
+
+
+### Bug Fixes
+
+* **chart:** guard HTTPRoute parentRefs and require gateway name ([543514a](https://github.com/sthalbert/Longue-Vue/commit/543514aff5e6a04274d3ac8c86fcf05d78423db6))
+* **chart:** make HTTPRoute/SecurityPolicy guards fire and use targetRefs ([834eb7a](https://github.com/sthalbert/Longue-Vue/commit/834eb7a620997f8142318240725b0c0fdd52539e))
+
 ## [1.5.0](https://github.com/sthalbert/Longue-Vue/compare/v1.4.0...v1.5.0) (2026-06-10)
 
 

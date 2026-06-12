@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.1](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-collector-v2.1.0...chart-longue-vue-collector-v2.1.1) (2026-06-11)
+
+
+### Bug Fixes
+
+* align default image tag with current version ([d8fb774](https://github.com/sthalbert/Longue-Vue/commit/d8fb77427661b67ffc7f247e877312bb68610927))
+* **chart-longue-vue-collector:** align default image tag with current appVersion ([5a31bd2](https://github.com/sthalbert/Longue-Vue/commit/5a31bd2aba5f8060d6c690aa0a31ce99f92e5a2f))
+
 ## [2.1.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-collector-v2.0.0...chart-longue-vue-collector-v2.1.0) (2026-06-05)
 
 
