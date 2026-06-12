@@ -63,9 +63,7 @@ const (
 //nolint:gocyclo,gocognit // validation + data-collection branches inflate the score; each branch is short and self-contained
 func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeRead) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "read scope required")
+		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
 		q := r.URL.Query()
@@ -372,9 +370,7 @@ func toEolaggVMs(in []VirtualMachine) []eolagg.VMInput {
 //nolint:gocyclo,gocognit // dispatch + validation branches inflate the score; each branch is short and self-contained
 func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeRead) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "read scope required")
+		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
 		q := r.URL.Query()
@@ -968,9 +964,7 @@ func collectVMExtract(
 //nolint:gocyclo,gocognit // three sequential collect+emit calls with shared error-coalescing; complexity is inherent
 func HandleSearchExtractZip(store ExtractStore, maxRows int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeRead) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "read scope required")
+		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
 		qry := r.URL.Query()

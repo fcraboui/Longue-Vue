@@ -67,37 +67,30 @@ func (p *PG) PickRescueTarget(ctx context.Context) (api.User, error) {
 
 // RescueAdmin atomically restores password-login access for one user.
 func (p *PG) RescueAdmin(ctx context.Context, id uuid.UUID, hash string) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	return p.withTx(ctx, "rescue admin", func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx,
+			`UPDATE users
+			    SET password_hash = $1,
+			        failed_login_count = 0,
+			        locked_at = NULL,
+			        disabled_at = NULL,
+			        must_change_password = TRUE,
+			        updated_at = NOW()
+			  WHERE id = $2`,
+			hash, id,
+		)
+		if err != nil {
+			return fmt.Errorf("update rescue target: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return api.ErrNotFound
+		}
 
-	tag, err := tx.Exec(ctx,
-		`UPDATE users
-		    SET password_hash = $1,
-		        failed_login_count = 0,
-		        locked_at = NULL,
-		        disabled_at = NULL,
-		        must_change_password = TRUE,
-		        updated_at = NOW()
-		  WHERE id = $2`,
-		hash, id,
-	)
-	if err != nil {
-		return fmt.Errorf("update rescue target: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return api.ErrNotFound
-	}
-
-	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, id); err != nil {
-		return fmt.Errorf("delete sessions: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit: %w", err)
-	}
-	return nil
+		if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, id); err != nil {
+			return fmt.Errorf("delete sessions: %w", err)
+		}
+		return nil
+	})
 }
 
 // CreateUser inserts a new user and returns the stored representation.
@@ -111,8 +104,7 @@ func (p *PG) CreateUser(ctx context.Context, in api.UserInsert) (api.User, error
 	if _, err := p.pool.Exec(ctx, q,
 		id, in.Username, in.PasswordHash, in.Role, in.MustChangePassword, now,
 	); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if isUniqueViolation(err) {
 			return api.User{}, fmt.Errorf("user %q already exists: %w", in.Username, api.ErrConflict)
 		}
 		return api.User{}, fmt.Errorf("insert user: %w", err)
@@ -439,52 +431,45 @@ func lockActiveAdminsForGuard(ctx context.Context, tx pgx.Tx) error {
 //
 //nolint:gocyclo // merge-patch + invariant guard is inherently branchy
 func (p *PG) UpdateUserGuarded(ctx context.Context, id uuid.UUID, in api.UserPatch) (api.User, error) {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return api.User{}, fmt.Errorf("begin update guarded: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if err := lockActiveAdminsForGuard(ctx, tx); err != nil {
-		return api.User{}, err
-	}
-
-	var (
-		role       string
-		disabledAt *time.Time
-	)
-	err = tx.QueryRow(ctx,
-		`SELECT role, disabled_at FROM users WHERE id = $1 FOR UPDATE`,
-		id,
-	).Scan(&role, &disabledAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return api.User{}, api.ErrNotFound
+	if err := p.withTx(ctx, "update guarded", func(tx pgx.Tx) error {
+		if err := lockActiveAdminsForGuard(ctx, tx); err != nil {
+			return err
 		}
-		return api.User{}, fmt.Errorf("lock target user: %w", err)
-	}
 
-	demoting := in.Role != nil && *in.Role != auth.RoleAdmin
-	disabling := in.Disabled != nil && *in.Disabled
-	if (demoting || disabling) && role == auth.RoleAdmin && disabledAt == nil {
-		var others int
-		if err := tx.QueryRow(ctx,
-			`SELECT COUNT(*) FROM users
-			 WHERE role = 'admin' AND disabled_at IS NULL AND id <> $1`,
+		var (
+			role       string
+			disabledAt *time.Time
+		)
+		err := tx.QueryRow(ctx,
+			`SELECT role, disabled_at FROM users WHERE id = $1 FOR UPDATE`,
 			id,
-		).Scan(&others); err != nil {
-			return api.User{}, fmt.Errorf("count other admins: %w", err)
+		).Scan(&role, &disabledAt)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return api.ErrNotFound
+			}
+			return fmt.Errorf("lock target user: %w", err)
 		}
-		if others == 0 {
-			return api.User{}, api.ErrLastAdmin
-		}
-	}
 
-	if err := applyUserPatchTx(ctx, tx, id, in); err != nil {
+		demoting := in.Role != nil && *in.Role != auth.RoleAdmin
+		disabling := in.Disabled != nil && *in.Disabled
+		if (demoting || disabling) && role == auth.RoleAdmin && disabledAt == nil {
+			var others int
+			if err := tx.QueryRow(ctx,
+				`SELECT COUNT(*) FROM users
+				 WHERE role = 'admin' AND disabled_at IS NULL AND id <> $1`,
+				id,
+			).Scan(&others); err != nil {
+				return fmt.Errorf("count other admins: %w", err)
+			}
+			if others == 0 {
+				return api.ErrLastAdmin
+			}
+		}
+
+		return applyUserPatchTx(ctx, tx, id, in)
+	}); err != nil {
 		return api.User{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return api.User{}, fmt.Errorf("commit update guarded: %w", err)
 	}
 	// Disabling kills sessions; do it after commit so the kill is durable.
 	if in.Disabled != nil && *in.Disabled {
@@ -545,60 +530,53 @@ func applyUserPatchTx(ctx context.Context, tx pgx.Tx, id uuid.UUID, in api.UserP
 //
 //nolint:gocyclo // guarded count + write under one lock is inherently branchy
 func (p *PG) DeleteUserGuarded(ctx context.Context, id uuid.UUID) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin delete guarded: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	return p.withTx(ctx, "delete guarded", func(tx pgx.Tx) error {
+		if err := lockActiveAdminsForGuard(ctx, tx); err != nil {
+			return err
+		}
 
-	if err := lockActiveAdminsForGuard(ctx, tx); err != nil {
-		return err
-	}
+		var (
+			role       string
+			disabledAt *time.Time
+		)
+		err := tx.QueryRow(ctx,
+			`SELECT role, disabled_at FROM users WHERE id = $1 FOR UPDATE`,
+			id,
+		).Scan(&role, &disabledAt)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return api.ErrNotFound
+			}
+			return fmt.Errorf("lock target user: %w", err)
+		}
 
-	var (
-		role       string
-		disabledAt *time.Time
-	)
-	err = tx.QueryRow(ctx,
-		`SELECT role, disabled_at FROM users WHERE id = $1 FOR UPDATE`,
-		id,
-	).Scan(&role, &disabledAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if role == auth.RoleAdmin && disabledAt == nil {
+			var others int
+			if err := tx.QueryRow(ctx,
+				`SELECT COUNT(*) FROM users
+				 WHERE role = 'admin' AND disabled_at IS NULL AND id <> $1`,
+				id,
+			).Scan(&others); err != nil {
+				return fmt.Errorf("count other admins: %w", err)
+			}
+			if others == 0 {
+				return api.ErrLastAdmin
+			}
+		}
+
+		tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+				return fmt.Errorf("user owns active api tokens — revoke them first: %w", api.ErrConflict)
+			}
+			return fmt.Errorf("delete user tx: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
 			return api.ErrNotFound
 		}
-		return fmt.Errorf("lock target user: %w", err)
-	}
-
-	if role == auth.RoleAdmin && disabledAt == nil {
-		var others int
-		if err := tx.QueryRow(ctx,
-			`SELECT COUNT(*) FROM users
-			 WHERE role = 'admin' AND disabled_at IS NULL AND id <> $1`,
-			id,
-		).Scan(&others); err != nil {
-			return fmt.Errorf("count other admins: %w", err)
-		}
-		if others == 0 {
-			return api.ErrLastAdmin
-		}
-	}
-
-	tag, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return fmt.Errorf("user owns active api tokens — revoke them first: %w", api.ErrConflict)
-		}
-		return fmt.Errorf("delete user tx: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return api.ErrNotFound
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit delete guarded: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 // GetUserForAuth is the auth.Store lookup — lightweight view the
@@ -1029,47 +1007,40 @@ func (p *PG) GetUserByIdentity(ctx context.Context, issuer, subject string) (api
 // single transaction. Callers that hit ErrConflict (23505 on username)
 // pick a different username and retry.
 func (p *PG) CreateUserWithIdentity(ctx context.Context, in api.UserInsert, ident api.UserIdentityInsert) (api.User, error) {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return api.User{}, fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
 	id := uuid.New()
 	now := time.Now().UTC()
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO users (id, username, password_hash, role, must_change_password, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-		id, in.Username, in.PasswordHash, in.Role, in.MustChangePassword, now,
-	); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return api.User{}, fmt.Errorf("user %q already exists: %w", in.Username, api.ErrConflict)
+	if err := p.withTx(ctx, "create user with identity", func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO users (id, username, password_hash, role, must_change_password, created_at, updated_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+			id, in.Username, in.PasswordHash, in.Role, in.MustChangePassword, now,
+		); err != nil {
+			if isUniqueViolation(err) {
+				return fmt.Errorf("user %q already exists: %w", in.Username, api.ErrConflict)
+			}
+			return fmt.Errorf("insert user: %w", err)
 		}
-		return api.User{}, fmt.Errorf("insert user: %w", err)
-	}
 
-	var emailArg any = ident.Email
-	if ident.Email == "" {
-		emailArg = nil
-	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO user_identities (id, user_id, issuer, subject, email, created_at, last_seen_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-		uuid.New(), id, ident.Issuer, ident.Subject, emailArg, now,
-	); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			// Race: another login registered this (issuer, subject) between
-			// our GetUserByIdentity check and the insert. Surface as
-			// ErrConflict so the handler can re-read and issue a session.
-			return api.User{}, fmt.Errorf("identity already exists: %w", api.ErrConflict)
+		var emailArg any = ident.Email
+		if ident.Email == "" {
+			emailArg = nil
 		}
-		return api.User{}, fmt.Errorf("insert identity: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return api.User{}, fmt.Errorf("commit tx: %w", err)
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO user_identities (id, user_id, issuer, subject, email, created_at, last_seen_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+			uuid.New(), id, ident.Issuer, ident.Subject, emailArg, now,
+		); err != nil {
+			if isUniqueViolation(err) {
+				// Race: another login registered this (issuer, subject) between
+				// our GetUserByIdentity check and the insert. Surface as
+				// ErrConflict so the handler can re-read and issue a session.
+				return fmt.Errorf("identity already exists: %w", api.ErrConflict)
+			}
+			return fmt.Errorf("insert identity: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return api.User{}, err
 	}
 
 	// Re-read through GetUser so the returned row is populated exactly
@@ -1109,36 +1080,31 @@ func (p *PG) CreateOidcAuthState(ctx context.Context, in api.OidcAuthStateInsert
 // the row is single-use even under concurrent callbacks carrying the
 // same state (an attack scenario, not a normal case).
 func (p *PG) ConsumeOidcAuthState(ctx context.Context, state string) (codeVerifier, nonce string, err error) {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return "", "", fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	err = tx.QueryRow(ctx,
-		`SELECT code_verifier, nonce FROM oidc_auth_states
-		 WHERE state = $1 AND expires_at > NOW()
-		 FOR UPDATE`,
-		state,
-	).Scan(&codeVerifier, &nonce)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", "", api.ErrNotFound
+	if err := p.withTx(ctx, "consume oidc auth state", func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx,
+			`SELECT code_verifier, nonce FROM oidc_auth_states
+			 WHERE state = $1 AND expires_at > NOW()
+			 FOR UPDATE`,
+			state,
+		).Scan(&codeVerifier, &nonce)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return api.ErrNotFound
+			}
+			return fmt.Errorf("select oidc state: %w", err)
 		}
-		return "", "", fmt.Errorf("select oidc state: %w", err)
-	}
 
-	if _, err := tx.Exec(ctx, `DELETE FROM oidc_auth_states WHERE state = $1`, state); err != nil {
-		return "", "", fmt.Errorf("delete oidc state: %w", err)
-	}
-	// Opportunistic cleanup of anything else that's expired — keeps the
-	// table tiny without a separate cron.
-	if _, err := tx.Exec(ctx, `DELETE FROM oidc_auth_states WHERE expires_at <= NOW()`); err != nil {
-		return "", "", fmt.Errorf("sweep expired oidc states: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return "", "", fmt.Errorf("commit tx: %w", err)
+		if _, err := tx.Exec(ctx, `DELETE FROM oidc_auth_states WHERE state = $1`, state); err != nil {
+			return fmt.Errorf("delete oidc state: %w", err)
+		}
+		// Opportunistic cleanup of anything else that's expired — keeps the
+		// table tiny without a separate cron.
+		if _, err := tx.Exec(ctx, `DELETE FROM oidc_auth_states WHERE expires_at <= NOW()`); err != nil {
+			return fmt.Errorf("sweep expired oidc states: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return "", "", err
 	}
 	return codeVerifier, nonce, nil
 }

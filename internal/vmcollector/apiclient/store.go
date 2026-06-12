@@ -1,29 +1,26 @@
 // Package apiclient implements the narrow collector-side store that
 // longue-vue-vm-collector uses to talk to longue-vue over HTTPS (ADR-0015).
-// Mirrors the transport setup of internal/collector/apiclient — same
-// CA / mTLS / extra-headers shape — but exposes only the methods the
-// VM collector needs.
+// Transport, retry, and header plumbing are shared with
+// internal/collector/apiclient via internal/httptransport; this package
+// only contributes the VM-collector status→error mapping and exposes only
+// the methods the VM collector needs.
 package apiclient
 
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/sthalbert/longue-vue/internal/httptransport"
 	"github.com/sthalbert/longue-vue/internal/vmcollector/provider"
 )
 
@@ -48,82 +45,26 @@ var (
 	ErrHTTPClientError = errors.New("http client error")
 	// ErrHTTPServerError is returned on 5xx responses (retriable).
 	ErrHTTPServerError = errors.New("http server error")
-	errBadTransport    = errors.New("unexpected default transport type")
-	errNoCACerts       = errors.New("CA cert file contains no valid certificates")
-	errMaxRetries      = errors.New("max retries exceeded")
 )
 
 // Config carries the knobs for building the HTTP-backed store.
-type Config struct {
-	ServerURL    string
-	Token        string
-	CACert       string
-	ClientCert   string
-	ClientKey    string
-	ExtraHeaders map[string]string
-}
+// See httptransport.Config for the field documentation.
+type Config = httptransport.Config
 
 // Store is the HTTP-backed collector store.
 type Store struct {
-	client       *http.Client
-	baseURL      string
-	token        string
-	extraHeaders map[string]string
+	c *httptransport.Client
 }
 
 // NewStore builds a Store from cfg.
 //
 //nolint:gocritic // hugeParam: stable signature
 func NewStore(cfg Config) (*Store, error) {
-	u, err := url.Parse(cfg.ServerURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse server URL: %w", err)
-	}
-	baseURL := strings.TrimRight(u.String(), "/")
-
-	transport, err := buildTransport(&cfg)
+	c, err := httptransport.New(&cfg)
 	if err != nil {
 		return nil, err
 	}
-	return &Store{
-		client:       &http.Client{Transport: transport, Timeout: 30 * time.Second},
-		baseURL:      baseURL,
-		token:        cfg.Token,
-		extraHeaders: cfg.ExtraHeaders,
-	}, nil
-}
-
-func buildTransport(cfg *Config) (*http.Transport, error) {
-	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		return nil, errBadTransport
-	}
-	transport := defaultTransport.Clone()
-	if cfg.CACert != "" {
-		pem, err := os.ReadFile(cfg.CACert)
-		if err != nil {
-			return nil, fmt.Errorf("read CA cert: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, errNoCACerts
-		}
-		if transport.TLSClientConfig == nil {
-			transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-		}
-		transport.TLSClientConfig.RootCAs = pool
-	}
-	if cfg.ClientCert != "" && cfg.ClientKey != "" {
-		cert, err := tls.LoadX509KeyPair(cfg.ClientCert, cfg.ClientKey)
-		if err != nil {
-			return nil, fmt.Errorf("load client cert/key: %w", err)
-		}
-		if transport.TLSClientConfig == nil {
-			transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-		}
-		transport.TLSClientConfig.Certificates = []tls.Certificate{cert}
-	}
-	return transport, nil
+	return &Store{c: c}, nil
 }
 
 // Credentials is the JSON shape returned by /v1/cloud-accounts/.../credentials.
@@ -329,117 +270,44 @@ func stringPtrOrNil(s string) *string {
 
 // --- HTTP plumbing -------------------------------------------------------
 
-const (
-	maxRetries    = 3
-	retryBaseWait = 1 * time.Second
-)
-
 func (s *Store) doJSON(ctx context.Context, method, path string, body, dst any) error {
-	var marshalled []byte
-	if body != nil {
-		buf, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("marshal body: %w", err)
-		}
-		marshalled = buf
-	}
-	fullURL := s.baseURL + path
-
-	var lastErr error
-	for attempt := range maxRetries {
-		stop, err := s.doOnce(ctx, method, fullURL, marshalled, dst)
-		if err != nil {
-			lastErr = err
-			if stop || ctx.Err() != nil {
-				return lastErr
-			}
-			backoff(ctx, attempt)
-			continue
-		}
-		return nil
-	}
-	return fmt.Errorf("%w: %w", errMaxRetries, lastErr)
+	_, err := s.c.DoJSON(ctx, method, path, body, dst, mapVMError)
+	return err
 }
 
-//nolint:gocyclo // status-code switch
-func (s *Store) doOnce(ctx context.Context, method, fullURL string, marshalled []byte, dst any) (stop bool, err error) {
-	var bodyReader io.Reader
-	if marshalled != nil {
-		bodyReader = bytes.NewReader(marshalled)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
-	if err != nil {
-		return true, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+s.token)
-	if marshalled != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	for k, v := range s.extraHeaders {
-		req.Header.Set(k, v)
-	}
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("%s %s: %w", method, req.URL.Path, err)
-	}
-	respBody, readErr := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if readErr != nil {
-		return false, fmt.Errorf("%s %s: read response: %w", method, req.URL.Path, readErr)
-	}
+// mapVMError maps non-2xx statuses to the VM-collector sentinels,
+// sniffing response bodies where one status carries two meanings
+// (403 disabled-vs-forbidden, 409 kube-node-vs-generic conflict).
+func mapVMError(method, path string, statusCode int, respBody []byte) (httptransport.Disposition, error) {
+	truncated := func() string { return httptransport.Truncate(string(respBody), 200) }
 	switch {
-	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		if dst != nil && len(respBody) > 0 {
-			if err := json.Unmarshal(respBody, dst); err != nil {
-				return true, fmt.Errorf("decode response: %w", err)
-			}
-		}
-		return true, nil
-	case resp.StatusCode == http.StatusNotFound:
-		return true, ErrNotRegistered
-	case resp.StatusCode == http.StatusForbidden:
+	case statusCode == http.StatusNotFound:
+		return httptransport.Done, ErrNotRegistered
+	case statusCode == http.StatusForbidden:
 		// Could be account disabled or token mis-bound. Both are
 		// terminal — return distinct sentinels so the collector logs
 		// useful error text.
 		if bytes.Contains(respBody, []byte("Account Disabled")) {
-			return true, ErrAccountDisabled
+			return httptransport.Done, ErrAccountDisabled
 		}
-		return true, fmt.Errorf("%s %s: 403: %s: %w", method, req.URL.Path, truncate(string(respBody)), ErrHTTPForbidden)
-	case resp.StatusCode == http.StatusConflict:
+		return httptransport.Done, fmt.Errorf("%s %s: 403: %s: %w", method, path, truncated(), ErrHTTPForbidden)
+	case statusCode == http.StatusConflict:
 		// On POST /virtual-machines this means already-a-kube-node;
 		// surface the dedicated sentinel so the collector can log and continue.
-		if strings.HasPrefix(req.URL.Path, "/v1/virtual-machines") && bytes.Contains(respBody, []byte("already_inventoried_as_kubernetes_node")) {
-			return true, ErrAlreadyKubeNode
+		if strings.HasPrefix(path, "/v1/virtual-machines") && bytes.Contains(respBody, []byte("already_inventoried_as_kubernetes_node")) {
+			return httptransport.Done, ErrAlreadyKubeNode
 		}
-		return true, fmt.Errorf("%s %s: 409: %s: %w", method, req.URL.Path, truncate(string(respBody)), ErrHTTPConflict)
-	case resp.StatusCode == http.StatusUnauthorized:
+		return httptransport.Done, fmt.Errorf("%s %s: 409: %s: %w", method, path, truncated(), ErrHTTPConflict)
+	case statusCode == http.StatusUnauthorized:
 		slog.Error("apiclient: unauthorised, not retrying",
-			slog.String("method", method), slog.String("path", req.URL.Path))
-		return true, fmt.Errorf("%s %s: %w", method, req.URL.Path, ErrHTTPUnauthorized)
-	case resp.StatusCode >= 500:
+			slog.String("method", method), slog.String("path", path))
+		return httptransport.Done, fmt.Errorf("%s %s: %w", method, path, ErrHTTPUnauthorized)
+	case statusCode >= 500:
 		slog.Warn("apiclient: transient 5xx, retrying",
-			slog.String("method", method), slog.String("path", req.URL.Path),
-			slog.Int("status", resp.StatusCode))
-		return false, fmt.Errorf("%s %s: %d %s: %w", method, req.URL.Path, resp.StatusCode, truncate(string(respBody)), ErrHTTPServerError)
+			slog.String("method", method), slog.String("path", path),
+			slog.Int("status", statusCode))
+		return httptransport.Retry, fmt.Errorf("%s %s: %d %s: %w", method, path, statusCode, truncated(), ErrHTTPServerError)
 	default:
-		return true, fmt.Errorf("%s %s: %d %s: %w", method, req.URL.Path, resp.StatusCode, truncate(string(respBody)), ErrHTTPClientError)
+		return httptransport.Done, fmt.Errorf("%s %s: %d %s: %w", method, path, statusCode, truncated(), ErrHTTPClientError)
 	}
-}
-
-func backoff(ctx context.Context, attempt int) {
-	wait := time.Duration(math.Pow(2, float64(attempt))) * retryBaseWait
-	t := time.NewTimer(wait)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-	case <-t.C:
-	}
-}
-
-func truncate(s string) string {
-	const maxLen = 200
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

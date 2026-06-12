@@ -120,28 +120,25 @@ func (p *PG) ReplaceFlowReferences(
 	ins []api.FlowReferenceInput,
 	createdBy *uuid.UUID,
 ) ([]api.FlowReference, error) {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // no-op after commit
-	if _, err := tx.Exec(ctx, `DELETE FROM cluster_flow_references WHERE cluster_id=$1`, clusterID); err != nil {
-		return nil, fmt.Errorf("clear references: %w", err)
-	}
-	for i := range ins {
-		in := &ins[i]
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO cluster_flow_references
-			   (id, cluster_id, layer, direction, src_kind, src_ref, dst_kind, dst_ref,
-			    protocol, from_port, to_port, justification, created_by)
-			 VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-			clusterID, in.Layer, in.Direction, in.SrcKind, in.SrcRef, in.DstKind, in.DstRef,
-			in.Protocol, in.FromPort, in.ToPort, in.Justification, createdBy); err != nil {
-			return nil, fmt.Errorf("insert reference: %w", err)
+	if err := p.withTx(ctx, "replace flow references", func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM cluster_flow_references WHERE cluster_id=$1`, clusterID); err != nil {
+			return fmt.Errorf("clear references: %w", err)
 		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit: %w", err)
+		for i := range ins {
+			in := &ins[i]
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO cluster_flow_references
+				   (id, cluster_id, layer, direction, src_kind, src_ref, dst_kind, dst_ref,
+				    protocol, from_port, to_port, justification, created_by)
+				 VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+				clusterID, in.Layer, in.Direction, in.SrcKind, in.SrcRef, in.DstKind, in.DstRef,
+				in.Protocol, in.FromPort, in.ToPort, in.Justification, createdBy); err != nil {
+				return fmt.Errorf("insert reference: %w", err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return p.ListFlowReferences(ctx, clusterID)
 }

@@ -149,11 +149,10 @@ type vmReconcileReq struct {
 //nolint:gocyclo // body-to-upsert mapping is intentionally flat
 func HandleUpsertVirtualMachine(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeVMCollector) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "vm-collector scope required")
+		if !requireScope(w, r, auth.ScopeVMCollector) {
 			return
 		}
+		caller := auth.CallerFromContext(r.Context())
 		var req vmUpsertReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
@@ -328,9 +327,7 @@ func parseVMListFilter(r *http.Request) (string, VirtualMachineListFilter) {
 // HandleListVirtualMachines — read scope. GET /v1/virtual-machines.
 func HandleListVirtualMachines(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeRead) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "read scope required")
+		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
 		problem, filter := parseVMListFilter(r)
@@ -364,9 +361,7 @@ func HandleListVirtualMachines(store Store) http.HandlerFunc {
 // HandleGetVirtualMachine — read scope. GET /v1/virtual-machines/{id}.
 func HandleGetVirtualMachine(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeRead) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "read scope required")
+		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
 		id, ok := pathUUID(w, r, "id")
@@ -394,11 +389,10 @@ func HandleGetVirtualMachine(store Store) http.HandlerFunc {
 //nolint:gocyclo,gocognit // body decode + row-level link resolve + per-entry resolve + diff; each branch is one independent concern
 func HandlePatchVirtualMachine(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeWrite) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "write scope required")
+		if !requireScope(w, r, auth.ScopeWrite) {
 			return
 		}
+		caller := auth.CallerFromContext(r.Context())
 		id, ok := pathUUID(w, r, "id")
 		if !ok {
 			return
@@ -593,9 +587,7 @@ func callerIdentifier(caller *auth.Caller) string {
 // the application-filter autocomplete (ADR-0019 §3).
 func HandleListDistinctVMApplications(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeRead) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "read scope required")
+		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
 		products, err := store.ListDistinctVMApplications(r.Context())
@@ -611,9 +603,7 @@ func HandleListDistinctVMApplications(store Store) http.HandlerFunc {
 // HandleDeleteVirtualMachine — delete scope. DELETE /v1/virtual-machines/{id}.
 func HandleDeleteVirtualMachine(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeDelete) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "delete scope required")
+		if !requireScope(w, r, auth.ScopeDelete) {
 			return
 		}
 		id, ok := pathUUID(w, r, "id")
@@ -637,11 +627,10 @@ func HandleDeleteVirtualMachine(store Store) http.HandlerFunc {
 // POST /v1/virtual-machines/reconcile.
 func HandleReconcileVirtualMachines(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeVMCollector) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "vm-collector scope required")
+		if !requireScope(w, r, auth.ScopeVMCollector) {
 			return
 		}
+		caller := auth.CallerFromContext(r.Context())
 		var req vmReconcileReq
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")

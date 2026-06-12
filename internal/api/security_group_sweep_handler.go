@@ -44,11 +44,10 @@ type sgAttachmentWireEntry struct {
 // Response: 204 No Content on success.
 func HandleSweepSecurityGroups(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		caller := auth.CallerFromContext(r.Context())
-		if caller == nil || !caller.HasScope(auth.ScopeVMCollector) {
-			writeProblem(w, http.StatusForbidden, "Forbidden", "vm-collector scope required")
+		if !requireScope(w, r, auth.ScopeVMCollector) {
 			return
 		}
+		caller := auth.CallerFromContext(r.Context())
 		id, ok := pathUUID(w, r, "id")
 		if !ok {
 			return

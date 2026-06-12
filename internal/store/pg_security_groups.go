@@ -83,37 +83,29 @@ func (p *PG) GetSecurityGroupByProviderID(ctx context.Context, accountID uuid.UU
 // ReplaceSecurityGroupRules deletes then inserts in one transaction.
 // Rule sets are small + atomic; finer diff is over-engineering.
 func (p *PG) ReplaceSecurityGroupRules(ctx context.Context, sgID uuid.UUID, rules []api.SecurityGroupRuleRow) error {
-	tx, err := p.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin replace security_group_rules: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM security_group_rules WHERE security_group_id = $1`, sgID,
-	); err != nil {
-		return fmt.Errorf("delete security_group_rules: %w", err)
-	}
-
-	const ins = `
-		INSERT INTO security_group_rules
-		  (security_group_id, direction, protocol, from_port, to_port,
-		   peer_kind, peer_cidr, peer_sg_provider_id, peer_prefix_id, description)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7,'')::cidr, NULLIF($8,''), NULLIF($9,''), NULLIF($10,''))`
-
-	for _, r := range rules { //nolint:gocritic // rangeValCopy: SecurityGroupRuleRow is a small struct; indexing would reduce clarity
-		if _, err := tx.Exec(ctx, ins,
-			sgID, r.Direction, r.Protocol, r.FromPort, r.ToPort,
-			r.PeerKind, r.PeerCIDR, r.PeerSGProviderID, r.PeerPrefixID, r.Description,
+	return p.withTx(ctx, "replace security_group_rules", func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM security_group_rules WHERE security_group_id = $1`, sgID,
 		); err != nil {
-			return fmt.Errorf("insert security_group_rule: %w", err)
+			return fmt.Errorf("delete security_group_rules: %w", err)
 		}
-	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit replace security_group_rules: %w", err)
-	}
-	return nil
+		const ins = `
+			INSERT INTO security_group_rules
+			  (security_group_id, direction, protocol, from_port, to_port,
+			   peer_kind, peer_cidr, peer_sg_provider_id, peer_prefix_id, description)
+			VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7,'')::cidr, NULLIF($8,''), NULLIF($9,''), NULLIF($10,''))`
+
+		for _, r := range rules { //nolint:gocritic // rangeValCopy: SecurityGroupRuleRow is a small struct; indexing would reduce clarity
+			if _, err := tx.Exec(ctx, ins,
+				sgID, r.Direction, r.Protocol, r.FromPort, r.ToPort,
+				r.PeerKind, r.PeerCIDR, r.PeerSGProviderID, r.PeerPrefixID, r.Description,
+			); err != nil {
+				return fmt.Errorf("insert security_group_rule: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // ListSecurityGroupRules returns every rule for a single security group, in
