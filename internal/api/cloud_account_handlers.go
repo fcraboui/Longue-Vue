@@ -413,8 +413,6 @@ func HandleCollectorRegisterCloudAccount(store Store) http.HandlerFunc {
 
 // HandleCollectorPatchCloudAccountStatus — vm-collector scope.
 // PATCH /v1/cloud-accounts/{id}/status.
-//
-//nolint:gocyclo // status patch validates multiple optional fields; branching is unavoidable
 func HandleCollectorPatchCloudAccountStatus(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeVMCollector) {

@@ -222,16 +222,23 @@ func (c *Client) doOnce(
 	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		if dst != nil && len(respBody) > 0 {
-			if err := json.Unmarshal(respBody, dst); err != nil {
-				return resp.StatusCode, Done, fmt.Errorf("%s %s: decode response: %w", method, path, err)
-			}
-		}
-		return resp.StatusCode, Done, nil
+		return resp.StatusCode, Done, decodeSuccess(method, path, respBody, dst)
 	}
 
 	result, err := mapErr(method, path, resp.StatusCode, respBody)
 	return resp.StatusCode, result, err
+}
+
+// decodeSuccess unmarshals a 2xx response body into dst. No-op when dst is
+// nil or the body is empty (e.g. 204).
+func decodeSuccess(method, path string, respBody []byte, dst any) error {
+	if dst == nil || len(respBody) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(respBody, dst); err != nil {
+		return fmt.Errorf("%s %s: decode response: %w", method, path, err)
+	}
+	return nil
 }
 
 // backoff sleeps with exponential delay, respecting context cancellation.

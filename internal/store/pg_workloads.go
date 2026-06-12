@@ -314,7 +314,7 @@ func (p *PG) DeleteWorkload(ctx context.Context, id uuid.UUID) error {
 
 // UpsertWorkload inserts-or-updates a workload keyed by (namespace_id, kind, name).
 //
-//nolint:gocritic,gocyclo // hugeParam: Store interface requires value param; history capture adds branches
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Workload, api.UpsertOutcome, error) {
 	id := uuid.New()
 	now := time.Now().UTC()
@@ -337,141 +337,156 @@ func (p *PG) UpsertWorkload(ctx context.Context, in api.WorkloadCreate) (api.Wor
 		inserted, businessChanged bool
 	)
 	if err := p.withTx(ctx, "upsert workload", func(tx pgx.Tx) error {
-		var prevTerminatedAt *time.Time
-		var prevWLID *uuid.UUID
-		_ = tx.QueryRow(ctx,
-			`SELECT id, terminated_at FROM workloads WHERE namespace_id=$1 AND kind=$2 AND name=$3`,
-			in.NamespaceId, string(in.Kind), in.Name,
-		).Scan(&prevWLID, &prevTerminatedAt)
-		isCreate := prevWLID == nil
-		isRestore := prevWLID != nil && prevTerminatedAt != nil
-
-		// AUDIT_BUSINESS_FIELDS: replicas, ready_replicas, containers, labels, spec,
-		// terminated_at (restore flips it). updated_at is a clock field — excluded.
-		//
-		// COLLECTOR INVARIANT (ADR-0029 §7): application_id is operator-curated and
-		// MUST NOT be touched by collector ticks. The upsert deliberately omits it
-		// from both the INSERT column list and the ON CONFLICT SET list so that
-		// re-running reconcile preserves the curator's link. The PATCH path
-		// (UpdateWorkload) is the only place that writes this column.
-		const q = `
-		WITH old AS (
-		  SELECT replicas, ready_replicas, containers, labels, spec, terminated_at
-		    FROM workloads WHERE namespace_id=$2 AND kind=$3 AND name=$4
-		),
-		upserted AS (
-		  INSERT INTO workloads (
-		      id, namespace_id, kind, name, replicas, ready_replicas,
-		      containers, labels, spec, created_at, updated_at
-		  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
-		  ON CONFLICT (namespace_id, kind, name) DO UPDATE SET
-		      replicas       = EXCLUDED.replicas,
-		      ready_replicas = EXCLUDED.ready_replicas,
-		      containers     = EXCLUDED.containers,
-		      labels         = EXCLUDED.labels,
-		      spec           = EXCLUDED.spec,
-		      terminated_at  = NULL,
-		      updated_at     = EXCLUDED.updated_at
-		  RETURNING id, namespace_id, kind, name, replicas, ready_replicas,
-		            containers, labels, spec, created_at, updated_at,
-		            terminated_at, xmax
-		)
-		SELECT u.id, u.namespace_id, u.kind, u.name, u.replicas, u.ready_replicas,
-		       u.containers, u.labels, u.spec, u.created_at, u.updated_at,
-		       (u.xmax = 0) AS inserted,
-		       (u.xmax <> 0 AND (
-		           o.replicas       IS DISTINCT FROM u.replicas       OR
-		           o.ready_replicas IS DISTINCT FROM u.ready_replicas OR
-		           o.containers     IS DISTINCT FROM u.containers     OR
-		           o.labels         IS DISTINCT FROM u.labels         OR
-		           o.spec           IS DISTINCT FROM u.spec           OR
-		           o.terminated_at  IS DISTINCT FROM u.terminated_at
-		       )) AS business_changed
-		  FROM upserted u LEFT JOIN old o ON true
-	`
-		row := tx.QueryRow(ctx, q,
-			id, in.NamespaceId, string(in.Kind), in.Name, in.Replicas, in.ReadyReplicas,
-			containersJSON, labelsJSON, specJSON, now,
-		)
-
-		var (
-			wID           uuid.UUID
-			namespaceID   uuid.UUID
-			kind          string
-			replicas      sql.NullInt32
-			readyReplicas sql.NullInt32
-			createdAt     time.Time
-			updatedAt     time.Time
-			containersOut []byte
-			labelsOut     []byte
-			specOut       []byte
-		)
-		if err := row.Scan(
-			&wID, &namespaceID, &kind, &w.Name,
-			&replicas, &readyReplicas,
-			&containersOut, &labelsOut, &specOut,
-			&createdAt, &updatedAt,
-			&inserted, &businessChanged,
-		); err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-				return fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
-			}
-			return fmt.Errorf("upsert workload: %w", err)
-		}
-		w.Id = &wID
-		w.NamespaceId = namespaceID
-		w.Kind = api.WorkloadKind(kind)
-		w.CreatedAt = &createdAt
-		w.UpdatedAt = &updatedAt
-		if replicas.Valid {
-			v := int(replicas.Int32)
-			w.Replicas = &v
-		}
-		if readyReplicas.Valid {
-			v := int(readyReplicas.Int32)
-			w.ReadyReplicas = &v
-		}
-		if cs, err := unmarshalContainers(containersOut); err != nil {
-			return fmt.Errorf("unmarshal workload containers: %w", err)
-		} else if cs != nil {
-			w.Containers = cs
-		}
-		if len(labelsOut) > 0 {
-			var labels map[string]string
-			if err := json.Unmarshal(labelsOut, &labels); err != nil {
-				return fmt.Errorf("unmarshal workload labels: %w", err)
-			}
-			if len(labels) > 0 {
-				w.Labels = &labels
-			}
-		}
-		if len(specOut) > 0 {
-			var spec map[string]interface{}
-			if err := json.Unmarshal(specOut, &spec); err != nil {
-				return fmt.Errorf("unmarshal workload spec: %w", err)
-			}
-			if len(spec) > 0 {
-				w.Spec = &spec
-			}
-		}
-
-		actualID := *w.Id
-		if snap, err := workloadRowMapNoLock(ctx, tx, actualID); err == nil {
-			actor := timetravel.ActorFromContext(ctx)
-			changeType := changeTypeUpdate
-			if isCreate {
-				changeType = changeTypeCreate
-			} else if isRestore {
-				changeType = changeTypeRestore
-			}
-			_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, actualID, nil, snap, changeType, actor)
-		}
-		return nil
+		var err error
+		w, inserted, businessChanged, err = upsertWorkloadTx(ctx, tx, &in, id, now, containersJSON, labelsJSON, specJSON)
+		return err
 	}); err != nil {
 		return api.Workload{}, api.OutcomeNoChange, err
 	}
 	return w, classifyOutcome(inserted, businessChanged), nil
+}
+
+// upsertWorkloadTx runs the audit-noop-detecting upsert CTE inside the
+// caller's transaction and hydrates the returned row. The bools feed
+// classifyOutcome (ADR-0024).
+//
+//nolint:gocyclo // restore detection + JSONB hydration add branches; acceptable here
+func upsertWorkloadTx(
+	ctx context.Context, tx pgx.Tx, in *api.WorkloadCreate,
+	id uuid.UUID, now time.Time,
+	containersJSON, labelsJSON, specJSON []byte,
+) (w api.Workload, inserted, businessChanged bool, err error) {
+	var prevTerminatedAt *time.Time
+	var prevWLID *uuid.UUID
+	_ = tx.QueryRow(ctx,
+		`SELECT id, terminated_at FROM workloads WHERE namespace_id=$1 AND kind=$2 AND name=$3`,
+		in.NamespaceId, string(in.Kind), in.Name,
+	).Scan(&prevWLID, &prevTerminatedAt)
+	isCreate := prevWLID == nil
+	isRestore := prevWLID != nil && prevTerminatedAt != nil
+
+	// AUDIT_BUSINESS_FIELDS: replicas, ready_replicas, containers, labels, spec,
+	// terminated_at (restore flips it). updated_at is a clock field — excluded.
+	//
+	// COLLECTOR INVARIANT (ADR-0029 §7): application_id is operator-curated and
+	// MUST NOT be touched by collector ticks. The upsert deliberately omits it
+	// from both the INSERT column list and the ON CONFLICT SET list so that
+	// re-running reconcile preserves the curator's link. The PATCH path
+	// (UpdateWorkload) is the only place that writes this column.
+	const q = `
+	WITH old AS (
+	  SELECT replicas, ready_replicas, containers, labels, spec, terminated_at
+	    FROM workloads WHERE namespace_id=$2 AND kind=$3 AND name=$4
+	),
+	upserted AS (
+	  INSERT INTO workloads (
+	      id, namespace_id, kind, name, replicas, ready_replicas,
+	      containers, labels, spec, created_at, updated_at
+	  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+	  ON CONFLICT (namespace_id, kind, name) DO UPDATE SET
+	      replicas       = EXCLUDED.replicas,
+	      ready_replicas = EXCLUDED.ready_replicas,
+	      containers     = EXCLUDED.containers,
+	      labels         = EXCLUDED.labels,
+	      spec           = EXCLUDED.spec,
+	      terminated_at  = NULL,
+	      updated_at     = EXCLUDED.updated_at
+	  RETURNING id, namespace_id, kind, name, replicas, ready_replicas,
+	            containers, labels, spec, created_at, updated_at,
+	            terminated_at, xmax
+	)
+	SELECT u.id, u.namespace_id, u.kind, u.name, u.replicas, u.ready_replicas,
+	       u.containers, u.labels, u.spec, u.created_at, u.updated_at,
+	       (u.xmax = 0) AS inserted,
+	       (u.xmax <> 0 AND (
+	           o.replicas       IS DISTINCT FROM u.replicas       OR
+	           o.ready_replicas IS DISTINCT FROM u.ready_replicas OR
+	           o.containers     IS DISTINCT FROM u.containers     OR
+	           o.labels         IS DISTINCT FROM u.labels         OR
+	           o.spec           IS DISTINCT FROM u.spec           OR
+	           o.terminated_at  IS DISTINCT FROM u.terminated_at
+	       )) AS business_changed
+	  FROM upserted u LEFT JOIN old o ON true
+`
+	row := tx.QueryRow(ctx, q,
+		id, in.NamespaceId, string(in.Kind), in.Name, in.Replicas, in.ReadyReplicas,
+		containersJSON, labelsJSON, specJSON, now,
+	)
+
+	var (
+		wID           uuid.UUID
+		namespaceID   uuid.UUID
+		kind          string
+		replicas      sql.NullInt32
+		readyReplicas sql.NullInt32
+		createdAt     time.Time
+		updatedAt     time.Time
+		containersOut []byte
+		labelsOut     []byte
+		specOut       []byte
+	)
+	if err := row.Scan(
+		&wID, &namespaceID, &kind, &w.Name,
+		&replicas, &readyReplicas,
+		&containersOut, &labelsOut, &specOut,
+		&createdAt, &updatedAt,
+		&inserted, &businessChanged,
+	); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return w, inserted, businessChanged, fmt.Errorf("namespace %s does not exist: %w", in.NamespaceId, api.ErrNotFound)
+		}
+		return w, inserted, businessChanged, fmt.Errorf("upsert workload: %w", err)
+	}
+	w.Id = &wID
+	w.NamespaceId = namespaceID
+	w.Kind = api.WorkloadKind(kind)
+	w.CreatedAt = &createdAt
+	w.UpdatedAt = &updatedAt
+	if replicas.Valid {
+		v := int(replicas.Int32)
+		w.Replicas = &v
+	}
+	if readyReplicas.Valid {
+		v := int(readyReplicas.Int32)
+		w.ReadyReplicas = &v
+	}
+	if cs, err := unmarshalContainers(containersOut); err != nil {
+		return w, inserted, businessChanged, fmt.Errorf("unmarshal workload containers: %w", err)
+	} else if cs != nil {
+		w.Containers = cs
+	}
+	if len(labelsOut) > 0 {
+		var labels map[string]string
+		if err := json.Unmarshal(labelsOut, &labels); err != nil {
+			return w, inserted, businessChanged, fmt.Errorf("unmarshal workload labels: %w", err)
+		}
+		if len(labels) > 0 {
+			w.Labels = &labels
+		}
+	}
+	if len(specOut) > 0 {
+		var spec map[string]interface{}
+		if err := json.Unmarshal(specOut, &spec); err != nil {
+			return w, inserted, businessChanged, fmt.Errorf("unmarshal workload spec: %w", err)
+		}
+		if len(spec) > 0 {
+			w.Spec = &spec
+		}
+	}
+
+	actualID := *w.Id
+	if snap, err := workloadRowMapNoLock(ctx, tx, actualID); err == nil {
+		actor := timetravel.ActorFromContext(ctx)
+		changeType := changeTypeUpdate
+		if isCreate {
+			changeType = changeTypeCreate
+		} else if isRestore {
+			changeType = changeTypeRestore
+		}
+		_ = timetravel.Capture(ctx, tx, timetravel.KindWorkload, actualID, nil, snap, changeType, actor)
+	}
+	return w, inserted, businessChanged, nil
 }
 
 // DeleteWorkloadsNotIn soft-deletes workloads in the namespace whose

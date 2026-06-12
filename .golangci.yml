@@ -86,6 +86,10 @@ linters:
       ignore-package-globs:
         - google.golang.org/grpc/status
         - google.golang.org/grpc/internal/status
+        # httptransport errors already carry full context (method + path,
+        # baked in by DoJSON and the caller's ErrorMapper); the apiclient
+        # wrappers re-wrapping them would only duplicate it.
+        - github.com/sthalbert/longue-vue/internal/httptransport
     funcorder:
       constructor: true
       struct-method: true
