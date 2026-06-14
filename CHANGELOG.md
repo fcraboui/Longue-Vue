@@ -6,6 +6,13 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.6.2](https://github.com/sthalbert/Longue-Vue/compare/v1.6.1...v1.6.2) (2026-06-12)
+
+
+### Bug Fixes
+
+* **lint:** resolve golangci-lint findings from the refactoring ([19baa3f](https://github.com/sthalbert/Longue-Vue/commit/19baa3f6f0b0d7907dc43bba1debc3cfebf9e205))
+
 ## [1.6.1](https://github.com/sthalbert/Longue-Vue/compare/v1.6.0...v1.6.1) (2026-06-11)
 
 
