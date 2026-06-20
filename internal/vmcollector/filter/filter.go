@@ -53,3 +53,29 @@ func shouldDrop(tags map[string]string) bool {
 	}
 	return false
 }
+
+// KubeNodeVMs returns the subset of vms that are Kubernetes-node-owned —
+// i.e. carry an OscK8sNodeName tag or any OscK8sClusterID/* tag — and are
+// NOT opted out via longue-vue.io/ignore=true. These are exactly the VMs
+// Apply drops as kube nodes; the collector uses them to backfill node OS
+// images (ADR-0040). The input slice is not modified.
+func KubeNodeVMs(vms []provider.VM) []provider.VM {
+	out := make([]provider.VM, 0, len(vms))
+	for i := range vms {
+		tags := vms[i].Tags
+		if v, ok := tags[lvIgnoreKey]; ok && v == lvIgnoreOnVal {
+			continue
+		}
+		if _, ok := tags[cccmNodeNameKey]; ok {
+			out = append(out, vms[i])
+			continue
+		}
+		for k := range tags {
+			if strings.HasPrefix(k, cccmTagPrefix) {
+				out = append(out, vms[i])
+				break
+			}
+		}
+	}
+	return out
+}

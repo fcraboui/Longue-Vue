@@ -53,3 +53,20 @@ func TestApplyPreservesUnrelatedVMs(t *testing.T) {
 		t.Errorf("unexpected order: %+v", got)
 	}
 }
+
+func TestKubeNodeVMs(t *testing.T) {
+	t.Parallel()
+	vms := []provider.VM{
+		{ProviderVMID: "i-node-name", Tags: map[string]string{"OscK8sNodeName": "ip-10-0-0-1"}},
+		{ProviderVMID: "i-node-cluster", Tags: map[string]string{"OscK8sClusterID/abc": "owned"}},
+		{ProviderVMID: "i-plain", Tags: map[string]string{"Name": "bastion"}},
+		{ProviderVMID: "i-ignored", Tags: map[string]string{"longue-vue.io/ignore": "true", "OscK8sNodeName": "x"}},
+	}
+	got := KubeNodeVMs(vms)
+	if len(got) != 2 {
+		t.Fatalf("got %d kube node VMs; want 2 (%+v)", len(got), got)
+	}
+	if got[0].ProviderVMID != "i-node-name" || got[1].ProviderVMID != "i-node-cluster" {
+		t.Fatalf("unexpected selection/order: %+v", got)
+	}
+}
