@@ -3657,6 +3657,40 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/os-images:
+    get:
+      tags: [virtual-machines]
+      summary: List OS images in service
+      description: |
+        Deduplicated inventory of OS images (OMI) currently in service,
+        aggregated across non-terminated cloud VMs and active cluster
+        nodes. The dedup key is the image name. Vendor-neutral CMDB
+        inventory (ADR-0040).
+      operationId: listOSImages
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      responses:
+        '200':
+          description: OS image inventory.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [images]
+                properties:
+                  images:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OSImage'
+                  generated_at:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
 components:
 
   securitySchemes:
@@ -6880,3 +6914,20 @@ components:
         name:
           type: string
           example: bastion-eu
+    OSImage:
+      type: object
+      required: [image_name, image_ids, vm_count, node_count]
+      properties:
+        image_name:
+          type: string
+          description: OS image (OMI) name — the dedup key.
+        image_ids:
+          type: array
+          items: { type: string }
+          description: Distinct provider image ids seen for this name (per-region in Outscale; informational).
+        vm_count:
+          type: integer
+          description: Number of non-terminated VMs referencing this image.
+        node_count:
+          type: integer
+          description: Number of active cluster nodes referencing this image.
