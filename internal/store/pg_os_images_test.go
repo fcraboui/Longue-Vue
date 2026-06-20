@@ -1,3 +1,4 @@
+//nolint:goconst // power-state and fixture literals in integration test assertions are clearer than named constants
 package store
 
 import (
@@ -7,6 +8,7 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+//nolint:gocyclo // integration test exercises multiple fixture branches
 func TestListOSImages(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()

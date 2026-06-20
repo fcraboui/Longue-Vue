@@ -1,3 +1,4 @@
+//nolint:noctx,goconst // httptest.NewRequest for brevity; JSON key literals in assertions are clearer than named constants
 package api
 
 import (

@@ -23,7 +23,7 @@ func HandleListOSImages(store Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"images":       images,
+			"images":       images, //nolint:goconst // shared key name; a named constant is over-engineering for a single-handler response shape
 			"generated_at": time.Now().UTC().Format(time.RFC3339),
 		})
 	}

@@ -1,3 +1,4 @@
+//nolint:noctx,goconst // httptest.NewRequest for brevity; literal strings in assertions are clearer than named constants
 package api
 
 import (
@@ -14,7 +15,7 @@ func TestHandleListOSImages_OK(t *testing.T) {
 	osImageFake.images = []OSImage{
 		{ImageName: "img-a", ImageIDs: []string{"ami-1"}, VMCount: 2, NodeCount: 3},
 	}
-	req := httptest.NewRequest(http.MethodGet, "/v1/os-images", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/os-images", http.NoBody)
 	req = req.WithContext(auth.WithCaller(req.Context(), readCaller()))
 	rr := httptest.NewRecorder()
 	HandleListOSImages(newMemStore()).ServeHTTP(rr, req)
@@ -34,7 +35,7 @@ func TestHandleListOSImages_OK(t *testing.T) {
 
 func TestHandleListOSImages_NoCallerForbidden(t *testing.T) {
 	resetOSImageFake()
-	req := httptest.NewRequest(http.MethodGet, "/v1/os-images", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/os-images", http.NoBody)
 	rr := httptest.NewRecorder()
 	HandleListOSImages(newMemStore()).ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden {

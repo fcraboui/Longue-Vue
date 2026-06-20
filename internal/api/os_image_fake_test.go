@@ -25,7 +25,7 @@ func resetOSImageFake() {
 	osImageFake.updated = 0
 }
 
-func (m *memStore) BackfillNodeImages(_ context.Context, images []NodeImage) (int, int, error) {
+func (m *memStore) BackfillNodeImages(_ context.Context, images []NodeImage) (matched, updated int, err error) {
 	osImageFake.mu.Lock()
 	defer osImageFake.mu.Unlock()
 	osImageFake.backfilled = append(osImageFake.backfilled, images...)

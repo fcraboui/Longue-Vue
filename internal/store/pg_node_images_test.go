@@ -7,6 +7,7 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+//nolint:gocyclo // integration test exercises matched, updated, and no-op branches
 func TestBackfillNodeImages(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
