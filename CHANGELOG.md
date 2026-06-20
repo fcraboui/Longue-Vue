@@ -6,6 +6,27 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.7.0](https://github.com/sthalbert/Longue-Vue/compare/v1.6.2...v1.7.0) (2026-06-20)
+
+
+### Features
+
+* add OS image inventory to the CMDB (ADR-0040) ([6f916c3](https://github.com/sthalbert/Longue-Vue/commit/6f916c354aa8876a21e142a57589d3552ff5c794))
+* **api:** add GET /v1/os-images inventory endpoint (ADR-0040) ([3acf3a1](https://github.com/sthalbert/Longue-Vue/commit/3acf3a1d0907c404c3160b171e57dc0404398bac))
+* **api:** node-images ingest endpoint backfills node OS images (ADR-0040) ([60a8b77](https://github.com/sthalbert/Longue-Vue/commit/60a8b771f668130c54e135e9ad1e6bfc328cf38e))
+* **store:** add deduplicated OS image inventory query (ADR-0040) ([da524c3](https://github.com/sthalbert/Longue-Vue/commit/da524c38e567d246bff538dccb21d6ac9102f719))
+* **store:** add image_id/image_name columns to nodes (ADR-0040) ([caa0b23](https://github.com/sthalbert/Longue-Vue/commit/caa0b23ae82b755fa399405aef16e2943fd0238c))
+* **store:** backfill node OS image by provider_id match (ADR-0040) ([edf680d](https://github.com/sthalbert/Longue-Vue/commit/edf680d8cca35b95b6cd68d45e639a5e713d3445))
+* **vmcollector:** apiclient BackfillNodeImages with 404-tolerant push (ADR-0040) ([13786d4](https://github.com/sthalbert/Longue-Vue/commit/13786d45e025b88a35490384483f85cbbbe70527))
+* **vmcollector:** filter.KubeNodeVMs selects kube-node VMs for image backfill (ADR-0040) ([450dfb1](https://github.com/sthalbert/Longue-Vue/commit/450dfb16255e09791cbdcdcca818bac93e5b3145))
+* **vmcollector:** push node OS images per tick to the CMDB (ADR-0040) ([9f42ec9](https://github.com/sthalbert/Longue-Vue/commit/9f42ec9b371fc087b75af08001d306093b2a37d4))
+
+
+### Bug Fixes
+
+* **lint:** satisfy golangci-lint v2.11 (funcorder order, gci, drop unused goconst nolints) ([a0c3de7](https://github.com/sthalbert/Longue-Vue/commit/a0c3de7e1c94e340e9bccaf3aa2dbf1e6def83af))
+* **timetravel:** classify node image columns in watched-fields registry (ADR-0040) ([b49b6ec](https://github.com/sthalbert/Longue-Vue/commit/b49b6ec016a74f90d955cc3eb0220aa57af59c64))
+
 ## [1.6.2](https://github.com/sthalbert/Longue-Vue/compare/v1.6.1...v1.6.2) (2026-06-12)
 
 
