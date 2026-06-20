@@ -178,6 +178,46 @@ func TestSweepSecurityGroups_SendsGroupsAndAttachments(t *testing.T) {
 	}
 }
 
+func TestBackfillNodeImages_PostsBody(t *testing.T) {
+	t.Parallel()
+	var gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"matched":1,"updated":1}`))
+	}))
+	defer srv.Close()
+
+	c := newClient(t, srv, "t-1")
+	accID := uuid.New()
+	err := c.BackfillNodeImages(context.Background(), accID, []NodeImageMapping{
+		{ProviderVMID: "i-1", ImageID: "ami-1", ImageName: "img-a"},
+	})
+	if err != nil {
+		t.Fatalf("BackfillNodeImages: %v", err)
+	}
+	if gotPath != "/v1/ingest/cloud-accounts/"+accID.String()+"/node-images" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if gotBody["images"] == nil {
+		t.Fatalf("body missing images: %v", gotBody)
+	}
+}
+
+func TestBackfillNodeImages_404IsNonFatal(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	c := newClient(t, srv, "t-1")
+	if err := c.BackfillNodeImages(context.Background(), uuid.New(), nil); err != nil {
+		t.Fatalf("404 should be non-fatal, got: %v", err)
+	}
+}
+
 func TestExtraHeadersForwarded(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

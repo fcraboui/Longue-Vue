@@ -261,6 +261,24 @@ func (s *Store) SweepSecurityGroups(
 	return s.doJSON(ctx, http.MethodPost, path, body, nil)
 }
 
+// NodeImageMapping pairs a Kubernetes node VM's provider id with its
+// resolved OS image, for the node-image backfill endpoint (ADR-0040).
+type NodeImageMapping struct {
+	ProviderVMID string `json:"provider_vm_id"`
+	ImageID      string `json:"image_id"`
+	ImageName    string `json:"image_name"`
+}
+
+// BackfillNodeImages POSTs /v1/ingest/cloud-accounts/{id}/node-images with
+// the OS images of the cluster-node VMs the pre-filter dropped (ADR-0040).
+// A 404 (older server without the endpoint) is treated as non-fatal by
+// mapVMError so the collector keeps working against mixed-version servers.
+func (s *Store) BackfillNodeImages(ctx context.Context, accountID uuid.UUID, images []NodeImageMapping) error {
+	body := map[string]any{"images": images}
+	path := "/v1/ingest/cloud-accounts/" + accountID.String() + "/node-images"
+	return s.doJSON(ctx, http.MethodPost, path, body, nil)
+}
+
 func stringPtrOrNil(s string) *string {
 	if s == "" {
 		return nil
@@ -282,6 +300,11 @@ func mapVMError(method, path string, statusCode int, respBody []byte) (httptrans
 	truncated := func() string { return httptransport.Truncate(string(respBody), 200) }
 	switch {
 	case statusCode == http.StatusNotFound:
+		// The node-images endpoint may be absent on an older server;
+		// treat its 404 as a no-op so the collector stays compatible.
+		if strings.HasSuffix(path, "/node-images") {
+			return httptransport.Done, nil
+		}
 		return httptransport.Done, ErrNotRegistered
 	case statusCode == http.StatusForbidden:
 		// Could be account disabled or token mis-bound. Both are
