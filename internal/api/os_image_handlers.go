@@ -8,6 +8,9 @@ import (
 	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
+// osImagesResponseKey is the JSON key for the OS-image list in the response body.
+const osImagesResponseKey = "images"
+
 // HandleListOSImages — read scope. GET /v1/os-images. Returns the
 // deduplicated inventory of OS images in service (cloud VMs ∪ cluster
 // nodes), keyed by image name (ADR-0040). Vendor-neutral CMDB inventory.
@@ -23,8 +26,8 @@ func HandleListOSImages(store Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"images":       images, //nolint:goconst // shared key name; a named constant is over-engineering for a single-handler response shape
-			"generated_at": time.Now().UTC().Format(time.RFC3339),
+			osImagesResponseKey: images,
+			"generated_at":      time.Now().UTC().Format(time.RFC3339),
 		})
 	}
 }

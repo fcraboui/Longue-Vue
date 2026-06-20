@@ -16,16 +16,16 @@ import (
 
 // fakeStore implements CollectorStore for collector tests.
 type fakeStore struct {
-	mu               sync.Mutex
-	credsByName      map[string]apiclient.Credentials
-	registered       map[string]uuid.UUID
-	upsertedVMs      []provider.VM
-	reconcileCalls   []reconcileCall
-	statusUpdates    []statusUpdate
-	upsertConflicts  map[string]bool // provider_vm_id -> ErrAlreadyKubeNode
-	registerCallback func(name string, id uuid.UUID)
-	sweptAttachments []apiclient.SGAttachment
-	sweptSeenIDs     []string
+	mu                 sync.Mutex
+	credsByName        map[string]apiclient.Credentials
+	registered         map[string]uuid.UUID
+	upsertedVMs        []provider.VM
+	reconcileCalls     []reconcileCall
+	statusUpdates      []statusUpdate
+	upsertConflicts    map[string]bool // provider_vm_id -> ErrAlreadyKubeNode
+	registerCallback   func(name string, id uuid.UUID)
+	sweptAttachments   []apiclient.SGAttachment
+	sweptSeenIDs       []string
 	backedupNodeImages []apiclient.NodeImageMapping
 }
 
@@ -115,6 +115,13 @@ func (f *fakeStore) SweepSecurityGroups(
 	return nil
 }
 
+func (f *fakeStore) BackfillNodeImages(_ context.Context, _ uuid.UUID, images []apiclient.NodeImageMapping) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.backedupNodeImages = append(f.backedupNodeImages, images...)
+	return nil
+}
+
 // sawSeenID reports whether the given SG id was included in the sweep's
 // seen-set (and therefore preserved from the server's delete-unseen pass).
 func (f *fakeStore) sawSeenID(id string) bool {
@@ -144,13 +151,6 @@ func (f *fakeStore) sawAttachment(vmID, sgID string) bool {
 		}
 	}
 	return false
-}
-
-func (f *fakeStore) BackfillNodeImages(_ context.Context, _ uuid.UUID, images []apiclient.NodeImageMapping) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.backedupNodeImages = append(f.backedupNodeImages, images...)
-	return nil
 }
 
 // sawVMUpsert reports whether the given VM was upserted into inventory.

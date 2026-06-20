@@ -1,4 +1,3 @@
-//nolint:goconst // power-state and fixture literals in integration test assertions are clearer than named constants
 package store
 
 import (

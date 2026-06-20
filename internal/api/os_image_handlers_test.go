@@ -1,4 +1,4 @@
-//nolint:noctx,goconst // httptest.NewRequest for brevity; literal strings in assertions are clearer than named constants
+//nolint:noctx // httptest.NewRequest carries no request context in these unit tests
 package api
 
 import (

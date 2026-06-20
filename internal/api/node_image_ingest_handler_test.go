@@ -1,4 +1,4 @@
-//nolint:noctx,goconst // httptest.NewRequest for brevity; JSON key literals in assertions are clearer than named constants
+//nolint:noctx // httptest.NewRequest carries no request context in these unit tests
 package api
 
 import (
@@ -37,10 +37,8 @@ func TestHandleBackfillNodeImages_OK(t *testing.T) {
 	accID := uuid.New()
 	store := newMemStore()
 
-	rr := postNodeImages(t, store, collectorCaller(&accID), accID, map[string]any{
-		"images": []map[string]string{
-			{"provider_vm_id": "i-1", "image_id": "ami-1", "image_name": "img-a"},
-		},
+	rr := postNodeImages(t, store, collectorCaller(&accID), accID, backfillNodeImagesRequest{
+		Images: []NodeImage{{ProviderVMID: "i-1", ImageID: "ami-1", ImageName: "img-node"}},
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
@@ -63,7 +61,7 @@ func TestHandleBackfillNodeImages_OK(t *testing.T) {
 func TestHandleBackfillNodeImages_WrongScope(t *testing.T) {
 	resetOSImageFake()
 	accID := uuid.New()
-	rr := postNodeImages(t, newMemStore(), readCaller(), accID, map[string]any{"images": []any{}})
+	rr := postNodeImages(t, newMemStore(), readCaller(), accID, backfillNodeImagesRequest{})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status %d; want 403", rr.Code)
 	}
@@ -73,7 +71,7 @@ func TestHandleBackfillNodeImages_WrongAccountBinding(t *testing.T) {
 	resetOSImageFake()
 	boundID := uuid.New()
 	otherID := uuid.New()
-	rr := postNodeImages(t, newMemStore(), collectorCaller(&boundID), otherID, map[string]any{"images": []any{}})
+	rr := postNodeImages(t, newMemStore(), collectorCaller(&boundID), otherID, backfillNodeImagesRequest{})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status %d; want 403", rr.Code)
 	}
