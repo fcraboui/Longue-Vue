@@ -585,6 +585,10 @@ func buildHTTPServer(
 		"POST /v1/ingest/cloud-accounts/{id}/security-groups/sweep",
 		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleSweepSecurityGroups(pg)))),
 	)
+	mux.Handle(
+		"POST /v1/ingest/cloud-accounts/{id}/node-images",
+		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleBackfillNodeImages(pg)))),
+	)
 
 	// Security groups — read endpoints (flow-matrix P1, Task 19).
 	mux.Handle("GET /v1/security-groups",

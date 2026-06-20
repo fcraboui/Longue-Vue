@@ -166,6 +166,12 @@ var (
 		Help:      "POST /v1/auth/verify calls, per outcome (valid / invalid / rate_limited).",
 	}, []string{"result"})
 
+	nodeImageBackfillTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "longue_vue",
+		Name:      "node_image_backfill_total",
+		Help:      "Node OS-image backfill requests, per result (matched / nomatch).",
+	}, []string{"result"})
+
 	ingestListenerClientCertFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "longue_vue",
 		Subsystem: "ingest_listener",
@@ -266,6 +272,7 @@ func init() {
 		virtualMachinesTotal,
 		credentialsReads,
 		ingestVerifyTotal,
+		nodeImageBackfillTotal,
 		ingestListenerClientCertFailures,
 		timeTravelWritesTotal,
 		auditEventsSkipped,
@@ -355,6 +362,12 @@ func boolLabel(b bool) string {
 // stays bounded regardless of how many tokens or callers exist.
 func IngestVerifyTotal(result string) {
 	ingestVerifyTotal.WithLabelValues(result).Inc()
+}
+
+// ObserveNodeImageBackfill records one node-image backfill request.
+// result is "matched" (≥1 node matched) or "nomatch".
+func ObserveNodeImageBackfill(result string) {
+	nodeImageBackfillTotal.WithLabelValues(result).Inc()
 }
 
 // IngestListenerClientCertFailure increments the mTLS handshake failure

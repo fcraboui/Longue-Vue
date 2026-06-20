@@ -118,8 +118,8 @@ func TestMatchAllowlist_ReturnsPattern(t *testing.T) {
 
 func TestRouteCount(t *testing.T) {
 	t.Parallel()
-	// Routes contains exactly 21 write paths (18 original + 1 vm-collector SG sweep + 2 netpol push added in ADR-0038).
-	const wantRoutes = 21
+	// Routes contains exactly 22 write paths (18 original + 1 vm-collector SG sweep + 2 netpol push added in ADR-0038 + 1 node-images).
+	const wantRoutes = 22
 	if len(Routes) != wantRoutes {
 		t.Errorf("len(Routes) = %d; want %d", len(Routes), wantRoutes)
 	}
