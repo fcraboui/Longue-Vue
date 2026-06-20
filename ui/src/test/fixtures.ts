@@ -1,7 +1,7 @@
 import type {
   ApiToken, Application, ApplicationBlock, ApplicationMember, AuditEvent,
   AuthConfig, Cluster, CloudAccount, Container, Ingress, ImpactGraph, Me,
-  Namespace, Node, NodeCondition, NodeTaint, PagedResponse, PersistentVolume,
+  Namespace, Node, NodeCondition, NodeTaint, OSImage, PagedResponse, PersistentVolume,
   PersistentVolumeClaim, Pod, Service, Session, Settings, User,
   VirtualMachine, VMApplication, Workload,
 } from '../api';
@@ -432,3 +432,10 @@ export const fixtureVirtualMachineMember: ApplicationMember = {
 export function paged<T>(items: T[]): PagedResponse<T> {
   return { items, next_cursor: null };
 }
+
+export const fixtureOSImage: OSImage = {
+  image_name: 'master-PLATFORM-k8s-1-32-k8s_1_32_snc-2025.10.13',
+  image_ids: ['ami-0abc123'],
+  vm_count: 4,
+  node_count: 12,
+};

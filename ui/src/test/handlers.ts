@@ -2,7 +2,7 @@ import { http, HttpResponse } from 'msw';
 import {
   fixtureApplication, fixtureApplicationBlock, fixtureAuditEvent,
   fixtureAuthConfig, fixtureCloudAccount, fixtureCluster, fixtureImpactGraph,
-  fixtureIngress, fixtureMe, fixtureNamespace, fixtureNode, fixturePV,
+  fixtureIngress, fixtureMe, fixtureNamespace, fixtureNode, fixtureOSImage, fixturePV,
   fixturePVC, fixturePod, fixtureService, fixtureSession, fixtureSettings,
   fixtureToken, fixtureUser, fixtureVirtualMachine, fixtureWorkload, paged,
 } from './fixtures';
@@ -105,6 +105,11 @@ export const handlers = [
   http.post('/v1/applications', () => HttpResponse.json(fixtureApplication)),
   http.patch('/v1/applications/:id', () => HttpResponse.json(fixtureApplication)),
   http.delete('/v1/applications/:id', () => new HttpResponse(null, { status: 204 })),
+
+  // --- OS images ---
+  http.get('/v1/os-images', () =>
+    HttpResponse.json({ images: [fixtureOSImage], generated_at: '2026-06-20T10:00:00Z' }),
+  ),
 
   // --- network rules ---
   http.get('/v1/workloads/:id/network-rules', () =>
