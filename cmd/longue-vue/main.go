@@ -578,12 +578,17 @@ func buildHTTPServer(
 		"GET /v1/virtual-machines/applications/distinct",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListDistinctVMApplications(pg)))),
 	)
+	mux.Handle("GET /v1/os-images", requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListOSImages(pg)))))
 	mux.Handle("GET /v1/virtual-machines/{id}", requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetVirtualMachine(pg)))))
 	mux.Handle("PATCH /v1/virtual-machines/{id}", requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandlePatchVirtualMachine(pg)))))
 	mux.Handle("DELETE /v1/virtual-machines/{id}", requireScope(auth.ScopeDelete)(cloudAuth(auditWrap(api.HandleDeleteVirtualMachine(pg)))))
 	mux.Handle(
 		"POST /v1/ingest/cloud-accounts/{id}/security-groups/sweep",
 		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleSweepSecurityGroups(pg)))),
+	)
+	mux.Handle(
+		"POST /v1/ingest/cloud-accounts/{id}/node-images",
+		requireScope(auth.ScopeVMCollector)(cloudAuth(auditWrap(api.HandleBackfillNodeImages(pg)))),
 	)
 
 	// Security groups — read endpoints (flow-matrix P1, Task 19).

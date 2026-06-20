@@ -16,16 +16,17 @@ import (
 
 // fakeStore implements CollectorStore for collector tests.
 type fakeStore struct {
-	mu               sync.Mutex
-	credsByName      map[string]apiclient.Credentials
-	registered       map[string]uuid.UUID
-	upsertedVMs      []provider.VM
-	reconcileCalls   []reconcileCall
-	statusUpdates    []statusUpdate
-	upsertConflicts  map[string]bool // provider_vm_id -> ErrAlreadyKubeNode
-	registerCallback func(name string, id uuid.UUID)
-	sweptAttachments []apiclient.SGAttachment
-	sweptSeenIDs     []string
+	mu                 sync.Mutex
+	credsByName        map[string]apiclient.Credentials
+	registered         map[string]uuid.UUID
+	upsertedVMs        []provider.VM
+	reconcileCalls     []reconcileCall
+	statusUpdates      []statusUpdate
+	upsertConflicts    map[string]bool // provider_vm_id -> ErrAlreadyKubeNode
+	registerCallback   func(name string, id uuid.UUID)
+	sweptAttachments   []apiclient.SGAttachment
+	sweptSeenIDs       []string
+	backedupNodeImages []apiclient.NodeImageMapping
 }
 
 type reconcileCall struct {
@@ -111,6 +112,13 @@ func (f *fakeStore) SweepSecurityGroups(
 	defer f.mu.Unlock()
 	f.sweptSeenIDs = append(f.sweptSeenIDs, seenIDs...)
 	f.sweptAttachments = append(f.sweptAttachments, attachments...)
+	return nil
+}
+
+func (f *fakeStore) BackfillNodeImages(_ context.Context, _ uuid.UUID, images []apiclient.NodeImageMapping) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.backedupNodeImages = append(f.backedupNodeImages, images...)
 	return nil
 }
 
@@ -368,5 +376,24 @@ func TestCollectorReportsErrorOnProviderFailure(t *testing.T) {
 	last := store.statusUpdates[len(store.statusUpdates)-1]
 	if last.status != "error" || last.lastErr == nil {
 		t.Errorf("expected error status, got %+v", last)
+	}
+}
+
+func TestBuildNodeImageMappings(t *testing.T) {
+	t.Parallel()
+	vms := []provider.VM{
+		{ProviderVMID: "i-1", ImageID: "ami-1", ImageName: "img-a"},
+		{ProviderVMID: "i-2", ImageID: "ami-2", ImageName: ""}, // dropped: no image name
+		{ProviderVMID: "i-3", ImageID: "ami-3", ImageName: "img-c"},
+	}
+	got := buildNodeImageMappings(vms)
+	if len(got) != 2 {
+		t.Fatalf("got %d mappings; want 2 (%+v)", len(got), got)
+	}
+	if got[0].ProviderVMID != "i-1" || got[0].ImageName != "img-a" {
+		t.Fatalf("unexpected mapping[0]: %+v", got[0])
+	}
+	if got[1].ProviderVMID != "i-3" {
+		t.Fatalf("unexpected mapping[1]: %+v", got[1])
 	}
 }

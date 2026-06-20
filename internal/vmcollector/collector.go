@@ -37,6 +37,7 @@ type CollectorStore interface {
 		groups []provider.SecurityGroup,
 		attachments []apiclient.SGAttachment,
 	) error
+	BackfillNodeImages(ctx context.Context, accountID uuid.UUID, images []apiclient.NodeImageMapping) error
 }
 
 // ProviderFactory builds a Provider from the credentials fetched from
@@ -186,6 +187,19 @@ func (c *Collector) runOnce(ctx context.Context) {
 		keep = append(keep, kept[i].ProviderVMID)
 	}
 
+	// Node-image backfill (ADR-0040): the pre-filter drops kube-node VMs,
+	// but the CMDB still needs their OS image. Push a per-tick batch of
+	// {provider_vm_id, image} for the dropped node VMs so the server can
+	// backfill nodes.image_*. Best-effort: never abort the tick on failure.
+	if nodeImages := buildNodeImageMappings(filter.KubeNodeVMs(vms)); len(nodeImages) > 0 {
+		if err := c.store.BackfillNodeImages(tickCtx, accountID, nodeImages); err != nil {
+			IncNodeImageBackfill("error")
+			slog.Warn("vm-collector: node-image backfill failed (non-fatal)", slog.Any("error", err))
+		} else {
+			IncNodeImageBackfill("success")
+		}
+	}
+
 	// Account-level SG sweep: delete any SGs not seen in this tick.
 	// Best-effort — never blocks the next tick on failure.
 	seenIDs := computeSweepSeenIDs(enumOK, accountSGs, seenSGs, attachments)
@@ -231,6 +245,23 @@ func buildSGAttachments(vms []provider.VM) []apiclient.SGAttachment {
 		}
 	}
 	return attachments
+}
+
+// buildNodeImageMappings turns kube-node VMs into node-image backfill
+// payloads, skipping any without a resolved image name (ADR-0040).
+func buildNodeImageMappings(vms []provider.VM) []apiclient.NodeImageMapping {
+	out := make([]apiclient.NodeImageMapping, 0, len(vms))
+	for i := range vms {
+		if vms[i].ImageName == "" {
+			continue
+		}
+		out = append(out, apiclient.NodeImageMapping{
+			ProviderVMID: vms[i].ProviderVMID,
+			ImageID:      vms[i].ImageID,
+			ImageName:    vms[i].ImageName,
+		})
+	}
+	return out
 }
 
 // computeSweepSeenIDs builds the seen-set for the account-level SG sweep.

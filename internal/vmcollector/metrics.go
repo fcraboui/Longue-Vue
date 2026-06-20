@@ -70,6 +70,13 @@ var (
 		Name:      "build_info",
 		Help:      "Set to 1 for the running longue-vue-vm-collector build; labels carry version.",
 	}, []string{"version"})
+
+	nodeImageBackfills = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "longue_vue",
+		Subsystem: "vm_collector",
+		Name:      "node_image_backfills_total",
+		Help:      "Cumulative node-image backfill pushes, per result (success / error).",
+	}, []string{"result"})
 )
 
 func init() {
@@ -83,6 +90,7 @@ func init() {
 		credentialRefreshes,
 		lastSuccessTimestamp,
 		buildInfo,
+		nodeImageBackfills,
 	)
 }
 
@@ -125,4 +133,10 @@ func IncSkippedKubernetes(n int) {
 // result is "success" or "error".
 func ObserveCredentialRefresh(result string) {
 	credentialRefreshes.WithLabelValues(result).Inc()
+}
+
+// IncNodeImageBackfill records one node-image backfill push.
+// result is "success" or "error".
+func IncNodeImageBackfill(result string) {
+	nodeImageBackfills.WithLabelValues(result).Inc()
 }

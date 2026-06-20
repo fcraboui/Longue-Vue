@@ -95,6 +95,7 @@ type Store interface {
 	AuditStore
 	CloudAccountStore
 	VirtualMachineStore
+	OSImageStore
 	HistoryStore
 	ImageStore
 	ApplicationStore
@@ -197,6 +198,15 @@ type NodeStore interface {
 	// not in keepNames. When keepNames is empty the entire set of nodes for
 	// that cluster is removed. Returns the number of rows deleted.
 	DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
+
+	// BackfillNodeImages sets image_id/image_name on every node whose
+	// provider_id contains a reported provider_vm_id (substring match).
+	// Idempotent: a node is updated only when a value actually changes.
+	// Returns matched (nodes whose provider_id matched a mapping) and
+	// updated (nodes whose image fields actually changed). Empty image
+	// strings are stored as NULL. Used by the vm-collector node-image
+	// ingest endpoint (ADR-0040).
+	BackfillNodeImages(ctx context.Context, images []NodeImage) (matched, updated int, err error)
 }
 
 // NamespaceStore covers namespace CRUD, upsert, soft-delete, and reconcile.
@@ -718,6 +728,15 @@ type VirtualMachineStore interface {
 	// whose parent VM is not itself linked. The full VM is returned so the
 	// caller can read its annotations and filter the matching entries.
 	ListVMsWithApplicationEntry(ctx context.Context, appID uuid.UUID) ([]VirtualMachine, error)
+}
+
+// OSImageStore exposes the deduplicated inventory of OS images in service
+// (cloud VMs ∪ cluster nodes), keyed by image name (ADR-0040).
+type OSImageStore interface {
+	// ListOSImages returns one row per distinct image_name referenced by a
+	// non-terminated VM or an active node, with the distinct image ids and
+	// per-source counts. Ordered by image_name.
+	ListOSImages(ctx context.Context) ([]OSImage, error)
 }
 
 // HistoryStore covers time-travel history reads (ADR-0021 Phase 3).

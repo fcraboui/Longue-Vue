@@ -329,6 +329,26 @@ type VMApplicationDistinct struct {
 	Versions []string `json:"versions"`
 }
 
+// NodeImage is one (provider VM id → OS image) mapping reported by the VM
+// collector for a Kubernetes node VM. The server matches ProviderVMID
+// against nodes.provider_id (substring) to backfill the node's OS image
+// (ADR-0040). Vendor-neutral: this is pure CMDB inventory.
+type NodeImage struct {
+	ProviderVMID string `json:"provider_vm_id"`
+	ImageID      string `json:"image_id"`
+	ImageName    string `json:"image_name"`
+}
+
+// OSImage is the aggregated OS-image inventory view returned by
+// ListOSImages (ADR-0040). Counts how many VMs and nodes share the
+// same image name, grouped across the fleet.
+type OSImage struct {
+	ImageName string   `json:"image_name"`
+	ImageIDs  []string `json:"image_ids"`
+	VMCount   int      `json:"vm_count"`
+	NodeCount int      `json:"node_count"`
+}
+
 // _ enforces secrets.Ciphertext stays imported even when no method
 // on this file references it directly — the Store interface methods
 // declared in store.go pick it up via the import side-effect.

@@ -24,6 +24,9 @@ output-options:
     # place and codegen doesn't emit a parallel struct. The generated
     # Workload.EffectiveDict field references this hand-written type.
     - EffectiveDICT
+    # ADR-0040: OSImage is hand-written in internal/api/cloud_types.go; excluding
+    # it here prevents codegen from emitting a duplicate struct.
+    - OSImage
     # Flow-matrix P2 (ADR-0036): cluster reference flow matrix. FlowReference +
     # FlowReferenceInput are hand-written (internal/api/flow_reference_types.go);
     # the ClusterFlowMatrix synthesis schemas only document the read-time JSON
@@ -86,6 +89,10 @@ output-options:
     - getSecurityGroup
     - getWorkloadNetworkRules
     - getVirtualMachineNetworkRules
+    # ADR-0040: listOSImages is a hand-written handler mounted on the public mux
+    # (os_image_handlers.go). Excluded from the strict server to avoid
+    # double registration.
+    - listOSImages
     # Flow-matrix P2 (ADR-0036): hand-written handlers on the main mux
     # (flow_matrix_handlers.go, flow_reference_handlers.go). Documented in
     # openapi.yaml so they appear in Swagger UI; excluded from the strict

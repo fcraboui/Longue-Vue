@@ -119,6 +119,9 @@ var ExcludedFields = map[string][]string{
 		"external_ip",
 		"pod_cidr",
 		"provider_id",
+		// OS image backfilled by VM collector (ADR-0040); inventory field, not watch-worthy
+		"image_id",
+		"image_name",
 		// flap-prone JSONB
 		"conditions",
 		"taints",
