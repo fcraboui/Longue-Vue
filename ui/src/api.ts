@@ -1406,6 +1406,20 @@ export function refreshImageVersions() {
   });
 }
 
+export interface OSImage {
+  image_name: string;
+  image_ids: string[];
+  vm_count: number;
+  node_count: number;
+}
+
+// listOSImages returns the deduplicated inventory of OS images in service
+// (cloud VMs ∪ cluster nodes), keyed by image name (ADR-0040). The endpoint
+// is not paginated — it returns the full set; the page sorts/filters client-side.
+export function listOSImages() {
+  return request<{ images: OSImage[]; generated_at: string }>('/v1/os-images');
+}
+
 // --- Image registries (admin) -----------------------------------------------
 
 export interface ImageRegistry {

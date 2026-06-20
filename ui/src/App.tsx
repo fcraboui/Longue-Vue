@@ -31,6 +31,7 @@ import EolDashboard from './pages/EolDashboard';
 import Flows from './pages/Flows';
 import VirtualMachines from './pages/VirtualMachines';
 import VirtualMachineDetail from './pages/VirtualMachineDetail';
+import OSImages from './pages/OSImages';
 import Applications from './pages/Applications';
 import ApplicationDetail from './pages/ApplicationDetail';
 import Images from './pages/Images';
@@ -161,6 +162,7 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
           <div className="sidebar-divider" />
           <span className="sidebar-section-label">Cloud Infrastructure</span>
           {link('/virtual-machines', 'Virtual Machines', VirtualMachineIcon)}
+          {link('/os-images', 'OS Images', ContainerImageIcon)}
           <div className="sidebar-divider" />
           <span className="sidebar-section-label">Tools</span>
           {link('/search/image', 'Search', SearchIcon)}
@@ -261,6 +263,7 @@ export default function App() {
 
       <Route path="/virtual-machines" element={authed(<VirtualMachines />)} />
       <Route path="/virtual-machines/:id" element={authed(<VirtualMachineDetail />)} />
+      <Route path="/os-images" element={authed(<OSImages />)} />
 
       {/* ADR-0029: applications sit alongside Kubernetes + VMs as a
           first-class business-systems view. Routes added now so
