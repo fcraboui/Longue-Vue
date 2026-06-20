@@ -586,6 +586,51 @@ func (p *PG) UpsertNode(ctx context.Context, in api.NodeCreate) (api.Node, api.U
 	return n, classifyOutcome(inserted, businessChanged), nil
 }
 
+// BackfillNodeImages sets image_id/image_name on every node whose
+// provider_id contains a reported provider_vm_id (ADR-0040). Empty strings
+// are normalised to NULL. Idempotent via IS DISTINCT FROM. Runs the batch
+// in one transaction; per-mapping the CTE counts matched vs actually-updated.
+func (p *PG) BackfillNodeImages(ctx context.Context, images []api.NodeImage) (matched, updated int, err error) {
+	if len(images) == 0 {
+		return 0, 0, nil
+	}
+	const q = `
+		WITH m AS (
+		  SELECT id, image_id, image_name FROM nodes
+		   WHERE provider_id LIKE '%' || $1 || '%' ESCAPE '\'
+		), upd AS (
+		  UPDATE nodes n
+		     SET image_id = NULLIF($2, ''), image_name = NULLIF($3, ''), updated_at = now()
+		    FROM m
+		   WHERE n.id = m.id
+		     AND (m.image_id   IS DISTINCT FROM NULLIF($2, '')
+		       OR m.image_name IS DISTINCT FROM NULLIF($3, ''))
+		  RETURNING n.id
+		)
+		SELECT (SELECT count(*) FROM m), (SELECT count(*) FROM upd)`
+	err = p.withTx(ctx, "backfill node images", func(tx pgx.Tx) error {
+		for i := range images {
+			img := images[i]
+			if img.ProviderVMID == "" || !validProviderVMID(img.ProviderVMID) {
+				continue // defense in depth; skip malformed ids
+			}
+			var mCount, uCount int
+			if e := tx.QueryRow(ctx, q,
+				escapeLike(img.ProviderVMID), img.ImageID, img.ImageName,
+			).Scan(&mCount, &uCount); e != nil {
+				return fmt.Errorf("backfill node image %q: %w", img.ProviderVMID, e)
+			}
+			matched += mCount
+			updated += uCount
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	return matched, updated, nil
+}
+
 func scanNode(row pgx.Row) (api.Node, error) {
 	var (
 		n                       api.Node

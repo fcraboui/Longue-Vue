@@ -197,6 +197,15 @@ type NodeStore interface {
 	// not in keepNames. When keepNames is empty the entire set of nodes for
 	// that cluster is removed. Returns the number of rows deleted.
 	DeleteNodesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
+
+	// BackfillNodeImages sets image_id/image_name on every node whose
+	// provider_id contains a reported provider_vm_id (substring match).
+	// Idempotent: a node is updated only when a value actually changes.
+	// Returns matched (nodes whose provider_id matched a mapping) and
+	// updated (nodes whose image fields actually changed). Empty image
+	// strings are stored as NULL. Used by the vm-collector node-image
+	// ingest endpoint (ADR-0040).
+	BackfillNodeImages(ctx context.Context, images []NodeImage) (matched, updated int, err error)
 }
 
 // NamespaceStore covers namespace CRUD, upsert, soft-delete, and reconcile.
