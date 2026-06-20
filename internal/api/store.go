@@ -95,6 +95,7 @@ type Store interface {
 	AuditStore
 	CloudAccountStore
 	VirtualMachineStore
+	OSImageStore
 	HistoryStore
 	ImageStore
 	ApplicationStore
@@ -727,6 +728,15 @@ type VirtualMachineStore interface {
 	// whose parent VM is not itself linked. The full VM is returned so the
 	// caller can read its annotations and filter the matching entries.
 	ListVMsWithApplicationEntry(ctx context.Context, appID uuid.UUID) ([]VirtualMachine, error)
+}
+
+// OSImageStore exposes the deduplicated inventory of OS images in service
+// (cloud VMs ∪ cluster nodes), keyed by image name (ADR-0040).
+type OSImageStore interface {
+	// ListOSImages returns one row per distinct image_name referenced by a
+	// non-terminated VM or an active node, with the distinct image ids and
+	// per-source counts. Ordered by image_name.
+	ListOSImages(ctx context.Context) ([]OSImage, error)
 }
 
 // HistoryStore covers time-travel history reads (ADR-0021 Phase 3).

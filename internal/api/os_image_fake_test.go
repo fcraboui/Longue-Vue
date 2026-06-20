@@ -31,3 +31,9 @@ func (m *memStore) BackfillNodeImages(_ context.Context, images []NodeImage) (in
 	osImageFake.backfilled = append(osImageFake.backfilled, images...)
 	return osImageFake.matched, osImageFake.updated, nil
 }
+
+func (m *memStore) ListOSImages(_ context.Context) ([]OSImage, error) {
+	osImageFake.mu.Lock()
+	defer osImageFake.mu.Unlock()
+	return osImageFake.images, nil
+}
