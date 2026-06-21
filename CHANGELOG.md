@@ -6,6 +6,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.8.0](https://github.com/sthalbert/Longue-Vue/compare/v1.7.0...v1.8.0) (2026-06-20)
+
+
+### Features
+
+* **ui:** add listOSImages api client + os-image test fixture (ADR-0040) ([1c1f8e8](https://github.com/sthalbert/Longue-Vue/commit/1c1f8e893fffb4f932a3bea697fe1f4df6a11f92))
+* **ui:** add OS images inventory page (ADR-0040) ([b1afac1](https://github.com/sthalbert/Longue-Vue/commit/b1afac1142e0c878f06752aa4edac67dc3489382))
+* **ui:** add OS Images inventory page (ADR-0040) ([813e68a](https://github.com/sthalbert/Longue-Vue/commit/813e68ad5cb8cdefe640d84c01cc78472bee97bd))
+* **ui:** add OS Images nav entry and route (ADR-0040) ([38c9149](https://github.com/sthalbert/Longue-Vue/commit/38c9149da24580a70e959b65352a8223ced8b4d2))
+
 ## [1.7.0](https://github.com/sthalbert/Longue-Vue/compare/v1.6.2...v1.7.0) (2026-06-20)
 
 
