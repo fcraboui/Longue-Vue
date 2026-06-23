@@ -97,7 +97,7 @@ The VM list page (`/ui/virtual-machines`) exposes a toolbar of filters. Filters 
 | Cloud account | Exact UUID | Admin only — viewers and editors see a UUID prefix fallback. |
 | Region | Exact | Populated from accounts and ingested VMs. |
 | Role | Exact | Client-side split on comma-joined role strings. |
-| Power state | Exact | One of `running`, `stopped`, `stopped`, `pending`, `terminated`, `error`, `unknown`. |
+| Power state | Exact | One of `pending`, `running`, `stopping`, `stopped`, `terminating`, `terminated`. |
 | Application | Exact (normalized product) | Populated from `GET /v1/virtual-machines/applications/distinct`. |
 | App version | Exact | Enabled only after an Application is selected; shows versions for that product. Selecting a different product resets the version filter. |
 

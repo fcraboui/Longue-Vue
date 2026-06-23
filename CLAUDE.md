@@ -67,7 +67,7 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 ## Listeners (ADR-0016, ADR-0017)
 
 - Public `:8080` — humans + machines. TLS via `LONGUE_VUE_PUBLIC_LISTEN_TLS_{CERT,KEY}` (mtime hot reload).
-- Ingest mTLS-only `:8443` (opt-in via `LONGUE_VUE_INGEST_LISTEN_ADDR`) — exposes the 18 push-collector writes + `POST /v1/auth/verify`. Allowlist in `internal/ingestgw/allowlist.go` must stay in sync with `internal/api/ingest_mux.go`.
+- Ingest mTLS-only `:8443` (opt-in via `LONGUE_VUE_INGEST_LISTEN_ADDR`) — exposes the 22 push-collector writes + `POST /v1/auth/verify`. Allowlist in `internal/ingestgw/allowlist.go` must stay in sync with `internal/api/ingest_mux.go`.
 - `LONGUE_VUE_TRUSTED_PROXIES` (CIDRs, empty by default) gates trust in `X-Forwarded-For` / `-Proto`. Used by rate-limiter, audit IP, secure-cookie decision, HSTS — see `internal/httputil/`.
 - `LONGUE_VUE_REQUIRE_HTTPS=true` startup guard: refuse boot unless native TLS is on **or** trusted-proxy + `SecureAlways` cookie posture is set.
 - `/healthz`, `/readyz`, `/metrics` are unauthenticated.

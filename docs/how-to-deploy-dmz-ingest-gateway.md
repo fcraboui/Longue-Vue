@@ -20,7 +20,7 @@ longue-vue-collector  ──HTTPS──► Envoy/WAF ──► longue-vue-ingest
                                            verify cache)
 ```
 
-`longue-vue-ingest-gw` is a stateless reverse proxy. It enforces a hardcoded 18-route write-only allowlist, verifies every bearer token against longue-vue via a `POST /v1/auth/verify` call (with a 60 s in-memory cache), and forwards approved requests to longue-vue's mTLS-only ingest listener. longue-vue's existing public listener (`:8080`) is unchanged and never directly reachable from the DMZ.
+`longue-vue-ingest-gw` is a stateless reverse proxy. It enforces a hardcoded 22-route write-only allowlist, verifies every bearer token against longue-vue via a `POST /v1/auth/verify` call (with a 60 s in-memory cache), and forwards approved requests to longue-vue's mTLS-only ingest listener. longue-vue's existing public listener (`:8080`) is unchanged and never directly reachable from the DMZ.
 
 ## Prerequisites
 
@@ -457,7 +457,7 @@ kubectl -n <DMZ_NAMESPACE> describe certificate longue-vue-ingest-gw-mtls
 
 ### Read or admin endpoints return 404 from the gateway
 
-Expected. The gateway enforces a strict 18-route write-only allowlist. `GET /v1/clusters`, admin endpoints, audit endpoints, and any other read paths are all `404` at the gateway by design — they are only reachable on longue-vue's `:8080` listener from inside the trusted zone.
+Expected. The gateway enforces a strict 22-route write-only allowlist. `GET /v1/clusters`, admin endpoints, audit endpoints, and any other read paths are all `404` at the gateway by design — they are only reachable on longue-vue's `:8080` listener from inside the trusted zone.
 
 ---
 
@@ -466,7 +466,7 @@ Expected. The gateway enforces a strict 18-route write-only allowlist. `GET /v1/
 - The gateway is **not** an auth authority. longue-vue re-validates every forwarded bearer token with full argon2id on every request. The gateway's 60 s verify cache exists only to reduce verify-call cardinality — it does not change longue-vue's authorization decisions.
 - Token revocation propagates within 60 s worst case. For immediate revocation, delete the token in longue-vue's admin UI; longue-vue will return 401 on the next forwarded request and the gateway will evict the cache entry.
 - The gateway never buffers or spools requests. If longue-vue is unreachable, collectors receive 503 and retry with backoff. No inventory data is lost — the next successful collector tick reconciles the gap.
-- The ingest listener on longue-vue registers only 19 routes (the 18 allowed writes + `POST /v1/auth/verify`). Any other path returns 404 on this listener even if the route exists on `:8080`.
+- The ingest listener on longue-vue registers only 21 routes (the 20 allowed writes + `POST /v1/auth/verify`). Any other path returns 404 on this listener even if the route exists on `:8080`.
 
 ## References
 
