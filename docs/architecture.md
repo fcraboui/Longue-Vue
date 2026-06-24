@@ -57,7 +57,7 @@ The main daemon, built from `cmd/longue-vue/main.go`. It combines several subsys
 - **PostgreSQL store** -- cursor-paginated CRUD with merge-patch updates. Implemented in `internal/store/`.
 - **EOL enricher** -- background goroutine that annotates clusters, nodes, and platform VMs with lifecycle status from [endoflife.date](https://endoflife.date). Implemented in `internal/eol/`. Toggled at runtime via the `eol_enabled` setting. See [ADR-0012](adr/adr-0012-eol-enrichment-via-endoflife-date.md) and [EOL Enrichment](eol-enrichment.md).
 - **Impact analysis** -- on-the-fly FK traversal producing a dependency graph for any CMDB entity. Serves `GET /v1/impact/{entity_type}/{id}`. Implemented in `internal/impact/`. See [ADR-0013](adr/adr-0013-impact-analysis-graph.md) and [Impact Analysis](impact-analysis.md).
-- **MCP server** -- Model Context Protocol server exposing 22 read-only CMDB tools for AI agents, over SSE or stdio transports. Implemented in `internal/mcp/`. Toggled at runtime via the `mcp_enabled` setting. See [ADR-0014](adr/adr-0014-mcp-server.md) and [MCP Server](mcp-server.md).
+- **MCP server** -- Model Context Protocol server exposing 28 read-only CMDB tools for AI agents, over SSE or stdio transports. Implemented in `internal/mcp/`. Toggled at runtime via the `mcp_enabled` setting. See [ADR-0014](adr/adr-0014-mcp-server.md) and [MCP Server](mcp-server.md).
 - **Ingest listener** -- optional second mTLS-only listener (`:8443`) for push-mode collectors transiting through a DMZ ingest gateway. Registered via `api.NewIngestMux`. Disabled unless `LONGUE_VUE_INGEST_LISTEN_ADDR` is set. See [ADR-0016](adr/adr-0016-dmz-ingest-gateway.md).
 - **Metrics** -- Prometheus counters and gauges at `/metrics`. Implemented in `internal/metrics/`.
 - **Embedded UI** -- the React SPA built into the binary via `//go:embed` and served at `/ui/*`.
@@ -81,7 +81,7 @@ A standalone push-mode binary (`cmd/longue-vue-vm-collector/`) that catalogues n
 
 ### longue-vue-ingest-gw
 
-A stateless DMZ reverse-proxy binary (`cmd/longue-vue-ingest-gw/`) deployed between remote collectors and longue-vue's trusted zone. It enforces a hardcoded 18-route write-only allowlist, verifies bearer PATs against longue-vue via `POST /v1/auth/verify` (with an LRU cache), and forwards approved requests over mTLS to longue-vue's ingest listener. No database, no replay buffer. See [ADR-0016](adr/adr-0016-dmz-ingest-gateway.md) and [How to deploy the DMZ ingest gateway](how-to-deploy-dmz-ingest-gateway.md).
+A stateless DMZ reverse-proxy binary (`cmd/longue-vue-ingest-gw/`) deployed between remote collectors and longue-vue's trusted zone. It enforces a hardcoded 22-route write-only allowlist, verifies bearer PATs against longue-vue via `POST /v1/auth/verify` (with an LRU cache), and forwards approved requests over mTLS to longue-vue's ingest listener. No database, no replay buffer. See [ADR-0016](adr/adr-0016-dmz-ingest-gateway.md) and [How to deploy the DMZ ingest gateway](how-to-deploy-dmz-ingest-gateway.md).
 
 ## Pull collector
 

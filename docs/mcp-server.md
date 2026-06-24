@@ -52,7 +52,7 @@ For the **stdio** transport (local agent on the same machine), set `LONGUE_VUE_M
 
 ## Available tools
 
-All tools are read-only. List tools return up to 1000 items (silently truncated beyond that). There are 25 tools total.
+All tools are read-only. List tools return up to 1000 items (silently truncated beyond that). There are 28 tools total.
 
 ### Kubernetes inventory
 
