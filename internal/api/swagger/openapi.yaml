@@ -6381,15 +6381,16 @@ components:
           type: string
         is_behind:
           type: boolean
-        eol_status:
+        freshness:
           type: string
-          enum: [supported, approaching_eol, eol]
+          enum: [up_to_date, outdated, far_behind]
           description: >-
-            Traffic-light freshness derived from the minor-version distance
-            between the deployed tag and latest_tag (ADR-0032): 'supported'
-            (same minor or only patch behind), 'approaching_eol' (one minor
-            behind), 'eol' (two or more minors behind, or any major gap).
-            Absent when the image is not enriched.
+            Version-distance freshness of the deployed tag vs the latest
+            registry tag for the same variant: 'up_to_date' (same minor or
+            only patch behind), 'outdated' (exactly one minor behind),
+            'far_behind' (two or more minors behind, or any major gap).
+            Absent when the image is not enriched. This is NOT an EOL/support
+            signal — endoflife.date status lives only on clusters/nodes/VMs.
         last_checked_at:
           type: string
           format: date-time

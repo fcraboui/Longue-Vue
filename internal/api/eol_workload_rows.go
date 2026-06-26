@@ -11,7 +11,7 @@ import (
 // workloadToEolaggInput adapts a Workload (with its containers_versions
 // enrichment already populated) into the eolagg.WorkloadInput shape used by
 // the global EOL dashboard (ADR-0032). Only enriched containers (a non-nil
-// eol_status) contribute an image; the deployed tag is parsed here to derive
+// freshness) contribute an image; the deployed tag is parsed here to derive
 // the repo and the major.minor cycle.
 func workloadToEolaggInput(w *Workload) eolagg.WorkloadInput {
 	in := eolagg.WorkloadInput{Name: w.Name}
@@ -30,7 +30,7 @@ func workloadToEolaggInput(w *Workload) eolagg.WorkloadInput {
 
 // enrichedWorkloadImages turns a workload's containers + their enrichment into
 // the flat eolagg.WorkloadImage slice. Only containers with a populated
-// eol_status and a parseable image reference contribute a row.
+// freshness and a parseable image reference contribute a row.
 func enrichedWorkloadImages(containers ContainerList, versions map[string]ContainerVersionInfo) []eolagg.WorkloadImage {
 	var images []eolagg.WorkloadImage
 	for _, c := range containers {
@@ -40,7 +40,7 @@ func enrichedWorkloadImages(containers ContainerList, versions map[string]Contai
 			continue
 		}
 		cv, ok := versions[name]
-		if !ok || cv.EolStatus == nil {
+		if !ok || cv.Freshness == nil {
 			continue
 		}
 		if image, ok := containerToWorkloadImage(img, cv); ok {
@@ -65,7 +65,7 @@ func containerToWorkloadImage(img string, cv ContainerVersionInfo) (eolagg.Workl
 	image := eolagg.WorkloadImage{
 		Repo:      ref.imageRepo,
 		Cycle:     strings.TrimPrefix(semver.MajorMinor(cur.version.raw), "v"),
-		EOLStatus: string(*cv.EolStatus),
+		EOLStatus: string(*cv.Freshness),
 	}
 	if cv.LatestTag != nil {
 		image.LatestTag = *cv.LatestTag

@@ -71,8 +71,8 @@ func TestListWorkloads_IncludeContainersVersions(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected 'web' container enriched, got %v", *cv)
 	}
-	if web.EolStatus == nil || string(*web.EolStatus) != string(ContainerVersionInfoEolStatusEol) {
-		t.Errorf("web.EolStatus: want eol (1.25 vs 1.27 = 2 minors), got %v", web.EolStatus)
+	if web.Freshness == nil || *web.Freshness != ContainerVersionInfoFreshnessFarBehind {
+		t.Errorf("web.Freshness: want far_behind (1.25 vs 1.27 = 2 minors), got %v", web.Freshness)
 	}
 
 	// Without include: containers_versions stays nil (cheap list).

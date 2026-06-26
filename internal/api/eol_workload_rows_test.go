@@ -32,7 +32,7 @@ func TestWorkloadToEolaggInput(t *testing.T) {
 	cluster := "prod-eu"
 	id := mustUUID(t, "11111111-1111-1111-1111-111111111111")
 	latest := tagNginxLatest
-	status := ContainerVersionInfoEolStatus("eol")
+	freshness := ContainerVersionInfoFreshnessFarBehind
 	checked := mustTime(t, "2026-05-15T00:00:00Z")
 
 	w := Workload{
@@ -44,7 +44,7 @@ func TestWorkloadToEolaggInput(t *testing.T) {
 			{"name": "side", "image": "busybox:latest"}, // not enriched -> skipped
 		},
 		ContainersVersions: &map[string]ContainerVersionInfo{
-			"web": {LatestTag: &latest, EolStatus: &status, LastCheckedAt: &checked},
+			"web": {LatestTag: &latest, Freshness: &freshness, LastCheckedAt: &checked},
 		},
 	}
 
@@ -56,7 +56,7 @@ func TestWorkloadToEolaggInput(t *testing.T) {
 		t.Fatalf("want 1 enriched image, got %d", len(in.Images))
 	}
 	img := in.Images[0]
-	if img.Repo != "docker.io/library/nginx" || img.Cycle != "1.25" || img.LatestTag != "1.27.4" || img.EOLStatus != "eol" {
+	if img.Repo != "docker.io/library/nginx" || img.Cycle != "1.25" || img.LatestTag != "1.27.4" || img.EOLStatus != "far_behind" {
 		t.Errorf("image = %+v", img)
 	}
 }
@@ -79,7 +79,7 @@ func TestWorkloadToEolaggInput_NoEnrichedContainers(t *testing.T) {
 
 func TestWorkloadToEolaggInput_NilLatestTag(t *testing.T) {
 	id := mustUUID(t, "33333333-3333-3333-3333-333333333333")
-	status := ContainerVersionInfoEolStatus("approaching_eol")
+	freshness := ContainerVersionInfoFreshnessOutdated
 	w := Workload{
 		Id:   &id,
 		Name: "api",
@@ -87,7 +87,7 @@ func TestWorkloadToEolaggInput_NilLatestTag(t *testing.T) {
 			{"name": "web", "image": "nginx:1.25.3"},
 		},
 		ContainersVersions: &map[string]ContainerVersionInfo{
-			"web": {EolStatus: &status}, // LatestTag nil
+			"web": {Freshness: &freshness}, // LatestTag nil
 		},
 	}
 	in := workloadToEolaggInput(&w)
@@ -97,7 +97,7 @@ func TestWorkloadToEolaggInput_NilLatestTag(t *testing.T) {
 	if in.Images[0].LatestTag != "" {
 		t.Errorf("want empty LatestTag, got %q", in.Images[0].LatestTag)
 	}
-	if in.Images[0].EOLStatus != "approaching_eol" {
-		t.Errorf("want approaching_eol, got %q", in.Images[0].EOLStatus)
+	if in.Images[0].EOLStatus != "outdated" {
+		t.Errorf("want outdated, got %q", in.Images[0].EOLStatus)
 	}
 }

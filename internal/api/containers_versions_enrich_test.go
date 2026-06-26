@@ -7,29 +7,22 @@ import (
 	"time"
 )
 
-func TestMinorDistanceStatus(t *testing.T) {
-	mk := func(s string) containerVersion {
-		pt, err := parseContainerTag(s)
-		if err != nil {
-			t.Fatalf("parse %q: %v", s, err)
-		}
-		return pt.version
-	}
+func TestFreshnessOf(t *testing.T) {
 	cases := []struct {
-		cur, latest, want string
+		cur, latest string
+		want        ContainerVersionInfoFreshness
 	}{
-		{"1.25.3", "1.25.9", "supported"},       // patch only
-		{"1.25.3", "1.25.3", "supported"},       // equal
-		{"1.27.0", "1.25.9", "supported"},       // deployed ahead
-		{"1.25.3", "1.26.0", "approaching_eol"}, // one minor
-		{"1.25.3", "1.27.0", "eol"},             // two minors
-		{"1.25.3", "2.0.0", "eol"},              // major gap
-		{"1.25.3", "3.4.0", "eol"},              // big major gap
+		{"v1.25.3", "v1.25.3", ContainerVersionInfoFreshnessUpToDate}, // equal
+		{"v1.25.3", "v1.25.9", ContainerVersionInfoFreshnessUpToDate}, // patch only
+		{"v1.25.3", "v1.26.0", ContainerVersionInfoFreshnessOutdated}, // one minor
+		{"v1.25.3", "v1.27.4", ContainerVersionInfoFreshnessFarBehind}, // two minors
+		{"v1.25.3", "v2.0.0", ContainerVersionInfoFreshnessFarBehind},  // major gap
+		{"v1.26.0", "v1.25.0", ContainerVersionInfoFreshnessUpToDate},  // ahead → up_to_date
 	}
 	for _, c := range cases {
-		got := string(minorDistanceStatus(mk(c.cur), mk(c.latest)))
+		got := FreshnessOf(containerVersion{raw: c.cur}, containerVersion{raw: c.latest})
 		if got != c.want {
-			t.Errorf("minorDistanceStatus(%s,%s)=%q want %q", c.cur, c.latest, got, c.want)
+			t.Errorf("FreshnessOf(%s,%s)=%q want %q", c.cur, c.latest, got, c.want)
 		}
 	}
 }
@@ -71,8 +64,8 @@ func TestEnrichContainersVersions(t *testing.T) {
 	if v.IsBehind == nil || !*v.IsBehind {
 		t.Errorf("web.IsBehind: want true (1.25.3 < 1.27.4)")
 	}
-	if v.EolStatus == nil || string(*v.EolStatus) != string(ContainerVersionInfoEolStatusEol) {
-		t.Errorf("web.EolStatus: want eol (1.25→1.27 = 2 minors), got %v", v.EolStatus)
+	if v.Freshness == nil || *v.Freshness != ContainerVersionInfoFreshnessFarBehind {
+		t.Errorf("web.Freshness: want far_behind (1.25→1.27 = 2 minors), got %v", v.Freshness)
 	}
 
 	// "side" has a :latest tag — ParseImageRef rejects it (ErrSkip).
@@ -116,8 +109,8 @@ func TestEnrichContainersVersions_NotBehind(t *testing.T) {
 	if v.IsBehind == nil || *v.IsBehind {
 		t.Errorf("web.IsBehind: want false (1.25.3 == 1.25.3)")
 	}
-	if v.EolStatus == nil || string(*v.EolStatus) != "supported" {
-		t.Errorf("web.EolStatus: want supported (equal), got %v", v.EolStatus)
+	if v.Freshness == nil || *v.Freshness != ContainerVersionInfoFreshnessUpToDate {
+		t.Errorf("web.Freshness: want up_to_date (equal), got %v", v.Freshness)
 	}
 }
 
