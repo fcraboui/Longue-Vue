@@ -248,8 +248,8 @@ func TestPageContainerFreshness(t *testing.T) {
 
 // TestBuildContainerFreshness drives the store-walking fleet builder against
 // the in-memory memStore, verifying each returned Workload carries its
-// ContainersVersions populated (which plain ListWorkloads does NOT do — the
-// builder must enrich per-workload, as collectWorkloadEolRows does).
+// ContainersVersions populated (which plain ListWorkloads does NOT do —
+// the builder must enrich per-workload via EnrichContainersVersions).
 func TestBuildContainerFreshness(t *testing.T) {
 	ms := newMemStore()
 	ctx := context.Background()

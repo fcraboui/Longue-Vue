@@ -190,8 +190,7 @@ const buildContainerFreshnessPageSize = 200
 // returns each Workload with its Containers and ContainersVersions populated.
 //
 // Plain ListWorkloads does NOT fill ContainersVersions — that enrichment is
-// opt-in (ADR-0022/0032). This builder reproduces the EOL path's mechanism
-// (collectWorkloadEolRows in extract_handlers.go): for each workload it calls
+// opt-in (ADR-0022/0041). For each workload it calls
 // EnrichContainersVersions(ctx, s, containers) and attaches the result. The
 // Store interface satisfies EnrichContainersVersions' containerVersionLookup
 // surface (GetImageOriginResolution + GetImageVersionsByRepo).

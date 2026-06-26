@@ -89,12 +89,18 @@ Request`.
 
 ### Per-Application EOL card
 
-The per-Application EOL card retains VM member rows (sourced from
-`longue-vue.io/eol.*` endoflife annotations) and cluster/node rows where the
-application owns those assets. A new `signal` field on each row distinguishes
-the data source: `"signal": "eol_annotation"` for endoflife.date-backed rows,
-`"signal": "freshness"` is **not** emitted here — freshness signal belongs on
-the Container Freshness page, not the EOL card.
+The per-Application EOL card surfaces two kinds of member rows, distinguished
+by a `signal` field:
+
+- VM member rows sourced from `longue-vue.io/eol.*` endoflife annotations carry
+  `"signal": "eol"`. Their `eol_status` drives the `statusRank` precedence used
+  to compute the application's worst-case EOL posture.
+- Workload image member rows carry `"signal": "freshness"` and a `freshness`
+  value (`up_to_date` / `outdated` / `far_behind` / `unknown`). These rows are
+  excluded from EOL `statusRank` precedence — they appear for visibility but do
+  not inflate the application's EOL rating.
+
+The OpenAPI enum for `signal` is `[eol, freshness]`.
 
 ## Consequences
 

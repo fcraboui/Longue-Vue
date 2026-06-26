@@ -130,7 +130,7 @@ Cluster carries `owner` / `criticality` / `notes` / `runbook_url` / `annotations
 
 `internal/eol/` — periodic endoflife.date queries; writes `longue-vue.io/eol.<product>` annotations on clusters, nodes, and (per VM `applications` entry) VMs. Stale keys reaped per tick. `latest_available` field shows newest published version. Centralised on the server — push collectors are unaffected.
 
-**Per-application aggregation (ADR-0029, amended ADR-0041).** `GET /v1/applications/{id}/eol` (and the detail-page EOL card) call `internal/eolagg` to roll up EOL signal across a linked Application's members at read time (no new enricher pass). VM member rows come from `longue-vue.io/eol.*` endoflife annotations (eol / approaching / supported / unknown). Each row carries a `sources` list of contributing assets and a `signal` field (`eol_annotation`). Workload image rows are **not** included — image freshness is a separate signal on the Container Freshness page.
+**Per-application aggregation (ADR-0029, amended ADR-0041).** `GET /v1/applications/{id}/eol` (and the detail-page EOL card) call `internal/eolagg` to roll up EOL signal across a linked Application's members at read time (no new enricher pass). VM member rows come from `longue-vue.io/eol.*` endoflife annotations (eol / approaching / supported / unknown). Each row carries a `sources` list of contributing assets and a `signal` field (`eol` for endoflife.date-backed VM rows, `freshness` for workload image rows). Workload image rows surface as `signal="freshness"` and are excluded from EOL `statusRank` precedence.
 
 ## Extracts (search & EOL)
 
