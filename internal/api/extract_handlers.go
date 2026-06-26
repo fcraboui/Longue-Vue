@@ -102,7 +102,8 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			return
 		}
 		entityType := q.Get("entity_type")
-		if entityType != "" && entityType != "cluster" && entityType != "node" && entityType != "vm" {
+		if entityType != "" && entityType != string(EolExtractRowEntityTypeCluster) &&
+			entityType != string(EolExtractRowEntityTypeNode) && entityType != string(EolExtractRowEntityTypeVm) {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "eol", "format": format, "outcome": "denied",
 			})
