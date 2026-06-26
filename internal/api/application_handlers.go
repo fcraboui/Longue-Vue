@@ -537,6 +537,9 @@ func toWorkloadMember(w *Workload) eolagg.WorkloadMember {
 			if cv.LastCheckedAt != nil {
 				ec.LastCheckedAt = cv.LastCheckedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
 			}
+			if cv.Freshness != nil {
+				ec.Freshness = string(*cv.Freshness)
+			}
 			m.ContainersVersions[container] = ec
 		}
 	}

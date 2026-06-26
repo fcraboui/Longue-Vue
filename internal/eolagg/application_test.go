@@ -35,6 +35,8 @@ func (f *fakeAppStore) ApplicationVMAppEntryMembers(_ context.Context, _ uuid.UU
 const (
 	productVault   = "vault"
 	statusOutdated = "outdated"
+	signalFreshness = "freshness"
+	signalEOL       = "eol"
 )
 
 // eolAnn is a convenience to build a marshalled longue-vue.io/eol.* value.
@@ -77,8 +79,17 @@ func TestAggregateForApplication_SingleWorkload(t *testing.T) {
 	if r.LatestAvailable != "1.18.2" {
 		t.Errorf("latest_available = %q want 1.18.2", r.LatestAvailable)
 	}
-	if r.EOLStatus != statusOutdated {
-		t.Errorf("eol_status = %q want outdated (is_behind)", r.EOLStatus)
+	// Workload-image rows carry signal=freshness; eol_status stays "unknown".
+	if r.Signal != signalFreshness {
+		t.Errorf("signal = %q want freshness", r.Signal)
+	}
+	if r.EOLStatus != "unknown" {
+		t.Errorf("eol_status = %q want unknown (freshness row, not eol)", r.EOLStatus)
+	}
+	// IsBehind=true → Freshness should be "outdated" (legacy fallback when
+	// Freshness field is absent from ContainerVersion).
+	if r.Freshness != "unknown" {
+		t.Errorf("freshness = %q want unknown (no Freshness field set in CV)", r.Freshness)
 	}
 	if len(r.Sources) != 1 || r.Sources[0].Kind != "workload" || r.Sources[0].ID != "w1" {
 		t.Errorf("sources = %#v want one workload source", r.Sources)
@@ -135,8 +146,11 @@ func TestAggregateForApplication_MergesWorkloadAndVM(t *testing.T) {
 	if r.Product != productVault {
 		t.Errorf("product = %q want vault", r.Product)
 	}
-	// The VM's real annotation (eol) should win over the workload's
-	// sentinel "unknown".
+	// The VM's real annotation (eol) should win the signal discriminator.
+	if r.Signal != signalEOL {
+		t.Errorf("signal = %q want eol (VM annotation present)", r.Signal)
+	}
+	// The VM's real annotation (eol) should win the eol_status.
 	if r.EOLStatus != "eol" {
 		t.Errorf("eol_status = %q want eol", r.EOLStatus)
 	}
@@ -208,6 +222,87 @@ func TestAggregateForApplication_MalformedAndMissingAnnotationsSkipped(t *testin
 	}
 	if len(rows) != 0 {
 		t.Fatalf("expected zero rows, got %d: %#v", len(rows), rows)
+	}
+}
+
+func TestAggregateForApplication_WorkloadFarBehind_FreshnessSignal(t *testing.T) {
+	// A workload container that is two minors behind latest yields a row
+	// with signal=freshness, freshness=far_behind, and does NOT raise
+	// eol_status to any EOL value.
+	store := &fakeAppStore{
+		workloads: []WorkloadMember{{
+			ID:   "w1",
+			Name: "kube-prod/api",
+			ContainersVersions: map[string]ContainerVersion{
+				"api": {LatestTag: "3.5.0", IsBehind: true, Freshness: "far_behind", LastCheckedAt: "2026-06-01T00:00:00Z"},
+			},
+		}},
+	}
+	rows, err := AggregateForApplication(context.Background(), store, uuid.New())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d: %#v", len(rows), rows)
+	}
+	r := rows[0]
+	if r.Signal != signalFreshness {
+		t.Errorf("signal = %q want freshness (workload-only row)", r.Signal)
+	}
+	if r.Freshness != "far_behind" {
+		t.Errorf("freshness = %q want far_behind", r.Freshness)
+	}
+	// eol_status must NOT be set to an EOL value; freshness rows always
+	// carry eol_status=unknown.
+	if r.EOLStatus != "unknown" {
+		t.Errorf("eol_status = %q want unknown (freshness signal must not pollute EOL status)", r.EOLStatus)
+	}
+	if r.Cycle != "" {
+		t.Errorf("cycle = %q want empty (freshness rows have no cycle)", r.Cycle)
+	}
+	if len(r.Sources) != 1 || r.Sources[0].Kind != "workload" {
+		t.Errorf("sources = %#v want one workload source", r.Sources)
+	}
+}
+
+func TestAggregateForApplication_WorkloadFreshnessDoesNotElevateEOLStatus(t *testing.T) {
+	// Even with far_behind freshness on the workload side and a "supported"
+	// VM annotation, the EOL row remains signal=eol with status=supported
+	// (the freshness bucket must not override the endoflife.date verdict
+	// upward).
+	store := &fakeAppStore{
+		workloads: []WorkloadMember{{
+			ID:   "w1",
+			Name: "kube-prod/redis",
+			ContainersVersions: map[string]ContainerVersion{
+				"redis": {LatestTag: "7.4.0", IsBehind: true, Freshness: "far_behind"},
+			},
+		}},
+		vms: []VMMember{{
+			ID:   "v1",
+			Name: "cache-vm",
+			Annotations: map[string]string{
+				eolPrefix + "redis": eolAnn("redis", "7.0", "supported", "7.4.0", "2026-06-01T00:00:00Z"),
+			},
+		}},
+	}
+	rows, err := AggregateForApplication(context.Background(), store, uuid.New())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 merged row, got %d: %#v", len(rows), rows)
+	}
+	r := rows[0]
+	if r.Signal != signalEOL {
+		t.Errorf("signal = %q want eol (VM annotation present)", r.Signal)
+	}
+	if r.EOLStatus != "supported" {
+		t.Errorf("eol_status = %q want supported", r.EOLStatus)
+	}
+	// Freshness is preserved from the workload contribution.
+	if r.Freshness != "far_behind" {
+		t.Errorf("freshness = %q want far_behind (workload contribution preserved)", r.Freshness)
 	}
 }
 

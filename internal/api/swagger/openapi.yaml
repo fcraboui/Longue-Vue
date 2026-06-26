@@ -7004,30 +7004,53 @@ components:
             $ref: '#/components/schemas/ApplicationEOLRow'
     ApplicationEOLRow:
       description: |
-        One product rolled up across every member that exposes EOL signal
-        for it. `sources` names the contributing assets (workloads via
+        One product rolled up across every member that exposes a lifecycle
+        signal for it. `sources` names the contributing assets (workloads via
         image-versions enrichment, linked VMs, and matching VM-application
         entries).
+
+        `signal` discriminates the nature of the row:
+        - `eol` — at least one VM endoflife.date annotation contributed; `eol_status`
+          and (when available) `cycle` are meaningful.
+        - `freshness` — workload image-versions enrichment only; `freshness` is
+          meaningful, `eol_status` is always `unknown`, `cycle` is absent.
       type: object
-      required: [product, eol_status, sources]
+      required: [product, eol_status, signal, sources]
       properties:
         product:
           type: string
           description: Normalised product key (kebab-case) or container name.
           example: vault
+        signal:
+          type: string
+          description: |
+            Discriminator for the lifecycle signal kind.
+            `eol` rows come from VM endoflife.date annotations;
+            `freshness` rows come from workload image-versions enrichment.
+          enum: [eol, freshness]
+          example: eol
         cycle:
           type: string
-          description: Release cycle from endoflife.date, when known.
+          description: Release cycle from endoflife.date, when known (eol rows only).
           example: '1.13'
         eol_status:
           type: string
           description: |
             Lifecycle status. `eol` / `approaching_eol` / `supported`
-            come from the endoflife.date enricher on VMs; `outdated`
-            (image behind latest) / `unknown` come from workload
-            image-versions enrichment.
-          enum: [eol, approaching_eol, supported, outdated, unknown]
+            come from the endoflife.date enricher on VMs (signal=eol rows).
+            Always `unknown` on signal=freshness rows.
+          enum: [eol, approaching_eol, supported, unknown]
           example: eol
+        freshness:
+          type: string
+          description: |
+            Version-distance freshness bucket for workload container images
+            (signal=freshness rows). `up_to_date` (same minor or patch-only
+            delta), `outdated` (one minor behind), `far_behind` (two or more
+            minors behind or any major gap), `unknown` (not enriched).
+            Absent on signal=eol rows.
+          enum: [up_to_date, outdated, far_behind, unknown]
+          example: far_behind
         latest_available:
           type: string
           description: Newest published version / tag known for the product.
@@ -7038,7 +7061,7 @@ components:
           example: '2026-05-15T00:00:00Z'
         sources:
           type: array
-          description: Member assets contributing this product's EOL signal.
+          description: Member assets contributing this product's lifecycle signal.
           items:
             $ref: '#/components/schemas/ApplicationEOLSource'
     ApplicationEOLSource:
