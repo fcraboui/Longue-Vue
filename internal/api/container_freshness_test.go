@@ -1,7 +1,10 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
+	"time"
 )
 
 // freshFixture builds a minimal Workload with enriched containers for testing.
@@ -59,13 +62,15 @@ func TestSummarizeAndFilterContainerFreshness(t *testing.T) {
 		),
 	}
 
-	t.Run("no filter returns all enriched containers", func(t *testing.T) {
+	t.Run("no filter returns a row per deployed container (incl. unknown)", func(t *testing.T) {
+		// 4 containers total: web (far_behind), sidecar (unknown — no tag),
+		// main (outdated), redis (up_to_date).
 		rows, summary := SummarizeAndFilterContainerFreshness(workloads, ContainerFreshnessFilter{})
-		if len(rows) != 3 {
-			t.Fatalf("want 3 rows, got %d", len(rows))
+		if len(rows) != 4 {
+			t.Fatalf("want 4 rows, got %d", len(rows))
 		}
-		if summary.Total != 3 {
-			t.Errorf("summary.Total want 3, got %d", summary.Total)
+		if summary.Total != 4 {
+			t.Errorf("summary.Total want 4, got %d", summary.Total)
 		}
 		if summary.FarBehind != 1 {
 			t.Errorf("summary.FarBehind want 1, got %d", summary.FarBehind)
@@ -75,6 +80,84 @@ func TestSummarizeAndFilterContainerFreshness(t *testing.T) {
 		}
 		if summary.UpToDate != 1 {
 			t.Errorf("summary.UpToDate want 1, got %d", summary.UpToDate)
+		}
+		if summary.Unknown != 1 {
+			t.Errorf("summary.Unknown want 1, got %d", summary.Unknown)
+		}
+	})
+
+	t.Run("unenriched container yields an unknown-tier row", func(t *testing.T) {
+		f := ContainerVersionInfoFreshnessUnknown
+		rows, _ := SummarizeAndFilterContainerFreshness(workloads, ContainerFreshnessFilter{Freshness: &f})
+		if len(rows) != 1 {
+			t.Fatalf("want 1 unknown row, got %d", len(rows))
+		}
+		if rows[0].ContainerName != "sidecar" {
+			t.Errorf("want container sidecar, got %q", rows[0].ContainerName)
+		}
+		if rows[0].Freshness != ContainerVersionInfoFreshnessUnknown {
+			t.Errorf("want unknown freshness, got %q", rows[0].Freshness)
+		}
+		if rows[0].LatestTag != "" {
+			t.Errorf("want empty LatestTag for unknown, got %q", rows[0].LatestTag)
+		}
+	})
+
+	t.Run("container with empty image is excluded", func(t *testing.T) {
+		ws := []Workload{freshFixture("x", "c", "n",
+			ContainerList{{"name": "noimage", "image": ""}},
+			map[string]ContainerVersionInfo{},
+		)}
+		rows, summary := SummarizeAndFilterContainerFreshness(ws, ContainerFreshnessFilter{})
+		if len(rows) != 0 {
+			t.Fatalf("want 0 rows for empty image, got %d", len(rows))
+		}
+		if summary.Total != 0 {
+			t.Errorf("summary.Total want 0, got %d", summary.Total)
+		}
+	})
+
+	t.Run("filter by image repo (case-insensitive substring)", func(t *testing.T) {
+		repo := "REDIS"
+		rows, _ := SummarizeAndFilterContainerFreshness(workloads, ContainerFreshnessFilter{ImageRepo: &repo})
+		if len(rows) != 2 {
+			t.Fatalf("want 2 redis rows, got %d", len(rows))
+		}
+		for _, r := range rows {
+			if r.ContainerName != "main" && r.ContainerName != "redis" {
+				t.Errorf("unexpected container %q", r.ContainerName)
+			}
+		}
+	})
+
+	t.Run("filter by namespace (exact)", func(t *testing.T) {
+		ns := "jobs"
+		rows, _ := SummarizeAndFilterContainerFreshness(workloads, ContainerFreshnessFilter{Namespace: &ns})
+		if len(rows) != 1 {
+			t.Fatalf("want 1 jobs row, got %d", len(rows))
+		}
+		if rows[0].WorkloadName != "worker" {
+			t.Errorf("want workload worker, got %q", rows[0].WorkloadName)
+		}
+	})
+
+	t.Run("filter by kind (exact)", func(t *testing.T) {
+		// All fixtures default to StatefulSet kind (zero WorkloadKind is "").
+		// Build a fixture set with explicit kinds.
+		dep := workloads[0]
+		dep.Kind = Deployment
+		sts := workloads[1]
+		sts.Kind = StatefulSet
+		ws := []Workload{dep, sts}
+		k := "Deployment"
+		rows, _ := SummarizeAndFilterContainerFreshness(ws, ContainerFreshnessFilter{Kind: &k})
+		for _, r := range rows {
+			if r.WorkloadName != "api" {
+				t.Errorf("kind filter leaked: %q", r.WorkloadName)
+			}
+		}
+		if len(rows) == 0 {
+			t.Error("want at least 1 Deployment row")
 		}
 	})
 
@@ -99,22 +182,12 @@ func TestSummarizeAndFilterContainerFreshness(t *testing.T) {
 		}
 	})
 
-	t.Run("unenriched containers are excluded", func(t *testing.T) {
-		// busybox:latest has no enrichment -> should not appear
-		rows, _ := SummarizeAndFilterContainerFreshness(workloads, ContainerFreshnessFilter{})
-		for _, r := range rows {
-			if r.ContainerName == "sidecar" {
-				t.Errorf("sidecar (unenriched) should not appear in rows")
-			}
-		}
-	})
-
 	t.Run("summary counts all tiers regardless of filter", func(t *testing.T) {
 		// Even when filtering by freshness, summary reflects the full workload set.
 		f := ContainerVersionInfoFreshnessFarBehind
 		_, summary := SummarizeAndFilterContainerFreshness(workloads, ContainerFreshnessFilter{Freshness: &f})
-		if summary.Total != 3 {
-			t.Errorf("summary.Total should be 3 (unfiltered), got %d", summary.Total)
+		if summary.Total != 4 {
+			t.Errorf("summary.Total should be 4 (unfiltered), got %d", summary.Total)
 		}
 	})
 }
@@ -171,4 +244,67 @@ func TestPageContainerFreshness(t *testing.T) {
 			t.Errorf("want empty cursor, got %q", next)
 		}
 	})
+}
+
+// TestBuildContainerFreshness drives the store-walking fleet builder against
+// the in-memory memStore, verifying each returned Workload carries its
+// ContainersVersions populated (which plain ListWorkloads does NOT do — the
+// builder must enrich per-workload, as collectWorkloadEolRows does).
+func TestBuildContainerFreshness(t *testing.T) {
+	ms := newMemStore()
+	ctx := context.Background()
+
+	cluster, _, err := ms.EnsureCluster(ctx, ClusterCreate{Name: "fleet"})
+	if err != nil {
+		t.Fatalf("seed cluster: %v", err)
+	}
+	ns, err := ms.CreateNamespace(ctx, NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	if err != nil {
+		t.Fatalf("seed namespace: %v", err)
+	}
+	containers := ContainerList{{"name": "web", "image": "nginx:1.25.3"}}
+	if _, err := ms.CreateWorkload(ctx, WorkloadCreate{
+		NamespaceId: *ns.Id,
+		Kind:        Deployment,
+		Name:        "web",
+		Containers:  &containers,
+	}); err != nil {
+		t.Fatalf("seed workload: %v", err)
+	}
+	latest := tagNginxLatest
+	if _, err := ms.UpsertImageVersion(ctx, ImageVersionUpsert{
+		ImageRepo:     "docker.io/library/nginx",
+		Variant:       "",
+		Registry:      "docker.io",
+		LatestTag:     &latest,
+		Annotation:    json.RawMessage(`{}`),
+		Source:        "registry",
+		LastCheckedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("upsert image version: %v", err)
+	}
+
+	ws, err := BuildContainerFreshness(ctx, ms)
+	if err != nil {
+		t.Fatalf("BuildContainerFreshness: %v", err)
+	}
+	if len(ws) != 1 {
+		t.Fatalf("want 1 workload, got %d", len(ws))
+	}
+	if ws[0].ContainersVersions == nil {
+		t.Fatal("ContainersVersions not populated by builder")
+	}
+	web, ok := (*ws[0].ContainersVersions)["web"]
+	if !ok {
+		t.Fatalf("expected 'web' enriched, got %v", *ws[0].ContainersVersions)
+	}
+	if web.Freshness == nil || *web.Freshness != ContainerVersionInfoFreshnessFarBehind {
+		t.Errorf("web.Freshness: want far_behind, got %v", web.Freshness)
+	}
+
+	// End-to-end: rows flatten with the enriched freshness.
+	rows, summary := SummarizeAndFilterContainerFreshness(ws, ContainerFreshnessFilter{})
+	if len(rows) != 1 || summary.FarBehind != 1 {
+		t.Errorf("rows=%d summary=%+v", len(rows), summary)
+	}
 }

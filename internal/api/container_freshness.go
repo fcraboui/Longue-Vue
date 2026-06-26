@@ -1,12 +1,24 @@
 package api
 
 import (
+	"context"
 	"strconv"
+	"strings"
 )
 
-// ContainerFreshnessRow is one enriched-container entry, flattened from a
-// Workload for tabular display or export. Only containers that have a
-// populated Freshness field contribute a row.
+// ContainerVersionInfoFreshnessUnknown is a package-local freshness tier for
+// deployed containers that carry no version enrichment (non-parseable tag,
+// registry outside the allowlist, or not yet processed). It is intentionally
+// NOT a member of the generated OpenAPI enum (which is
+// [up_to_date, outdated, far_behind] — see ContainerVersionInfo.Freshness):
+// the wire contract only ever omits the field for unenriched containers. This
+// constant exists purely so the fleet-level freshness view can render a row
+// for every deployed container rather than silently dropping unenriched ones.
+const ContainerVersionInfoFreshnessUnknown ContainerVersionInfoFreshness = "unknown"
+
+// ContainerFreshnessRow is one deployed-container entry, flattened from a
+// Workload for tabular display or export. Every container with a non-empty
+// name and image produces a row; unenriched containers carry Freshness=unknown.
 type ContainerFreshnessRow struct {
 	WorkloadName  string
 	ClusterName   string
@@ -18,26 +30,39 @@ type ContainerFreshnessRow struct {
 }
 
 // ContainerFreshnessSummary holds per-tier counts across the full (unfiltered)
-// set of enriched containers for a given workload list.
+// set of deployed containers for a given workload list.
 type ContainerFreshnessSummary struct {
 	Total     int
 	UpToDate  int
 	Outdated  int
 	FarBehind int
+	Unknown   int
 }
 
 // ContainerFreshnessFilter controls which rows SummarizeAndFilterContainerFreshness
-// returns. Zero value applies no filtering.
+// returns. Zero value applies no filtering. Summary counts always reflect the
+// full unfiltered set regardless of which filters are set.
 type ContainerFreshnessFilter struct {
-	// Freshness, when non-nil, restricts rows to that freshness tier.
+	// Freshness, when non-nil, restricts rows to that freshness tier
+	// (including the package-local "unknown" tier).
 	Freshness *ContainerVersionInfoFreshness
-	// Cluster, when non-empty, restricts rows to the named cluster.
+	// Cluster, when non-empty, restricts rows to the named cluster (exact).
 	Cluster string
+	// ImageRepo, when non-nil, restricts rows to containers whose image
+	// string case-insensitively contains the value (substring).
+	ImageRepo *string
+	// Namespace, when non-nil, restricts rows to the named namespace (exact).
+	Namespace *string
+	// Kind, when non-nil, restricts rows to workloads of that Kubernetes
+	// controller kind (exact match against Workload.Kind).
+	Kind *string
 }
 
-// SummarizeAndFilterContainerFreshness flattens the enriched containers from
+// SummarizeAndFilterContainerFreshness flattens the deployed containers from
 // every Workload in ws into a []ContainerFreshnessRow and a
-// ContainerFreshnessSummary. Summary counts reflect the full unfiltered set so
+// ContainerFreshnessSummary. Every container with a non-empty name and image
+// produces a row; containers lacking version enrichment are reported with the
+// "unknown" freshness tier. Summary counts reflect the full unfiltered set so
 // the caller can display total coverage regardless of which filter is active.
 func SummarizeAndFilterContainerFreshness(ws []Workload, f ContainerFreshnessFilter) ([]ContainerFreshnessRow, ContainerFreshnessSummary) {
 	var rows []ContainerFreshnessRow
@@ -45,10 +70,13 @@ func SummarizeAndFilterContainerFreshness(ws []Workload, f ContainerFreshnessFil
 
 	for i := range ws {
 		w := &ws[i]
-		if w.Containers == nil || w.ContainersVersions == nil {
+		if w.Containers == nil {
 			continue
 		}
-		versions := map[string]ContainerVersionInfo(*w.ContainersVersions)
+		var versions map[string]ContainerVersionInfo
+		if w.ContainersVersions != nil {
+			versions = map[string]ContainerVersionInfo(*w.ContainersVersions)
+		}
 		clusterName := ""
 		if w.ClusterName != nil {
 			clusterName = *w.ClusterName
@@ -57,47 +85,62 @@ func SummarizeAndFilterContainerFreshness(ws []Workload, f ContainerFreshnessFil
 		if w.NamespaceName != nil {
 			namespaceName = *w.NamespaceName
 		}
+		kind := string(w.Kind)
 
 		for _, c := range *w.Containers {
 			name, _ := c["name"].(string)
 			img, _ := c["image"].(string)
-			if name == "" {
+			if name == "" || img == "" {
 				continue
 			}
-			cv, ok := versions[name]
-			if !ok || cv.Freshness == nil {
-				continue
+
+			// Resolve freshness tier: enriched value, or "unknown".
+			freshness := ContainerVersionInfoFreshnessUnknown
+			latestTag := ""
+			if cv, ok := versions[name]; ok && cv.Freshness != nil {
+				freshness = *cv.Freshness
+				if cv.LatestTag != nil {
+					latestTag = *cv.LatestTag
+				}
 			}
-			// Tally into summary (always, before filter).
+
+			// Tally into summary (always, before any filter).
 			summary.Total++
-			switch *cv.Freshness {
+			switch freshness {
 			case ContainerVersionInfoFreshnessUpToDate:
 				summary.UpToDate++
 			case ContainerVersionInfoFreshnessOutdated:
 				summary.Outdated++
 			case ContainerVersionInfoFreshnessFarBehind:
 				summary.FarBehind++
+			default:
+				summary.Unknown++
 			}
 
-			// Apply filter.
-			if f.Freshness != nil && *cv.Freshness != *f.Freshness {
+			// Apply filters.
+			if f.Freshness != nil && freshness != *f.Freshness {
 				continue
 			}
 			if f.Cluster != "" && clusterName != f.Cluster {
 				continue
 			}
-
-			latestTag := ""
-			if cv.LatestTag != nil {
-				latestTag = *cv.LatestTag
+			if f.ImageRepo != nil && !strings.Contains(strings.ToLower(img), strings.ToLower(*f.ImageRepo)) {
+				continue
 			}
+			if f.Namespace != nil && namespaceName != *f.Namespace {
+				continue
+			}
+			if f.Kind != nil && kind != *f.Kind {
+				continue
+			}
+
 			rows = append(rows, ContainerFreshnessRow{
 				WorkloadName:  w.Name,
 				ClusterName:   clusterName,
 				NamespaceName: namespaceName,
 				ContainerName: name,
 				Image:         img,
-				Freshness:     *cv.Freshness,
+				Freshness:     freshness,
 				LatestTag:     latestTag,
 			})
 		}
@@ -125,4 +168,43 @@ func PageContainerFreshness(rows []ContainerFreshnessRow, limit int, cursor stri
 		return rows[start:], ""
 	}
 	return rows[start:end], strconv.Itoa(end)
+}
+
+// buildContainerFreshnessPageSize is the per-page limit BuildContainerFreshness
+// uses when walking ListWorkloads. Matches the extract path's page size.
+const buildContainerFreshnessPageSize = 200
+
+// BuildContainerFreshness pages the full workload fleet via ListWorkloads and
+// returns each Workload with its Containers and ContainersVersions populated.
+//
+// Plain ListWorkloads does NOT fill ContainersVersions — that enrichment is
+// opt-in (ADR-0022/0032). This builder reproduces the EOL path's mechanism
+// (collectWorkloadEolRows in extract_handlers.go): for each workload it calls
+// EnrichContainersVersions(ctx, s, containers) and attaches the result. The
+// Store interface satisfies EnrichContainersVersions' containerVersionLookup
+// surface (GetImageOriginResolution + GetImageVersionsByRepo).
+func BuildContainerFreshness(ctx context.Context, s Store) ([]Workload, error) {
+	var out []Workload
+	cursor := ""
+	for {
+		items, next, err := s.ListWorkloads(ctx, WorkloadListFilter{}, buildContainerFreshnessPageSize, cursor)
+		if err != nil {
+			return nil, err
+		}
+		for i := range items {
+			var containers []map[string]any
+			if items[i].Containers != nil {
+				containers = *items[i].Containers
+			}
+			if cv := EnrichContainersVersions(ctx, s, containers); cv != nil {
+				m := map[string]ContainerVersionInfo(cv)
+				items[i].ContainersVersions = &m
+			}
+			out = append(out, items[i])
+		}
+		if next == "" {
+			return out, nil
+		}
+		cursor = next
+	}
 }
