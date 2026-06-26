@@ -51,6 +51,7 @@ output-options:
     # they appear in Swagger UI, but excluded from the strict-server
     # interface to avoid double registration on the same mux pattern.
     - eolExtract
+    - containerFreshnessExtract
     - searchExtract
     - searchExtractZip
     # Flow-matrix R3 (ADR-0037): hand-written audited extracts mounted on the

@@ -3757,6 +3757,50 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /v1/container-freshness/extract:
+    get:
+      tags: [container-freshness]
+      summary: Download container freshness rows as CSV or JSON
+      description: |
+        Flattens every deployed container across all workloads into one row per
+        container, including cluster, namespace, workload, image, latest tag,
+        and freshness tier. Audited for SNC chapter-8 evidence.
+      operationId: containerFreshnessExtract
+      security:
+        - BearerAuth: [read]
+        - SessionCookie: [read]
+      parameters:
+        - in: query
+          name: format
+          required: true
+          schema:
+            type: string
+            enum: [csv, json]
+      responses:
+        '200':
+          description: Extract body.
+          headers:
+            X-Longue-Vue-Truncated:
+              schema:
+                type: string
+                enum: ['true']
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ContainerFreshness'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
 components:
 
   securitySchemes:
