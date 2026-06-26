@@ -27,6 +27,11 @@ output-options:
     # ADR-0040: OSImage is hand-written in internal/api/cloud_types.go; excluding
     # it here prevents codegen from emitting a duplicate struct.
     - OSImage
+    # Container freshness (ADR-0041): ContainerFreshness + ContainerFreshnessSummary
+    # are hand-written in internal/api/container_freshness.go; excluding here
+    # prevents codegen from emitting duplicate structs.
+    - ContainerFreshness
+    - ContainerFreshnessSummary
     # Flow-matrix P2 (ADR-0036): cluster reference flow matrix. FlowReference +
     # FlowReferenceInput are hand-written (internal/api/flow_reference_types.go);
     # the ClusterFlowMatrix synthesis schemas only document the read-time JSON
@@ -93,6 +98,11 @@ output-options:
     # (os_image_handlers.go). Excluded from the strict server to avoid
     # double registration.
     - listOSImages
+    # Container freshness: listContainerFreshness is a hand-written handler
+    # mounted directly on the main mux (container_freshness.go). Documented in
+    # openapi.yaml so it appears in Swagger UI; excluded from the strict server
+    # interface to avoid double registration.
+    - listContainerFreshness
     # Flow-matrix P2 (ADR-0036): hand-written handlers on the main mux
     # (flow_matrix_handlers.go, flow_reference_handlers.go). Documented in
     # openapi.yaml so they appear in Swagger UI; excluded from the strict
