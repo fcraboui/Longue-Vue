@@ -1623,7 +1623,7 @@ export function listContainerFreshness(
     limit?: number;
   } = {},
 ) {
-  return request<PagedResponse<ContainerFreshnessRow>>(
+  return request<PagedResponse<ContainerFreshnessRow> & { summary: ContainerFreshnessSummary }>(
     '/v1/container-freshness' +
       query({
         image: filter.image,
