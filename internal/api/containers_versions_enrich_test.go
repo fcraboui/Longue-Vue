@@ -15,6 +15,9 @@ const (
 	testNginxRepo      = "docker.io/library/nginx"
 	testDockerRegistry = "docker.io"
 	testNginxImage     = "nginx:1.25.3"
+	testGhcrRegistry   = "ghcr.io"
+	testNginxVersion   = "v1.25.3"
+	testSourceRegistry = "registry"
 )
 
 func TestFreshnessOf(t *testing.T) {
@@ -22,12 +25,12 @@ func TestFreshnessOf(t *testing.T) {
 		cur, latest string
 		want        ContainerVersionInfoFreshness
 	}{
-		{"v1.25.3", "v1.25.3", ContainerVersionInfoFreshnessUpToDate},  // equal
-		{"v1.25.3", "v1.25.9", ContainerVersionInfoFreshnessUpToDate},  // patch only
-		{"v1.25.3", "v1.26.0", ContainerVersionInfoFreshnessOutdated},  // one minor
-		{"v1.25.3", "v1.27.4", ContainerVersionInfoFreshnessFarBehind}, // two minors
-		{"v1.25.3", "v2.0.0", ContainerVersionInfoFreshnessFarBehind},  // major gap
-		{"v1.26.0", "v1.25.0", ContainerVersionInfoFreshnessUpToDate},  // ahead → up_to_date
+		{testNginxVersion, testNginxVersion, ContainerVersionInfoFreshnessUpToDate}, // equal
+		{testNginxVersion, "v1.25.9", ContainerVersionInfoFreshnessUpToDate},        // patch only
+		{testNginxVersion, "v1.26.0", ContainerVersionInfoFreshnessOutdated},        // one minor
+		{testNginxVersion, "v1.27.4", ContainerVersionInfoFreshnessFarBehind},       // two minors
+		{testNginxVersion, "v2.0.0", ContainerVersionInfoFreshnessFarBehind},        // major gap
+		{"v1.26.0", "v1.25.0", ContainerVersionInfoFreshnessUpToDate},               // ahead → up_to_date
 	}
 	for _, c := range cases {
 		got := FreshnessOf(containerVersion{raw: c.cur}, containerVersion{raw: c.latest})
@@ -45,12 +48,12 @@ func TestEnrichContainersVersions(t *testing.T) {
 	ctx := context.Background()
 	latest := tagNginxLatest
 	_, err := s.UpsertImageVersion(ctx, ImageVersionUpsert{
-		ImageRepo:     "docker.io/library/nginx",
+		ImageRepo:     testNginxRepo,
 		Variant:       "",
-		Registry:      "docker.io",
+		Registry:      testDockerRegistry,
 		LatestTag:     &latest,
 		Annotation:    json.RawMessage(`{}`),
-		Source:        "registry",
+		Source:        testSourceRegistry,
 		LastCheckedAt: time.Now().UTC(),
 	})
 	if err != nil {
@@ -58,13 +61,13 @@ func TestEnrichContainersVersions(t *testing.T) {
 	}
 
 	out := EnrichContainersVersions(ctx, s, []map[string]any{
-		{"name": "web", "image": "nginx:1.25.3"},
-		{"name": "side", "image": "nginx:latest"},         // skipped: no usable semver tag
-		{"name": "alt", "image": "harbor.corp/foo:1.0.0"}, // not in image_versions
+		{testFieldName: netpolTestWebLabelValue, csvColImage: testNginxImage},
+		{testFieldName: "side", csvColImage: "nginx:latest"},         // skipped: no usable semver tag
+		{testFieldName: "alt", csvColImage: "harbor.corp/foo:1.0.0"}, // not in image_versions
 	})
 
 	// "web" should be enriched: nginx:1.25.3 → latest 1.27.4 (is_behind=true)
-	v, ok := out["web"]
+	v, ok := out[netpolTestWebLabelValue]
 	if !ok {
 		t.Fatalf("expected 'web' to be enriched, got map: %v", out)
 	}
@@ -96,12 +99,12 @@ func TestEnrichContainersVersions_NotBehind(t *testing.T) {
 	ctx := context.Background()
 	latest := "1.25.3"
 	_, err := s.UpsertImageVersion(ctx, ImageVersionUpsert{
-		ImageRepo:     "docker.io/library/nginx",
+		ImageRepo:     testNginxRepo,
 		Variant:       "",
-		Registry:      "docker.io",
+		Registry:      testDockerRegistry,
 		LatestTag:     &latest,
 		Annotation:    json.RawMessage(`{}`),
-		Source:        "registry",
+		Source:        testSourceRegistry,
 		LastCheckedAt: time.Now().UTC(),
 	})
 	if err != nil {
@@ -109,10 +112,10 @@ func TestEnrichContainersVersions_NotBehind(t *testing.T) {
 	}
 
 	out := EnrichContainersVersions(ctx, s, []map[string]any{
-		{"name": "web", "image": "nginx:1.25.3"},
+		{testFieldName: netpolTestWebLabelValue, csvColImage: testNginxImage},
 	})
 
-	v, ok := out["web"]
+	v, ok := out[netpolTestWebLabelValue]
 	if !ok {
 		t.Fatalf("expected 'web' to be enriched")
 	}
@@ -133,12 +136,12 @@ func TestEnrichContainersVersions_Variant(t *testing.T) {
 	// Seed only the alpine variant.
 	latestAlpine := "1.27.4-alpine"
 	_, err := s.UpsertImageVersion(ctx, ImageVersionUpsert{
-		ImageRepo:     "docker.io/library/nginx",
+		ImageRepo:     testNginxRepo,
 		Variant:       "alpine",
-		Registry:      "docker.io",
+		Registry:      testDockerRegistry,
 		LatestTag:     &latestAlpine,
 		Annotation:    json.RawMessage(`{}`),
-		Source:        "registry",
+		Source:        testSourceRegistry,
 		LastCheckedAt: time.Now().UTC(),
 	})
 	if err != nil {
@@ -147,11 +150,11 @@ func TestEnrichContainersVersions_Variant(t *testing.T) {
 
 	// nginx:1.25.3 (no variant) should NOT match the alpine variant row.
 	out := EnrichContainersVersions(ctx, s, []map[string]any{
-		{"name": "web", "image": "nginx:1.25.3"},
-		{"name": "alpine", "image": "nginx:1.25.3-alpine"},
+		{testFieldName: netpolTestWebLabelValue, csvColImage: testNginxImage},
+		{testFieldName: "alpine", csvColImage: "nginx:1.25.3-alpine"},
 	})
 
-	if _, ok := out["web"]; ok {
+	if _, ok := out[netpolTestWebLabelValue]; ok {
 		t.Errorf("'web' (no-variant image) should not match alpine variant row")
 	}
 
@@ -181,9 +184,9 @@ func TestEnrichContainersVersions_MissingNameOrImage(t *testing.T) {
 	s := newMemStore()
 	ctx := context.Background()
 	out := EnrichContainersVersions(ctx, s, []map[string]any{
-		{"name": ""},
-		{"image": "nginx:1.25.3"},
-		{"name": "web"},
+		{testFieldName: ""},
+		{csvColImage: testNginxImage},
+		{testFieldName: netpolTestWebLabelValue},
 	})
 	if out != nil {
 		t.Errorf("containers with missing name/image should return nil, got %v", out)
@@ -201,10 +204,10 @@ func TestEnrichContainersVersions_ResolvedOrigin(t *testing.T) {
 	if _, err := s.UpsertImageVersion(ctx, ImageVersionUpsert{
 		ImageRepo:     "ghcr.io/sthalbert/longue-vue-collector",
 		Variant:       "",
-		Registry:      "ghcr.io",
+		Registry:      testGhcrRegistry,
 		LatestTag:     &latest,
 		Annotation:    json.RawMessage(`{}`),
-		Source:        "registry",
+		Source:        testSourceRegistry,
 		LastCheckedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("seed image_versions: %v", err)
@@ -224,7 +227,7 @@ func TestEnrichContainersVersions_ResolvedOrigin(t *testing.T) {
 	}
 
 	out := EnrichContainersVersions(ctx, s, []map[string]any{
-		{"name": "lv", "image": "local.example.com/containers/sthalbert/longue-vue-collector:0.26"},
+		{testFieldName: "lv", csvColImage: "local.example.com/containers/sthalbert/longue-vue-collector:0.26"},
 	})
 
 	v, ok := out["lv"]
@@ -263,7 +266,7 @@ func TestEnrichContainersVersions_UnresolvedOrigin(t *testing.T) {
 	}
 
 	out := EnrichContainersVersions(ctx, s, []map[string]any{
-		{"name": "lv", "image": "local.example.com/x/y:1.0.0"},
+		{testFieldName: "lv", csvColImage: "local.example.com/x/y:1.0.0"},
 	})
 	v, ok := out["lv"]
 	if !ok {

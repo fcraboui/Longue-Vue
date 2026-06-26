@@ -231,8 +231,8 @@ func HandleListApplications(store Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"items":       items,
-			"next_cursor": next,
+			respKeyItems:      items,
+			respKeyNextCursor: next,
 		})
 	}
 }
@@ -381,8 +381,8 @@ func HandleListApplicationMembers(store Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"items":       members,
-			"next_cursor": next,
+			respKeyItems:      members,
+			respKeyNextCursor: next,
 		})
 	}
 }
@@ -417,7 +417,7 @@ func HandleGetApplicationEOL(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"items": rows})
+		writeJSON(w, http.StatusOK, map[string]any{respKeyItems: rows})
 	}
 }
 
