@@ -227,11 +227,17 @@ Environment variables on the longue-vue Deployment. See [Configuration Reference
 - **Duplicate normalized products on one VM** (e.g. two `applications[]` entries that both normalize to `nginx`): last write wins in list order. Only one annotation will exist after the tick.
 - **Direct PATCH on `annotations`:** clients may merge their own keys, but any `longue-vue.io/eol.*` key written by a client will be overwritten or reaped on the next tick.
 
+## Container freshness (not EOL)
+
+Registry tag-distance freshness for container images is a separate signal and is **not** part of the EOL API. The `entity_type=workload` filter value on `GET /v1/eol/extract` returns `400 Bad Request`. Use `GET /v1/container-freshness` for workload image freshness data; see [image-versions.md](image-versions.md#container-freshness-signal) for details. ADR-0041 documents the split.
+
 ## See also
 
 - [EOL Enrichment](eol-enrichment.md) — concepts, UI, operational guidance.
 - [VM Applications](vm-applications.md) — declaring the `applications[]` field that drives VM enrichment.
+- [Container Freshness](image-versions.md#container-freshness-signal) — registry tag-distance signal for workload images (`GET /v1/container-freshness`).
 - [API Reference](api-reference.md) — auth, pagination, error format.
 - [MCP Server](mcp-server.md) — agent integration.
 - [ADR-0012](adr/adr-0012-eol-enrichment-via-endoflife-date.md) — design rationale.
 - [ADR-0019](adr/adr-0019-vm-applications-and-eol-and-search.md) — VM applications and per-VM EOL.
+- [ADR-0041](adr/adr-0041-container-image-freshness-vs-eol.md) — freshness/EOL split.

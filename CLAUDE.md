@@ -105,7 +105,7 @@ no dependency on the React SPA bundle.
 
 Single-row `settings` table (`id=1 CHECK`). Runtime toggles `eol_enabled`, `mcp_enabled` (admin scope, hand-written `GET`/`PATCH /v1/admin/settings`, not in OpenAPI). Env vars seed the initial value.
 
-**Image versions enricher (`image_versions_enabled`, ADR-0022):** queries public registries for the latest tag of each container image used in workloads/pods. Default interval 24h (`LONGUE_VUE_IMAGE_VERSIONS_INTERVAL`). Allowlist of registries is in `image_versions_registries` (DB-backed, admin CRUD). Reuses the `eol.Annotation` shape so a richer V3 (EOL/CVE) is purely additive.
+**Image versions enricher (`image_versions_enabled`, ADR-0022):** queries public registries for the latest tag of each container image used in workloads/pods. Default interval 24h (`LONGUE_VUE_IMAGE_VERSIONS_INTERVAL`). Allowlist of registries is in `image_versions_registries` (DB-backed, admin CRUD). Computes a `freshness` field (`up_to_date` / `outdated` / `far_behind` / `unknown`) based on minor/major version distance — see ADR-0041. This replaces the former `eol_status` field on `ContainerVersionInfo`. Freshness is surfaced via `GET /v1/container-freshness` and the Container Freshness UI page (`/container-freshness`); it does **not** appear in the EOL dashboard or extract.
 
 **Manual origin mappings (ADR-0030, table `image_origin_mappings`).**
 Operator-curated `image_name → public_registry` dictionary consulted by
@@ -130,11 +130,11 @@ Cluster carries `owner` / `criticality` / `notes` / `runbook_url` / `annotations
 
 `internal/eol/` — periodic endoflife.date queries; writes `longue-vue.io/eol.<product>` annotations on clusters, nodes, and (per VM `applications` entry) VMs. Stale keys reaped per tick. `latest_available` field shows newest published version. Centralised on the server — push collectors are unaffected.
 
-**Per-application aggregation (ADR-0029).** `GET /v1/applications/{id}/eol` (and the detail-page EOL card) call `internal/eolagg` to roll up EOL signal across a linked Application's members at read time (no new enricher pass). Workload member rows come from per-container image-versions enrichment (ADR-0022 — workloads carry no EOL annotations), with `eol_status="outdated"` when an image is behind latest; VM member rows come from `longue-vue.io/eol.*` endoflife annotations (eol / approaching / supported / unknown). Each row carries a `sources` list of contributing assets.
+**Per-application aggregation (ADR-0029, amended ADR-0041).** `GET /v1/applications/{id}/eol` (and the detail-page EOL card) call `internal/eolagg` to roll up EOL signal across a linked Application's members at read time (no new enricher pass). VM member rows come from `longue-vue.io/eol.*` endoflife annotations (eol / approaching / supported / unknown). Each row carries a `sources` list of contributing assets and a `signal` field (`eol_annotation`). Workload image rows are **not** included — image freshness is a separate signal on the Container Freshness page.
 
 ## Extracts (search & EOL)
 
-**Extracts (search & EOL):** bulk download of Search results (`/v1/search/extract?kind=workloads|pods|virtual_machines&format=csv|json` and `/v1/search/extract.zip?q=...`) and the EOL Dashboard (`/v1/eol/extract?format=csv|json`). Capped at `LONGUE_VUE_EXTRACT_MAX_ROWS` (default 50 000); `X-Longue-Vue-Truncated: true` header signals the cap. Audit-logged. Aggregation lives in `internal/eolagg` (shared fixtures with the UI dashboard).
+**Extracts (search & EOL):** bulk download of Search results (`/v1/search/extract?kind=workloads|pods|virtual_machines&format=csv|json` and `/v1/search/extract.zip?q=...`) and the EOL Dashboard (`/v1/eol/extract?format=csv|json`). The EOL extract covers clusters, nodes, and VMs only — `entity_type=workload` returns `400`. Capped at `LONGUE_VUE_EXTRACT_MAX_ROWS` (default 50 000); `X-Longue-Vue-Truncated: true` header signals the cap. Audit-logged. Aggregation lives in `internal/eolagg`. Container image freshness is available via `GET /v1/container-freshness` (ADR-0041).
 
 ## Idempotency
 
