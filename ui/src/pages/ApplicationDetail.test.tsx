@@ -181,6 +181,7 @@ describe('ApplicationDetail', () => {
               product: 'vault',
               cycle: '1.13',
               eol_status: 'eol',
+              signal: 'eol',
               latest_available: '1.18.2',
               sources: [{ kind: 'virtual_machine', id: 'v1', name: 'bastion-eu' }],
             },
@@ -218,6 +219,7 @@ describe('ApplicationDetail', () => {
               product: 'vault',
               cycle: '1.13',
               eol_status: 'eol',
+              signal: 'eol',
               latest_available: '1.18.2',
               sources: [
                 { kind: 'virtual_machine', id: 'v1', name: 'bastion-eu' },
@@ -233,6 +235,33 @@ describe('ApplicationDetail', () => {
       expect(screen.getByText('bastion-eu')).toBeInTheDocument(),
     );
     expect(screen.getByText('kube-prod/vault')).toBeInTheDocument();
+  });
+
+  it('renders freshness badge for signal=freshness rows, not an EOL badge', async () => {
+    server.use(
+      http.get('/v1/applications/:id/eol', () =>
+        HttpResponse.json({
+          items: [
+            {
+              product: 'nginx',
+              cycle: '',
+              eol_status: 'unknown',
+              signal: 'freshness',
+              freshness: 'far_behind',
+              latest_available: '',
+              sources: [{ kind: 'workload', id: 'w2', name: 'frontend/nginx' }],
+            },
+          ],
+        }),
+      ),
+    );
+    renderDetail();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /End-of-life summary/i })).toBeInTheDocument(),
+    );
+    expect(screen.getByText('Far behind')).toBeInTheDocument();
+    expect(screen.queryByText('Unknown')).toBeNull();
+    expect(screen.getByText('Freshness')).toBeInTheDocument();
   });
 
   it('renders a Not found message on 404', async () => {
