@@ -196,8 +196,13 @@ function buildRows(
     const appId = wl.application_id ?? undefined;
     const worstByRepo = new Map<string, EolRow>();
     for (const c of containers) {
-      if (!c.name || !c.image || !cvs[c.name]?.eol_status) continue;
+      if (!c.name || !c.image || !cvs[c.name]?.freshness) continue;
       const cv = cvs[c.name];
+      const freshnessToEol: Record<string, EolStatus> = {
+        up_to_date: 'supported',
+        outdated: 'approaching_eol',
+        far_behind: 'eol',
+      };
       const repo = imageRepo(c.image);
       const row: EolRow = {
         entityType: 'workload',
@@ -206,7 +211,7 @@ function buildRows(
         clusterName: wl.cluster_name ?? '',
         product: repo,
         cycle: majorMinor(c.image),
-        eolStatus: cv.eol_status as EolStatus,
+        eolStatus: (cv.freshness ? (freshnessToEol[cv.freshness] ?? 'unknown') : 'unknown') as EolStatus,
         eolDate: undefined,
         latest: cv.latest_tag,
         latestAvailable: cv.latest_tag,
