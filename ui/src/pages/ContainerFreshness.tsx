@@ -28,13 +28,43 @@ export default function ContainerFreshness() {
   const [imageInput, setImageInput] = useState('');
   const [fresh, setFresh] = useState<FreshFilter>('all');
   const debounced = useDebouncedValue(imageInput, 300);
+
+  // Accumulated pages — "Load more" appends rather than replacing.
+  // Reset whenever a filter changes.
+  const [extraRows, setExtraRows] = useState<api.ContainerFreshnessRow[]>([]);
+  const [moreCursor, setMoreCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const state = useResource(
-    () => api.listContainerFreshness({
-      image: debounced || undefined,
-      freshness: fresh === 'all' ? undefined : fresh,
-    }),
+    async () => {
+      // A fresh filter resets any accumulated "Load more" rows.
+      setExtraRows([]);
+      const resp = await api.listContainerFreshness({
+        image: debounced || undefined,
+        freshness: fresh === 'all' ? undefined : fresh,
+      });
+      setMoreCursor(resp.next_cursor ?? null);
+      return resp;
+    },
     [debounced, fresh],
   );
+
+  const loadMore = async () => {
+    if (!moreCursor) return;
+    setLoadingMore(true);
+    try {
+      const resp = await api.listContainerFreshness({
+        image: debounced || undefined,
+        freshness: fresh === 'all' ? undefined : fresh,
+        cursor: moreCursor,
+      });
+      setExtraRows((prev) => [...prev, ...resp.items]);
+      setMoreCursor(resp.next_cursor ?? null);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-header">
@@ -52,6 +82,7 @@ export default function ContainerFreshness() {
             { key: 'far_behind', label: 'Far behind', colorClass: 'eol-bad' },
             { key: 'unknown', label: 'Unknown', colorClass: '' },
           ];
+          const allRows = [...resp.items, ...extraRows];
           return (
             <>
               <div className="eol-summary" style={{ marginBottom: '1rem' }}>
@@ -84,7 +115,7 @@ export default function ContainerFreshness() {
                   onExtract={(format) => api.extractContainerFreshness(format)}
                 />
               </div>
-              {resp.items.length === 0 ? (
+              {allRows.length === 0 ? (
                 <p className="muted empty">No container freshness data available.</p>
               ) : (
                 <table className="entities">
@@ -100,11 +131,11 @@ export default function ContainerFreshness() {
                     </tr>
                   </thead>
                   <tbody>
-                    {resp.items.map((r, i) => (
+                    {allRows.map((r, i) => (
                       <tr key={`${r.workload_name}-${r.container_name}-${i}`}>
                         <td><span className={badgeClass(r.freshness)}>{badgeLabel(r.freshness)}</span></td>
                         <td><code>{r.image}</code></td>
-                        <td><code>{r.latest_tag || '—'}</code></td>
+                        <td><code>{r.latest_tag ?? 'unknown'}</code></td>
                         <td>{r.container_name}</td>
                         <td>{r.workload_name}</td>
                         <td>{r.namespace_name}</td>
@@ -114,10 +145,12 @@ export default function ContainerFreshness() {
                   </tbody>
                 </table>
               )}
-              {resp.next_cursor && (
-                <p className="muted" style={{ marginTop: '0.75rem' }}>
-                  More results available — refine filters to narrow the page.
-                </p>
+              {moreCursor && (
+                <div style={{ marginTop: '0.75rem' }}>
+                  <button type="button" onClick={loadMore} disabled={loadingMore}>
+                    {loadingMore ? 'Loading…' : 'Load more'}
+                  </button>
+                </div>
               )}
             </>
           );
