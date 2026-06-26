@@ -42,7 +42,7 @@ func TestHandleContainerFreshnessExtract_CSV(t *testing.T) {
 	}
 	// Verify header columns.
 	header := lines[0]
-	for _, col := range []string{"cluster_name", "namespace_name", "workload_name", "container_name", "image", "latest_tag", "freshness"} {
+	for _, col := range []string{csvColClusterName, "namespace_name", csvColWorkloadName, "container_name", csvColImage, "latest_tag", "freshness"} {
 		if !strings.Contains(header, col) {
 			t.Errorf("header missing column %q: %s", col, header)
 		}
@@ -109,7 +109,7 @@ func TestHandleContainerFreshnessExtract_Truncation(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
-	if rr.Header().Get("X-Longue-Vue-Truncated") != "true" {
+	if rr.Header().Get("X-Longue-Vue-Truncated") != headerValueTrue {
 		t.Errorf("expected X-Longue-Vue-Truncated: true")
 	}
 }

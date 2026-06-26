@@ -11,7 +11,18 @@ import (
 	"strings"
 )
 
-const eolPrefix = "longue-vue.io/eol."
+const (
+	eolPrefix = "longue-vue.io/eol."
+	// signalEOL and statusUnknown are shared status/signal literals used
+	// across the aggregator and its tests (goconst).
+	signalEOL     = "eol"
+	statusUnknown = "unknown"
+
+	// entityTypeCluster, entityTypeNode, entityTypeVM are EntityType literals
+	// shared across the aggregator production code and tests (goconst).
+	entityTypeCluster = "cluster"
+	entityTypeNode    = "node"
+)
 
 // Row is one flattened (entity, product) tuple.
 type Row struct {
@@ -81,7 +92,7 @@ func Flatten(clusters []ClusterInput, nodes []NodeInput, vms []VMInput) []Row {
 
 	for _, c := range clusters {
 		appendRows(&out, c.Annotations, Row{
-			EntityType: "cluster",
+			EntityType: entityTypeCluster,
 			EntityID:   c.ID,
 			EntityName: displayOrName(c.DisplayName, c.Name),
 			Cluster:    displayOrName(c.DisplayName, c.Name),
@@ -89,7 +100,7 @@ func Flatten(clusters []ClusterInput, nodes []NodeInput, vms []VMInput) []Row {
 	}
 	for _, n := range nodes {
 		appendRows(&out, n.Annotations, Row{
-			EntityType: "node",
+			EntityType: entityTypeNode,
 			EntityID:   n.ID,
 			EntityName: n.Name,
 			Cluster:    clusterNameByID[n.ClusterID],

@@ -10,14 +10,21 @@ import (
 // tagNginxLatest is the shared "latest nginx tag" fixture literal (goconst).
 const tagNginxLatest = "1.27.4"
 
+// testNginxRepo, testDockerRegistry, and testNginxImage are shared test fixture constants (goconst).
+const (
+	testNginxRepo      = "docker.io/library/nginx"
+	testDockerRegistry = "docker.io"
+	testNginxImage     = "nginx:1.25.3"
+)
+
 func TestFreshnessOf(t *testing.T) {
 	cases := []struct {
 		cur, latest string
 		want        ContainerVersionInfoFreshness
 	}{
-		{"v1.25.3", "v1.25.3", ContainerVersionInfoFreshnessUpToDate}, // equal
-		{"v1.25.3", "v1.25.9", ContainerVersionInfoFreshnessUpToDate}, // patch only
-		{"v1.25.3", "v1.26.0", ContainerVersionInfoFreshnessOutdated}, // one minor
+		{"v1.25.3", "v1.25.3", ContainerVersionInfoFreshnessUpToDate},  // equal
+		{"v1.25.3", "v1.25.9", ContainerVersionInfoFreshnessUpToDate},  // patch only
+		{"v1.25.3", "v1.26.0", ContainerVersionInfoFreshnessOutdated},  // one minor
 		{"v1.25.3", "v1.27.4", ContainerVersionInfoFreshnessFarBehind}, // two minors
 		{"v1.25.3", "v2.0.0", ContainerVersionInfoFreshnessFarBehind},  // major gap
 		{"v1.26.0", "v1.25.0", ContainerVersionInfoFreshnessUpToDate},  // ahead → up_to_date

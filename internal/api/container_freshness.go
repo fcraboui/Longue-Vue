@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -32,13 +33,13 @@ const ContainerVersionInfoFreshnessUnknown ContainerVersionInfoFreshness = "unkn
 // Workload for tabular display or export. Every container with a non-empty
 // name and image produces a row; unenriched containers carry Freshness=unknown.
 type ContainerFreshnessRow struct {
-	WorkloadName  string                       `json:"workload_name"`
-	ClusterName   string                       `json:"cluster_name"`
-	NamespaceName string                       `json:"namespace_name"`
-	ContainerName string                       `json:"container_name"`
-	Image         string                       `json:"image"`
+	WorkloadName  string                        `json:"workload_name"`
+	ClusterName   string                        `json:"cluster_name"`
+	NamespaceName string                        `json:"namespace_name"`
+	ContainerName string                        `json:"container_name"`
+	Image         string                        `json:"image"`
 	Freshness     ContainerVersionInfoFreshness `json:"freshness"`
-	LatestTag     string                       `json:"latest_tag"`
+	LatestTag     string                        `json:"latest_tag"`
 }
 
 // ContainerFreshnessSummary holds per-tier counts across the full (unfiltered)
@@ -76,6 +77,8 @@ type ContainerFreshnessFilter struct {
 // produces a row; containers lacking version enrichment are reported with the
 // "unknown" freshness tier. Summary counts reflect the full unfiltered set so
 // the caller can display total coverage regardless of which filter is active.
+//
+//nolint:gocognit,gocyclo // summarize-filter is inherently complex: per-container tally across workloads
 func SummarizeAndFilterContainerFreshness(ws []Workload, f ContainerFreshnessFilter) ([]ContainerFreshnessRow, ContainerFreshnessSummary) {
 	var rows []ContainerFreshnessRow
 	var summary ContainerFreshnessSummary
@@ -87,7 +90,7 @@ func SummarizeAndFilterContainerFreshness(ws []Workload, f ContainerFreshnessFil
 		}
 		var versions map[string]ContainerVersionInfo
 		if w.ContainersVersions != nil {
-			versions = map[string]ContainerVersionInfo(*w.ContainersVersions)
+			versions = *w.ContainersVersions
 		}
 		clusterName := ""
 		if w.ClusterName != nil {
@@ -164,7 +167,7 @@ func SummarizeAndFilterContainerFreshness(ws []Workload, f ContainerFreshnessFil
 // first page) with at most limit items, plus the cursor for the next page
 // (empty when there are no more items). The cursor is an opaque string
 // encoding the next-start index.
-func PageContainerFreshness(rows []ContainerFreshnessRow, limit int, cursor string) ([]ContainerFreshnessRow, string) {
+func PageContainerFreshness(rows []ContainerFreshnessRow, limit int, cursor string) (page []ContainerFreshnessRow, next string) {
 	start := 0
 	if cursor != "" {
 		n, err := strconv.Atoi(cursor)
@@ -200,7 +203,7 @@ func BuildContainerFreshness(ctx context.Context, s Store) ([]Workload, error) {
 	for {
 		items, next, err := s.ListWorkloads(ctx, WorkloadListFilter{}, buildContainerFreshnessPageSize, cursor)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("list workloads: %w", err)
 		}
 		for i := range items {
 			var containers []map[string]any

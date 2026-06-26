@@ -74,9 +74,9 @@ func HandleListContainerFreshness(s Store) http.HandlerFunc {
 		page, next := PageContainerFreshness(rows, limit, q.Get("cursor"))
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"items":       page,
-			"next_cursor": next,
-			"summary":     summary,
+			respKeyItems:      page,
+			respKeyNextCursor: next,
+			"summary":         summary,
 		})
 	}
 }

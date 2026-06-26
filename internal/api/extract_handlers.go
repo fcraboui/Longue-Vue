@@ -51,6 +51,31 @@ const (
 	extractKindWorkloads    = "workloads"
 	extractKindPods         = "pods"
 	extractKindVMs          = "virtual_machines"
+	// headerValueTrue is the string "true" used in HTTP response headers
+	// (e.g. X-Longue-Vue-Truncated) and boolean query-parameter matching.
+	headerValueTrue = "true"
+
+	// audit detail map keys shared across extract handlers.
+	auditKeyAction   = "action"
+	auditKeyRowCount = "row_count"
+	auditKeyTrunc    = "truncated"
+	auditKeyError    = "error"
+	auditKeyFormat   = "format"
+	auditKeyOutcome  = "outcome"
+	auditKeyPage     = "page"
+
+	// audit outcome values.
+	auditOutcomeDenied = "denied"
+	auditOutcomeError  = "error"
+
+	// auditActionExtract is the action label used in audit detail maps for all
+	// extract endpoints.
+	auditActionExtract = "extract"
+
+	// CSV column name literals shared across extract functions.
+	csvColClusterName  = "cluster_name"
+	csvColImage        = "image"
+	csvColWorkloadName = "workload_name"
 )
 
 // HandleEolExtract — read scope. GET /v1/eol/extract?format=csv|json
@@ -189,7 +214,7 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		outcome := "ok"
 		if truncated {
 			outcome = extractOutcomeTruncated
-			w.Header().Set("X-Longue-Vue-Truncated", "true")
+			w.Header().Set("X-Longue-Vue-Truncated", headerValueTrue)
 		}
 		filename := fmt.Sprintf("longue-vue-eol-%s.%s", extractTimestamp(time.Now()), format)
 		w.Header().Set("Content-Type", extractContentType(format))
@@ -460,7 +485,7 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		outcome := "ok"
 		if truncated {
 			outcome = extractOutcomeTruncated
-			w.Header().Set("X-Longue-Vue-Truncated", "true")
+			w.Header().Set("X-Longue-Vue-Truncated", headerValueTrue)
 		}
 		kindSeg := kindFilenameSegment(kind)
 		ts := extractTimestamp(time.Now())
@@ -1026,7 +1051,7 @@ func HandleSearchExtractZip(store ExtractStore, maxRows int) http.HandlerFunc {
 		outcome := "ok"
 		if truncated {
 			outcome = extractOutcomeTruncated
-			w.Header().Set("X-Longue-Vue-Truncated", "true")
+			w.Header().Set("X-Longue-Vue-Truncated", headerValueTrue)
 		}
 		filename := fmt.Sprintf("longue-vue-search-%s-%s.zip", slugForFilename(q), extractTimestamp(generated))
 		w.Header().Set("Content-Type", extractContentType("zip"))

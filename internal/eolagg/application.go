@@ -185,7 +185,7 @@ func addWorkload(acc map[string]*productAccumulator, w *WorkloadMember) {
 		product := container
 		freshness := cv.Freshness
 		if freshness == "" {
-			freshness = "unknown"
+			freshness = statusUnknown
 		}
 		upsertFreshness(acc, product, freshness, cv.LatestTag, cv.LastCheckedAt, ApplicationEOLSource{
 			Kind: "workload",
@@ -263,7 +263,7 @@ func upsertFreshness(acc map[string]*productAccumulator, product, freshness, lat
 		pa = &productAccumulator{
 			row: ApplicationEOLRow{
 				Product:   product,
-				EOLStatus: "unknown",
+				EOLStatus: statusUnknown,
 				Signal:    "freshness",
 			},
 			seen: make(map[string]struct{}),
@@ -273,7 +273,7 @@ func upsertFreshness(acc map[string]*productAccumulator, product, freshness, lat
 	// Best freshness wins (far_behind > outdated > up_to_date > unknown).
 	// Initialize to "unknown" so the field is always populated for freshness rows.
 	if pa.row.Freshness == "" {
-		pa.row.Freshness = "unknown"
+		pa.row.Freshness = statusUnknown
 	}
 	if freshnessRank(freshness) > freshnessRank(pa.row.Freshness) {
 		pa.row.Freshness = freshness
@@ -309,7 +309,7 @@ func upsertEOL(acc map[string]*productAccumulator, product string, a *annotation
 		acc[product] = pa
 	}
 	// Promote signal to "eol" — VM annotations always win the discriminator.
-	pa.row.Signal = "eol"
+	pa.row.Signal = signalEOL
 	if pa.row.Cycle == "" {
 		pa.row.Cycle = a.Cycle
 	}
@@ -338,13 +338,13 @@ func upsertEOL(acc map[string]*productAccumulator, product string, a *annotation
 // no longer participates in this ranking — use freshnessRank instead.
 func statusRank(status string) int {
 	switch status {
-	case "eol":
+	case signalEOL:
 		return 4
 	case "approaching_eol":
 		return 3
 	case "supported":
 		return 2
-	case "unknown":
+	case statusUnknown:
 		return 1
 	default: // "" (unset) or any future value below the known floor
 		return 0
@@ -372,10 +372,10 @@ func finalize(acc map[string]*productAccumulator) []ApplicationEOLRow {
 	out := make([]ApplicationEOLRow, 0, len(acc))
 	for _, pa := range acc {
 		if pa.row.EOLStatus == "" {
-			pa.row.EOLStatus = "unknown"
+			pa.row.EOLStatus = statusUnknown
 		}
 		if pa.row.Signal == "" {
-			pa.row.Signal = "eol"
+			pa.row.Signal = signalEOL
 		}
 		sources := pa.sources
 		sort.Slice(sources, func(i, j int) bool {

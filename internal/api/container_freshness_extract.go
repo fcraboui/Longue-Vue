@@ -11,6 +11,9 @@ import (
 	"github.com/sthalbert/longue-vue/internal/metrics"
 )
 
+// pageFreshness is the audit page label for the container freshness extract.
+const pageFreshness = "container_freshness"
+
 // HandleContainerFreshnessExtract — read scope.
 // GET /v1/container-freshness/extract?format=csv|json
 //
@@ -19,6 +22,8 @@ import (
 // The response body is buffered before flushing so the
 // X-Longue-Vue-Truncated header can be written before any bytes hit the
 // wire (mirrors HandleEolExtract).
+//
+//nolint:gocognit,gocyclo // extract handler branches on format and writer type
 func HandleContainerFreshnessExtract(s Store, maxRows int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
@@ -28,20 +33,20 @@ func HandleContainerFreshnessExtract(s Store, maxRows int) http.HandlerFunc {
 		format := q.Get("format")
 		if format != extractFormatCSV && format != extractFormatJSON {
 			SetAuditDetails(r.Context(), map[string]any{
-				"action": "extract", "page": "container_freshness", "format": format, "outcome": "denied",
+				auditKeyAction: auditActionExtract, auditKeyPage: pageFreshness, auditKeyFormat: format, auditKeyOutcome: auditOutcomeDenied,
 			})
-			metrics.ObserveExtract("container_freshness", format, "denied", 0)
+			metrics.ObserveExtract(pageFreshness, format, auditOutcomeDenied, 0)
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "format must be 'csv' or 'json'")
 			return
 		}
 
 		workloads, err := BuildContainerFreshness(r.Context(), s)
 		if err != nil {
-			slog.Error("extract: build container freshness", slog.Any("error", err))
+			slog.Error("extract: build container freshness", slog.Any(auditKeyError, err))
 			SetAuditDetails(r.Context(), map[string]any{
-				"action": "extract", "page": "container_freshness", "format": format, "outcome": "error",
+				auditKeyAction: auditActionExtract, auditKeyPage: pageFreshness, auditKeyFormat: format, auditKeyOutcome: auditOutcomeError,
 			})
-			metrics.ObserveExtract("container_freshness", format, "error", 0)
+			metrics.ObserveExtract(pageFreshness, format, auditOutcomeError, 0)
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
@@ -59,14 +64,14 @@ func HandleContainerFreshnessExtract(s Store, maxRows int) http.HandlerFunc {
 		case extractFormatCSV:
 			cw := newExtractCSVWriter(&buf, containerFreshnessCSVHeader())
 			for i := range rows {
-				if err := cw.WriteRow(containerFreshnessRowToCSV(rows[i])); err != nil {
-					slog.Error("extract: container freshness csv row", slog.Any("error", err))
+				if err := cw.WriteRow(containerFreshnessRowToCSV(&rows[i])); err != nil {
+					slog.Error("extract: container freshness csv row", slog.Any(auditKeyError, err))
 					writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 					return
 				}
 			}
 			if err := cw.Close(); err != nil {
-				slog.Error("extract: container freshness csv close", slog.Any("error", err))
+				slog.Error("extract: container freshness csv close", slog.Any(auditKeyError, err))
 				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 				return
 			}
@@ -74,13 +79,13 @@ func HandleContainerFreshnessExtract(s Store, maxRows int) http.HandlerFunc {
 			jw := newExtractJSONWriter(&buf)
 			for i := range rows {
 				if err := jw.WriteRow(rows[i]); err != nil {
-					slog.Error("extract: container freshness json row", slog.Any("error", err))
+					slog.Error("extract: container freshness json row", slog.Any(auditKeyError, err))
 					writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 					return
 				}
 			}
 			if err := jw.Close(); err != nil {
-				slog.Error("extract: container freshness json close", slog.Any("error", err))
+				slog.Error("extract: container freshness json close", slog.Any(auditKeyError, err))
 				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 				return
 			}
@@ -89,7 +94,7 @@ func HandleContainerFreshnessExtract(s Store, maxRows int) http.HandlerFunc {
 		outcome := "ok"
 		if truncated {
 			outcome = extractOutcomeTruncated
-			w.Header().Set("X-Longue-Vue-Truncated", "true")
+			w.Header().Set("X-Longue-Vue-Truncated", headerValueTrue)
 		}
 		filename := fmt.Sprintf("longue-vue-container-freshness-%s.%s", extractTimestamp(time.Now()), format)
 		w.Header().Set("Content-Type", extractContentType(format))
@@ -99,25 +104,25 @@ func HandleContainerFreshnessExtract(s Store, maxRows int) http.HandlerFunc {
 		_, _ = w.Write(buf.Bytes())
 
 		SetAuditDetails(r.Context(), map[string]any{
-			"action":    "extract",
-			"page":      "container_freshness",
-			"format":    format,
-			"row_count": len(rows),
-			"truncated": truncated,
-			"outcome":   outcome,
+			auditKeyAction:   auditActionExtract,
+			auditKeyPage:     pageFreshness,
+			auditKeyFormat:   format,
+			auditKeyRowCount: len(rows),
+			auditKeyTrunc:    truncated,
+			auditKeyOutcome:  outcome,
 		})
-		metrics.ObserveExtract("container_freshness", format, outcome, len(rows))
+		metrics.ObserveExtract(pageFreshness, format, outcome, len(rows))
 	}
 }
 
 func containerFreshnessCSVHeader() []string {
 	return []string{
-		"cluster_name", "namespace_name", "workload_name",
-		"container_name", "image", "latest_tag", "freshness",
+		csvColClusterName, "namespace_name", csvColWorkloadName,
+		"container_name", csvColImage, "latest_tag", "freshness",
 	}
 }
 
-func containerFreshnessRowToCSV(r ContainerFreshnessRow) []string {
+func containerFreshnessRowToCSV(r *ContainerFreshnessRow) []string {
 	return []string{
 		r.ClusterName, r.NamespaceName, r.WorkloadName,
 		r.ContainerName, r.Image, r.LatestTag, string(r.Freshness),

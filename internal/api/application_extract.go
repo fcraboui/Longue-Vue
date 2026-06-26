@@ -91,7 +91,7 @@ func handleApplicationsExtract(store ApplicationExtractStore, maxRows int, forma
 		outcome := "ok"
 		if truncated {
 			outcome = extractOutcomeTruncated
-			w.Header().Set("X-Longue-Vue-Truncated", "true")
+			w.Header().Set("X-Longue-Vue-Truncated", headerValueTrue)
 		}
 		filename := fmt.Sprintf("longue-vue-applications-%s.%s", extractTimestamp(time.Now()), format)
 		w.Header().Set("Content-Type", extractContentType(format))

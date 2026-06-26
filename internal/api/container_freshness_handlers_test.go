@@ -27,23 +27,23 @@ func seedFreshnessStore(t *testing.T, ms *memStore) {
 	if err != nil {
 		t.Fatalf("seed namespace: %v", err)
 	}
-	containers := ContainerList{{"name": "web", "image": "nginx:1.25.3"}}
+	containers := ContainerList{{testFieldName: netpolTestWebLabelValue, csvColImage: testNginxImage}}
 	if _, err := ms.CreateWorkload(ctx, WorkloadCreate{
 		NamespaceId: *ns.Id,
 		Kind:        Deployment,
-		Name:        "web",
+		Name:        netpolTestWebLabelValue,
 		Containers:  &containers,
 	}); err != nil {
 		t.Fatalf("seed workload: %v", err)
 	}
 	latest := tagNginxLatest // "1.27.4" — far ahead of "1.25.3"
 	if _, err := ms.UpsertImageVersion(ctx, ImageVersionUpsert{
-		ImageRepo:     "docker.io/library/nginx",
+		ImageRepo:     testNginxRepo,
 		Variant:       "",
-		Registry:      "docker.io",
+		Registry:      testDockerRegistry,
 		LatestTag:     &latest,
 		Annotation:    json.RawMessage(`{}`),
-		Source:        "registry",
+		Source:        string(Registry),
 		LastCheckedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("upsert image version: %v", err)
@@ -64,8 +64,8 @@ func TestHandleListContainerFreshness_FarBehindFilter(t *testing.T) {
 	}
 
 	var resp struct {
-		Items   []ContainerFreshnessRow    `json:"items"`
-		Summary ContainerFreshnessSummary  `json:"summary"`
+		Items   []ContainerFreshnessRow   `json:"items"`
+		Summary ContainerFreshnessSummary `json:"summary"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)

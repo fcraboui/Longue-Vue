@@ -177,7 +177,7 @@ func parseApplicationListFilter(q url.Values) (ApplicationListFilter, error) {
 	}
 	if v := q.Get("has_dict"); v != "" {
 		switch v {
-		case "true", "1":
+		case headerValueTrue, "1":
 			b := true
 			filter.HasDICT = &b
 		case "false", "0":

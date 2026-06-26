@@ -7,9 +7,17 @@ import (
 	"time"
 )
 
+// freshness test fixture string constants (goconst).
+const (
+	fxContainerMain  = "main"
+	fxContainerRedis = "redis"
+	fxWorkloadAPI    = testAppLabelVal // "api" — reuse the shared label-value const
+	fxNamespaceApps  = "apps"
+)
+
 // freshFixture builds a minimal Workload with enriched containers for testing.
 func freshFixture(name, cluster, namespace string, containers ContainerList, versions map[string]ContainerVersionInfo) Workload {
-	cv := map[string]ContainerVersionInfo(versions)
+	cv := versions
 	return Workload{
 		Name:               name,
 		ClusterName:        &cluster,
@@ -21,18 +29,18 @@ func freshFixture(name, cluster, namespace string, containers ContainerList, ver
 
 func freshnessPtr[T any](v T) *T { return &v }
 
-func TestSummarizeAndFilterContainerFreshness(t *testing.T) {
+func TestSummarizeAndFilterContainerFreshness(t *testing.T) { //nolint:gocognit,gocyclo // table-driven test
 	latest1 := "1.27.4"
 	latest2 := "3.2.0"
 
 	workloads := []Workload{
-		freshFixture("api", "prod", "default",
+		freshFixture(fxWorkloadAPI, "prod", "default",
 			ContainerList{
-				{"name": "web", "image": "nginx:1.25.3"},
-				{"name": "sidecar", "image": "busybox:latest"}, // no tag -> not enriched
+				{testFieldName: netpolTestWebLabelValue, csvColImage: testNginxImage},
+				{testFieldName: "sidecar", csvColImage: "busybox:latest"}, // no tag -> not enriched
 			},
 			map[string]ContainerVersionInfo{
-				"web": {
+				netpolTestWebLabelValue: {
 					LatestTag: &latest1,
 					Freshness: freshnessPtr(ContainerVersionInfoFreshnessFarBehind),
 				},
@@ -40,10 +48,10 @@ func TestSummarizeAndFilterContainerFreshness(t *testing.T) {
 		),
 		freshFixture("worker", "prod", "jobs",
 			ContainerList{
-				{"name": "main", "image": "redis:3.0.0"},
+				{testFieldName: fxContainerMain, csvColImage: "redis:3.0.0"},
 			},
 			map[string]ContainerVersionInfo{
-				"main": {
+				fxContainerMain: {
 					LatestTag: &latest2,
 					Freshness: freshnessPtr(ContainerVersionInfoFreshnessOutdated),
 				},
@@ -51,10 +59,10 @@ func TestSummarizeAndFilterContainerFreshness(t *testing.T) {
 		),
 		freshFixture("cache", "staging", "default",
 			ContainerList{
-				{"name": "redis", "image": "redis:3.2.0"},
+				{testFieldName: fxContainerRedis, csvColImage: "redis:3.2.0"},
 			},
 			map[string]ContainerVersionInfo{
-				"redis": {
+				fxContainerRedis: {
 					LatestTag: &latest2,
 					Freshness: freshnessPtr(ContainerVersionInfoFreshnessUpToDate),
 				},
@@ -105,7 +113,7 @@ func TestSummarizeAndFilterContainerFreshness(t *testing.T) {
 
 	t.Run("container with empty image is excluded", func(t *testing.T) {
 		ws := []Workload{freshFixture("x", "c", "n",
-			ContainerList{{"name": "noimage", "image": ""}},
+			ContainerList{{testFieldName: "noimage", csvColImage: ""}},
 			map[string]ContainerVersionInfo{},
 		)}
 		rows, summary := SummarizeAndFilterContainerFreshness(ws, ContainerFreshnessFilter{})
@@ -124,7 +132,7 @@ func TestSummarizeAndFilterContainerFreshness(t *testing.T) {
 			t.Fatalf("want 2 redis rows, got %d", len(rows))
 		}
 		for _, r := range rows {
-			if r.ContainerName != "main" && r.ContainerName != "redis" {
+			if r.ContainerName != fxContainerMain && r.ContainerName != fxContainerRedis {
 				t.Errorf("unexpected container %q", r.ContainerName)
 			}
 		}
@@ -152,7 +160,7 @@ func TestSummarizeAndFilterContainerFreshness(t *testing.T) {
 		k := "Deployment"
 		rows, _ := SummarizeAndFilterContainerFreshness(ws, ContainerFreshnessFilter{Kind: &k})
 		for _, r := range rows {
-			if r.WorkloadName != "api" {
+			if r.WorkloadName != fxWorkloadAPI {
 				t.Errorf("kind filter leaked: %q", r.WorkloadName)
 			}
 		}
@@ -167,7 +175,7 @@ func TestSummarizeAndFilterContainerFreshness(t *testing.T) {
 		if len(rows) != 1 {
 			t.Fatalf("want 1 far_behind row, got %d", len(rows))
 		}
-		if rows[0].ContainerName != "web" {
+		if rows[0].ContainerName != netpolTestWebLabelValue {
 			t.Errorf("want container web, got %q", rows[0].ContainerName)
 		}
 	})
@@ -250,7 +258,7 @@ func TestPageContainerFreshness(t *testing.T) {
 // the in-memory memStore, verifying each returned Workload carries its
 // ContainersVersions populated (which plain ListWorkloads does NOT do —
 // the builder must enrich per-workload via EnrichContainersVersions).
-func TestBuildContainerFreshness(t *testing.T) {
+func TestBuildContainerFreshness(t *testing.T) { //nolint:gocyclo // table-driven test
 	ms := newMemStore()
 	ctx := context.Background()
 
@@ -258,27 +266,27 @@ func TestBuildContainerFreshness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed cluster: %v", err)
 	}
-	ns, err := ms.CreateNamespace(ctx, NamespaceCreate{ClusterId: *cluster.Id, Name: "apps"})
+	ns, err := ms.CreateNamespace(ctx, NamespaceCreate{ClusterId: *cluster.Id, Name: fxNamespaceApps})
 	if err != nil {
 		t.Fatalf("seed namespace: %v", err)
 	}
-	containers := ContainerList{{"name": "web", "image": "nginx:1.25.3"}}
+	containers := ContainerList{{testFieldName: netpolTestWebLabelValue, csvColImage: testNginxImage}}
 	if _, err := ms.CreateWorkload(ctx, WorkloadCreate{
 		NamespaceId: *ns.Id,
 		Kind:        Deployment,
-		Name:        "web",
+		Name:        netpolTestWebLabelValue,
 		Containers:  &containers,
 	}); err != nil {
 		t.Fatalf("seed workload: %v", err)
 	}
 	latest := tagNginxLatest
 	if _, err := ms.UpsertImageVersion(ctx, ImageVersionUpsert{
-		ImageRepo:     "docker.io/library/nginx",
+		ImageRepo:     testNginxRepo,
 		Variant:       "",
-		Registry:      "docker.io",
+		Registry:      testDockerRegistry,
 		LatestTag:     &latest,
 		Annotation:    json.RawMessage(`{}`),
-		Source:        "registry",
+		Source:        string(Registry),
 		LastCheckedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("upsert image version: %v", err)
@@ -294,7 +302,7 @@ func TestBuildContainerFreshness(t *testing.T) {
 	if ws[0].ContainersVersions == nil {
 		t.Fatal("ContainersVersions not populated by builder")
 	}
-	web, ok := (*ws[0].ContainersVersions)["web"]
+	web, ok := (*ws[0].ContainersVersions)[netpolTestWebLabelValue]
 	if !ok {
 		t.Fatalf("expected 'web' enriched, got %v", *ws[0].ContainersVersions)
 	}
