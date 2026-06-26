@@ -20,23 +20,23 @@ const ContainerVersionInfoFreshnessUnknown ContainerVersionInfoFreshness = "unkn
 // Workload for tabular display or export. Every container with a non-empty
 // name and image produces a row; unenriched containers carry Freshness=unknown.
 type ContainerFreshnessRow struct {
-	WorkloadName  string
-	ClusterName   string
-	NamespaceName string
-	ContainerName string
-	Image         string
-	Freshness     ContainerVersionInfoFreshness
-	LatestTag     string
+	WorkloadName  string                       `json:"workload_name"`
+	ClusterName   string                       `json:"cluster_name"`
+	NamespaceName string                       `json:"namespace_name"`
+	ContainerName string                       `json:"container_name"`
+	Image         string                       `json:"image"`
+	Freshness     ContainerVersionInfoFreshness `json:"freshness"`
+	LatestTag     string                       `json:"latest_tag"`
 }
 
 // ContainerFreshnessSummary holds per-tier counts across the full (unfiltered)
 // set of deployed containers for a given workload list.
 type ContainerFreshnessSummary struct {
-	Total     int
-	UpToDate  int
-	Outdated  int
-	FarBehind int
-	Unknown   int
+	Total     int `json:"total"`
+	UpToDate  int `json:"up_to_date"`
+	Outdated  int `json:"outdated"`
+	FarBehind int `json:"far_behind"`
+	Unknown   int `json:"unknown"`
 }
 
 // ContainerFreshnessFilter controls which rows SummarizeAndFilterContainerFreshness

@@ -3691,6 +3691,72 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  /v1/container-freshness:
+    get:
+      operationId: listContainerFreshness
+      summary: List deployed-container freshness rows
+      tags: [container-freshness]
+      parameters:
+        - name: image
+          in: query
+          description: Case-insensitive substring match against the container image string.
+          schema:
+            type: string
+        - name: freshness
+          in: query
+          description: Filter by freshness tier.
+          schema:
+            type: string
+            enum: [up_to_date, outdated, far_behind, unknown]
+        - name: cluster
+          in: query
+          description: Exact match against the cluster name.
+          schema:
+            type: string
+        - name: namespace
+          in: query
+          description: Exact match against the namespace name.
+          schema:
+            type: string
+        - name: kind
+          in: query
+          description: Exact match against the workload kind (e.g. Deployment).
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of items to return per page.
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          description: Opaque pagination cursor returned by a previous response.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated list of container freshness rows with summary counts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ContainerFreshness'
+                  next_cursor:
+                    type: string
+                    description: Cursor for the next page; empty string when no more pages.
+                  summary:
+                    $ref: '#/components/schemas/ContainerFreshnessSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
 components:
 
   securitySchemes:
@@ -4080,6 +4146,39 @@ components:
             $ref: '#/components/schemas/Problem'
 
   schemas:
+
+    ContainerFreshness:
+      type: object
+      properties:
+        workload_name:
+          type: string
+        cluster_name:
+          type: string
+        namespace_name:
+          type: string
+        container_name:
+          type: string
+        image:
+          type: string
+        freshness:
+          type: string
+          enum: [up_to_date, outdated, far_behind, unknown]
+        latest_tag:
+          type: string
+
+    ContainerFreshnessSummary:
+      type: object
+      properties:
+        total:
+          type: integer
+        up_to_date:
+          type: integer
+        outdated:
+          type: integer
+        far_behind:
+          type: integer
+        unknown:
+          type: integer
 
     Health:
       type: object
