@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// tagNginxLatest is the shared "latest nginx tag" fixture literal (goconst).
+const tagNginxLatest = "1.27.4"
+
 func TestFreshnessOf(t *testing.T) {
 	cases := []struct {
 		cur, latest string

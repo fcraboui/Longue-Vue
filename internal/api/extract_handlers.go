@@ -77,12 +77,12 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			return
 		}
 		entityType := q.Get("entity_type")
-		if entityType != "" && entityType != "cluster" && entityType != "node" && entityType != "vm" && entityType != "workload" {
+		if entityType != "" && entityType != "cluster" && entityType != "node" && entityType != "vm" {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "eol", "format": format, "outcome": "denied",
 			})
 			metrics.ObserveExtract("eol", format, "denied", 0)
-			writeProblem(w, http.StatusBadRequest, "Bad Request", "entity_type must be 'cluster', 'node', 'vm', or 'workload'")
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "entity_type must be 'cluster', 'node', or 'vm'")
 			return
 		}
 		status := q.Get("status")
@@ -128,20 +128,6 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		}
 
 		rows := eolagg.Flatten(toEolaggClusters(clusters), toEolaggNodes(nodes), toEolaggVMs(vms))
-
-		if entityType == "" || entityType == "workload" {
-			wlRows, err := collectWorkloadEolRows(r.Context(), store)
-			if err != nil {
-				slog.Error("extract: list workloads", slog.Any("error", err))
-				SetAuditDetails(r.Context(), map[string]any{
-					"action": "extract", "page": "eol", "format": format, "outcome": "error",
-				})
-				metrics.ObserveExtract("eol", format, "error", 0)
-				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
-				return
-			}
-			rows = append(rows, wlRows...)
-		}
 
 		if entityType != "" {
 			filtered := rows[:0]
@@ -628,27 +614,6 @@ func derefTimeStr(t *time.Time) string {
 
 func collectAllWorkloads(ctx context.Context, store ExtractStore) ([]Workload, error) {
 	return listAllWorkloadsByFilter(ctx, store, WorkloadListFilter{})
-}
-
-// collectWorkloadEolRows lists every workload, enriches each one's containers
-// with latest-tag/eol_status info, and flattens them into eolagg rows for the
-// global EOL dashboard extract (ADR-0032).
-func collectWorkloadEolRows(ctx context.Context, store ExtractStore) ([]eolagg.Row, error) {
-	workloads, err := collectAllWorkloads(ctx, store)
-	if err != nil {
-		return nil, err
-	}
-	wlInputs := make([]eolagg.WorkloadInput, 0, len(workloads))
-	for i := range workloads {
-		var containers []map[string]any
-		if workloads[i].Containers != nil {
-			containers = *workloads[i].Containers
-		}
-		cv := map[string]ContainerVersionInfo(EnrichContainersVersions(ctx, store, containers))
-		workloads[i].ContainersVersions = &cv
-		wlInputs = append(wlInputs, workloadToEolaggInput(&workloads[i]))
-	}
-	return eolagg.FlattenWorkloads(wlInputs), nil
 }
 
 // listAllWorkloadsByFilter paginates ListWorkloads with the given filter and
