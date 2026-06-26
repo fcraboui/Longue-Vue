@@ -6,6 +6,18 @@ import (
 	"strings"
 )
 
+// ContainerVersionInfoFreshness* aliases bridge the oapi-codegen naming shift:
+// when a second schema property named "freshness" exists, codegen emits short
+// names (FarBehind/Outdated/UpToDate) instead of the fully-qualified prefixed
+// form (ContainerVersionInfoFreshnessFarBehind/…). Hand-defining the prefixed
+// constants here keeps the rest of the package compiling regardless of which
+// codegen form is emitted.
+const (
+	ContainerVersionInfoFreshnessUpToDate  ContainerVersionInfoFreshness = "up_to_date"
+	ContainerVersionInfoFreshnessOutdated  ContainerVersionInfoFreshness = "outdated"
+	ContainerVersionInfoFreshnessFarBehind ContainerVersionInfoFreshness = "far_behind"
+)
+
 // ContainerVersionInfoFreshnessUnknown is a package-local freshness tier for
 // deployed containers that carry no version enrichment (non-parseable tag,
 // registry outside the allowlist, or not yet processed). It is intentionally

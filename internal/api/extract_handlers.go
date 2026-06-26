@@ -86,8 +86,8 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			return
 		}
 		status := q.Get("status")
-		if status != "" && status != string(Eol) && status != string(ApproachingEol) &&
-			status != string(Supported) && status != extractStatusUnknown {
+		if status != "" && status != string(EolExtractRowStatusEol) && status != string(EolExtractRowStatusApproachingEol) &&
+			status != string(EolExtractRowStatusSupported) && status != extractStatusUnknown {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "eol", "format": format, "outcome": "denied",
 			})
