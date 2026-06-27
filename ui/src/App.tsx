@@ -34,6 +34,7 @@ import VirtualMachineDetail from './pages/VirtualMachineDetail';
 import OSImages from './pages/OSImages';
 import Applications from './pages/Applications';
 import ApplicationDetail from './pages/ApplicationDetail';
+import ContainerFreshness from './pages/ContainerFreshness';
 import Images from './pages/Images';
 import ImageDetail from './pages/ImageDetail';
 import AdminLayout from './pages/admin/AdminLayout';
@@ -169,6 +170,7 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
           {link('/flows', 'Flows', FlowsIcon)}
           {link('/eol', 'EOL', EolIcon)}
           {link('/images', 'Container images', ContainerImageIcon)}
+          {link('/container-freshness', 'Container Freshness', ContainerImageIcon)}
           <a href="/docs/" target="_blank" rel="noopener noreferrer" title={collapsed ? 'API Docs' : undefined}>
             {!collapsed && <span>API Docs</span>}
           </a>
@@ -273,6 +275,7 @@ export default function App() {
       <Route path="/applications/:id" element={authed(<ApplicationDetail />)} />
 
       <Route path="/images" element={authed(<Images />)} />
+      <Route path="/container-freshness" element={authed(<ContainerFreshness />)} />
       <Route path="/images/:imageRepo" element={authed(<ImageDetail />)} />
 
       {/* Admin panel — admins see every tab; auditors only get Audit. */}

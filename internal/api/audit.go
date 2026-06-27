@@ -198,6 +198,7 @@ func shouldAudit(r *http.Request) bool {
 	// Bulk extracts — recorded for SNC chapter-8 evidence-of-exfiltration.
 	switch r.URL.Path {
 	case "/v1/search/extract", "/v1/search/extract.zip", "/v1/eol/extract",
+		"/v1/container-freshness/extract",
 		"/v1/applications/extract.csv", "/v1/applications/extract.json":
 		return true
 	}

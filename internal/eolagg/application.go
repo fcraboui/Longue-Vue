@@ -46,10 +46,17 @@ type ApplicationEOLSource struct {
 
 // ApplicationEOLRow is one (product) tuple rolled up across every member
 // that exposes EOL signal for it. Sources lists the contributing assets.
+//
+// Signal discriminates the nature of the row:
+//   - "eol"       — VM endoflife.date signal (cycle, eol_status populated)
+//   - "freshness" — workload image-versions signal (freshness populated;
+//     eol_status is always "unknown" for these rows)
 type ApplicationEOLRow struct {
 	Product         string                 `json:"product"`
-	Cycle           string                 `json:"cycle"`
+	Cycle           string                 `json:"cycle,omitempty"`
 	EOLStatus       string                 `json:"eol_status"`
+	Freshness       string                 `json:"freshness,omitempty"`
+	Signal          string                 `json:"signal"`
 	LatestAvailable string                 `json:"latest_available,omitempty"`
 	EvaluatedAt     string                 `json:"evaluated_at,omitempty"`
 	Sources         []ApplicationEOLSource `json:"sources"`
@@ -66,9 +73,14 @@ type WorkloadMember struct {
 // ContainerVersion mirrors the relevant subset of api.ContainerVersionInfo
 // (the image-versions enrichment shape). Duplicated to keep eolagg free of
 // an internal/api dependency.
+//
+// Freshness is the version-distance bucket: up_to_date / outdated /
+// far_behind / "" (unknown / not enriched). Populated from the api layer's
+// ContainerVersionInfo.Freshness field (ADR-0022 / Task 6).
 type ContainerVersion struct {
 	LatestTag     string
 	IsBehind      bool
+	Freshness     string
 	LastCheckedAt string
 }
 
@@ -105,6 +117,12 @@ type ApplicationStore interface {
 
 // productAccumulator collects sources + the best-known annotation fields
 // for a single product key as we walk the three sources.
+//
+// A product accumulator holds either a "freshness" row (workload
+// image-versions only) or an "eol" row (at least one VM annotation
+// source). As soon as a VM annotation contributes to a product the
+// signal is promoted to "eol" and the eol_status rank applies; workload
+// freshness rows never feed statusRank.
 type productAccumulator struct {
 	row     ApplicationEOLRow
 	sources []ApplicationEOLSource
@@ -151,6 +169,11 @@ func AggregateForApplication(ctx context.Context, store ApplicationStore, appID 
 // addWorkload folds a workload's per-container image-versions enrichment
 // into the accumulator. One product per enriched container; the container
 // name is the product key (workloads carry no endoflife.date cycle data).
+//
+// Workload-image members surface a "freshness" signal, NOT an EOL signal.
+// They never feed statusRank; the eol_status on the row stays "unknown"
+// for freshness-only rows. If a VM annotation later contributes to the
+// same product key, upsertEOL promotes the row to signal="eol".
 func addWorkload(acc map[string]*productAccumulator, w *WorkloadMember) {
 	for container, cv := range w.ContainersVersions {
 		// Only surface containers that were actually enriched. An empty
@@ -160,16 +183,11 @@ func addWorkload(acc map[string]*productAccumulator, w *WorkloadMember) {
 			continue
 		}
 		product := container
-		a := annotation{
-			Product:         product,
-			EOLStatus:       "unknown",
-			LatestAvailable: cv.LatestTag,
-			CheckedAt:       cv.LastCheckedAt,
+		freshness := cv.Freshness
+		if freshness == "" {
+			freshness = statusUnknown
 		}
-		if cv.IsBehind {
-			a.EOLStatus = "outdated"
-		}
-		upsert(acc, product, &a, ApplicationEOLSource{
+		upsertFreshness(acc, product, freshness, cv.LatestTag, cv.LastCheckedAt, ApplicationEOLSource{
 			Kind: "workload",
 			ID:   w.ID,
 			Name: w.Name,
@@ -183,7 +201,7 @@ func addVM(acc map[string]*productAccumulator, vm *VMMember) {
 	parsed := parseEOLAnnotations(vm.Annotations)
 	for product := range parsed {
 		a := parsed[product]
-		upsert(acc, product, &a, ApplicationEOLSource{
+		upsertEOL(acc, product, &a, ApplicationEOLSource{
 			Kind: "virtual_machine",
 			ID:   vm.ID,
 			Name: vm.Name,
@@ -208,7 +226,7 @@ func addVMAppEntry(acc map[string]*productAccumulator, e *VMAppEntryMember) {
 	if err := json.Unmarshal([]byte(raw), &a); err != nil {
 		return
 	}
-	upsert(acc, product, &a, ApplicationEOLSource{
+	upsertEOL(acc, product, &a, ApplicationEOLSource{
 		Kind: "vm_application",
 		ID:   e.VMID + "#" + product,
 		Name: e.VMName + " / " + product,
@@ -233,12 +251,55 @@ func parseEOLAnnotations(annotations map[string]string) map[string]annotation {
 	return out
 }
 
-// upsert merges one (product, annotation, source) contribution into the
-// accumulator. The first non-empty annotation field wins for the row's
-// scalar fields (cycle / status / latest / evaluated_at) — every source
-// for a given product carries the same enricher output in practice, so
-// first-wins is stable; the source is always appended (deduped).
-func upsert(acc map[string]*productAccumulator, product string, a *annotation, src ApplicationEOLSource) {
+// upsertFreshness merges a workload-image freshness contribution into the
+// accumulator. It does NOT touch eol_status or statusRank — freshness
+// rows carry signal="freshness" and eol_status="unknown". If a later
+// upsertEOL call targets the same product key the row is promoted to
+// signal="eol" and the freshness field is preserved for informational
+// purposes.
+func upsertFreshness(acc map[string]*productAccumulator, product, freshness, latestTag, checkedAt string, src ApplicationEOLSource) {
+	pa, ok := acc[product]
+	if !ok {
+		pa = &productAccumulator{
+			row: ApplicationEOLRow{
+				Product:   product,
+				EOLStatus: statusUnknown,
+				Signal:    "freshness",
+			},
+			seen: make(map[string]struct{}),
+		}
+		acc[product] = pa
+	}
+	// Best freshness wins (far_behind > outdated > up_to_date > unknown).
+	// Initialize to "unknown" so the field is always populated for freshness rows.
+	if pa.row.Freshness == "" {
+		pa.row.Freshness = statusUnknown
+	}
+	if freshnessRank(freshness) > freshnessRank(pa.row.Freshness) {
+		pa.row.Freshness = freshness
+	}
+	if pa.row.LatestAvailable == "" {
+		pa.row.LatestAvailable = latestTag
+	}
+	if pa.row.EvaluatedAt == "" {
+		pa.row.EvaluatedAt = checkedAt
+	}
+	dedup := src.Kind + "\x00" + src.ID
+	if _, dup := pa.seen[dedup]; !dup {
+		pa.seen[dedup] = struct{}{}
+		pa.sources = append(pa.sources, src)
+	}
+}
+
+// upsertEOL merges one (product, annotation, source) contribution from a
+// VM endoflife.date annotation into the accumulator. The first non-empty
+// annotation field wins for the row's scalar fields (cycle / status /
+// latest / evaluated_at) — every source for a given product carries the
+// same enricher output in practice, so first-wins is stable; the source
+// is always appended (deduped). The row is promoted to signal="eol" on
+// first call; freshness data accumulated by prior upsertFreshness calls
+// is preserved but the signal discriminator changes.
+func upsertEOL(acc map[string]*productAccumulator, product string, a *annotation, src ApplicationEOLSource) {
 	pa, ok := acc[product]
 	if !ok {
 		pa = &productAccumulator{
@@ -247,13 +308,14 @@ func upsert(acc map[string]*productAccumulator, product string, a *annotation, s
 		}
 		acc[product] = pa
 	}
+	// Promote signal to "eol" — VM annotations always win the discriminator.
+	pa.row.Signal = signalEOL
 	if pa.row.Cycle == "" {
 		pa.row.Cycle = a.Cycle
 	}
 	// Status precedence: a stronger signal wins regardless of source
 	// order. endoflife.date verdicts (eol / approaching_eol / supported)
-	// from VM annotations outrank the workload image-versions signal
-	// (outdated), which outranks the unknown sentinel.
+	// outrank the unknown sentinel.
 	if statusRank(a.EOLStatus) > statusRank(pa.row.EOLStatus) {
 		pa.row.EOLStatus = a.EOLStatus
 	}
@@ -270,24 +332,36 @@ func upsert(acc map[string]*productAccumulator, product string, a *annotation, s
 	}
 }
 
-// statusRank orders EOL statuses by signal strength so the strongest
-// verdict wins when a product is contributed by multiple sources,
-// independent of walk order. endoflife.date verdicts (from VM
-// annotations) outrank the workload image-versions signal, which outranks
-// the unknown sentinel / unset.
+// statusRank orders EOL statuses (endoflife.date verdicts only) by signal
+// strength so the strongest verdict wins when a product is contributed by
+// multiple VM sources, independent of walk order. Workload-image freshness
+// no longer participates in this ranking — use freshnessRank instead.
 func statusRank(status string) int {
 	switch status {
-	case "eol":
-		return 5
-	case "approaching_eol":
+	case signalEOL:
 		return 4
+	case "approaching_eol":
+		return 3
 	case "supported":
+		return 2
+	case statusUnknown:
+		return 1
+	default: // "" (unset) or any future value below the known floor
+		return 0
+	}
+}
+
+// freshnessRank orders container-image freshness buckets so the worst
+// bucket wins when a product is contributed by multiple workload sources.
+func freshnessRank(f string) int {
+	switch f {
+	case "far_behind":
 		return 3
 	case "outdated":
 		return 2
-	case "unknown":
+	case "up_to_date":
 		return 1
-	default: // "" (unset) or any future value below the known floor
+	default: // "" / "unknown"
 		return 0
 	}
 }
@@ -298,7 +372,10 @@ func finalize(acc map[string]*productAccumulator) []ApplicationEOLRow {
 	out := make([]ApplicationEOLRow, 0, len(acc))
 	for _, pa := range acc {
 		if pa.row.EOLStatus == "" {
-			pa.row.EOLStatus = "unknown"
+			pa.row.EOLStatus = statusUnknown
+		}
+		if pa.row.Signal == "" {
+			pa.row.Signal = signalEOL
 		}
 		sources := pa.sources
 		sort.Slice(sources, func(i, j int) bool {

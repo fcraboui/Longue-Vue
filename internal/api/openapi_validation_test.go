@@ -636,7 +636,7 @@ func TestOpenAPI_GetApplicationEOL_200(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer argos_pat_aabbccdd_tok")
 
 	respBody := `{"items":[{` +
-		`"product":"vault","cycle":"1.13","eol_status":"eol",` +
+		`"product":"vault","signal":"eol","cycle":"1.13","eol_status":"eol",` +
 		`"latest_available":"1.18.2","evaluated_at":"2026-05-15T00:00:00Z",` +
 		`"sources":[` +
 		`{"kind":"virtual_machine","id":"550e8400-e29b-41d4-a716-446655440000","name":"bastion-eu"},` +

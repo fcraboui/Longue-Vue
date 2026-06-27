@@ -65,6 +65,34 @@ Each container in a workload's `(template)` table or a pod's `(runtime)` table g
 
 The pod's table additionally has an **Init** column distinguishing init containers (Kubernetes containers that run *before* the main containers — typically migrations, volume populators, "wait-for-X" probes) from the main containers. Both are enriched the same way.
 
+## Container freshness signal
+
+The image-versions enricher computes a `freshness` field on each `ContainerVersionInfo` entry (workload/pod container rows). This field measures registry tag distance — it is **not** an end-of-life signal.
+
+| Value | Condition |
+|-------|-----------|
+| `up_to_date` | 0 minor versions behind (patch differences only, or already on latest tag). |
+| `outdated` | Exactly 1 minor version behind latest. |
+| `far_behind` | 2 or more minor versions behind, or any major version gap. |
+| `unknown` | Tag is not semver-parseable, registry is not in the allowlist, or enrichment has not run yet for this image. |
+
+The `freshness` field replaces the former `eol_status` field on container entries (renamed in ADR-0041). Freshness is **not** surfaced in the EOL dashboard — it has its own dedicated endpoint and UI page.
+
+### `/v1/container-freshness` endpoint
+
+`GET /v1/container-freshness` aggregates freshness signal across all workloads and pods. One row is returned per distinct image repo; when multiple containers share a repo the worst tier wins.
+
+Query parameters: `registry`, `image_repo` (substring), `freshness` (filter by value: `up_to_date`, `outdated`, `far_behind`, `unknown`), `limit`, `cursor`.
+
+**Role:** any authenticated user.
+
+### Container Freshness UI page
+
+Path: `/container-freshness`  
+Sidebar label: **Container Freshness** (under **Tools**)
+
+The page shows summary cards (Up to date / Outdated / Far behind / Unknown) that double as filter toggles, and a sortable table with one row per image repo. Click a row to navigate to the image-versions detail page for that repo.
+
 ## Out of scope (V1)
 
 Private registries, tag-pattern policies, EOL/CVE enrichment, and GitHub releases lookup are explicitly deferred to V2/V3.

@@ -200,7 +200,7 @@ func HandleFlowMatrixExtract(store Store, maxRows int) http.HandlerFunc {
 		outcome := "ok"
 		if truncated {
 			outcome = extractOutcomeTruncated
-			w.Header().Set("X-Longue-Vue-Truncated", "true")
+			w.Header().Set("X-Longue-Vue-Truncated", headerValueTrue)
 		}
 		filename := fmt.Sprintf("longue-vue-flow-matrix-%s-%s.%s", clusterStr, extractTimestamp(time.Now()), format)
 		w.Header().Set("Content-Type", extractContentType(format))
@@ -315,7 +315,7 @@ func HandleFlowMatrixExtractZip(store Store, maxRows int) http.HandlerFunc {
 		outcome := "ok"
 		if truncated {
 			outcome = extractOutcomeTruncated
-			w.Header().Set("X-Longue-Vue-Truncated", "true")
+			w.Header().Set("X-Longue-Vue-Truncated", headerValueTrue)
 		}
 		filename := fmt.Sprintf("longue-vue-flow-matrix-%s-%s.zip", clusterStr, extractTimestamp(generated))
 		w.Header().Set("Content-Type", extractContentType("zip"))

@@ -71,6 +71,7 @@ The sidebar groups pages into three sections.
 |------|------|------|
 | Search | Search by image or application | `/search/image` |
 | EOL | EOL Inventory | `/eol` |
+| Layers | Container Freshness | `/container-freshness` |
 | Admin | Admin panel (admins and auditors only) | `/admin` |
 
 Auditors see the Admin entry and land directly on the Audit tab. All other roles below `auditor` do not see the Admin entry.
@@ -151,6 +152,32 @@ The table has two column groups:
 Rows for EOL software are highlighted in red; approaching-EOL rows in orange.
 
 Click any column header to sort the table by that column.
+
+---
+
+## Container Freshness page
+
+Path: `/container-freshness`  
+Sidebar label: **Container Freshness**
+
+The Container Freshness page shows how current the container images running in your Kubernetes clusters are relative to the latest tags published in their registries. This is a registry tag-distance signal — it is **not** end-of-life status (see the EOL Inventory page for that).
+
+### Summary cards
+
+Four cards at the top show counts by freshness tier: **Up to date**, **Outdated**, **Far behind**, and **Unknown**. Click a card to filter the table; click again to clear.
+
+### Sortable table
+
+One row per distinct image repo (worst tier across all containers sharing that repo). Columns show the image repo, freshness badge, latest available tag, registry, and last-checked timestamp. Click a row to navigate to the image-versions detail page for that repo.
+
+| Value | Meaning |
+|-------|---------|
+| Up to date | 0 minor versions behind (patch differences only, or already on latest). |
+| Outdated | Exactly 1 minor version behind latest. |
+| Far behind | 2 or more minor versions behind, or any major version gap. |
+| Unknown | Tag is not semver-parseable, registry not in allowlist, or not yet enriched. |
+
+The page requires the **Image versions enrichment** toggle to be enabled (**Admin → Settings**). When enrichment is disabled, all rows show `Unknown`.
 
 ---
 

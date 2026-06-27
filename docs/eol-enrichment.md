@@ -39,6 +39,8 @@ All authenticated users can access the inventory at **EOL** in the top navigatio
 
 The inventory covers three entity types: **clusters**, **nodes**, and **virtual machines**. Kubernetes clusters and nodes are enriched from their version fields (Kubernetes, container runtime, OS image, kernel). Non-Kubernetes platform VMs are enriched from their operator-declared `applications` list (see [VM Applications](vm-applications.md)).
 
+> **Container images are not in the EOL inventory.** Registry tag-distance freshness for container images (`up_to_date` / `outdated` / `far_behind`) is a separate signal tracked on the [Container Freshness](image-versions.md#container-freshness-signal) page (`/container-freshness`), not the EOL dashboard. See ADR-0041.
+
 ### Summary cards
 
 Three cards at the top show counts by severity:
@@ -178,7 +180,7 @@ The enricher makes outbound HTTPS requests to `endoflife.date`. In environments 
 
 ## Limitations
 
-- **Container images are not matched.** Image tags are unstructured (`nginx:1.25-alpine`, `myapp:latest`) and matching them to endoflife.date products would require a registry-aware parser. This is planned for a future version.
+- **Container images are not in the EOL dashboard.** Container image freshness (tag-distance from latest) is surfaced separately on the Container Freshness page and via `GET /v1/container-freshness`. See [image-versions.md](image-versions.md) and ADR-0041.
 - **VM application data is operator-curated.** The enricher annotates whatever version was last written to the `applications` field. If a VM's Vault version is upgraded without updating longue-vue, the EOL annotation reflects the old version. The `added_at` timestamp on each application entry is shown in the UI to help spot stale records. An in-guest agent for automatic discovery is planned for a future version.
 - **Data accuracy depends on endoflife.date.** The project is community-maintained. Verify critical EOL decisions against vendor documentation.
 - **A typo in `LONGUE_VUE_CLUSTER_NAME` creates a new cluster.** The auto-created cluster will be enriched, but with the wrong name. Verify cluster names after first deployment.

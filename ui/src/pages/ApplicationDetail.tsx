@@ -659,6 +659,24 @@ function eolStatusLabel(status: string): string {
   }
 }
 
+function freshnessClass(f: string): string {
+  switch (f) {
+    case 'far_behind': return 'pill status-bad';
+    case 'outdated': return 'pill status-warn';
+    case 'up_to_date': return 'pill status-ok';
+    default: return 'pill';
+  }
+}
+
+function freshnessLabel(f: string): string {
+  switch (f) {
+    case 'far_behind': return 'Far behind';
+    case 'outdated': return 'Outdated';
+    case 'up_to_date': return 'Up to date';
+    default: return 'Unknown';
+  }
+}
+
 function EolSummaryCard({ appId }: { appId: string }) {
   // Keep the try/catch so a transient endpoint error degrades to the empty
   // state rather than crashing the whole detail page.
@@ -686,6 +704,7 @@ function EolSummaryCard({ appId }: { appId: string }) {
         <table className="entities">
           <thead>
             <tr>
+              <th>Signal</th>
               <th>Product</th>
               <th>Cycle</th>
               <th>Status</th>
@@ -696,10 +715,14 @@ function EolSummaryCard({ appId }: { appId: string }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.product}>
+                <td><span className="pill">{r.signal === 'freshness' ? 'Freshness' : 'EOL'}</span></td>
                 <td>{r.product}</td>
                 <td>{r.cycle || <Dash />}</td>
                 <td>
-                  <span className={eolStatusClass(r.eol_status)}>{eolStatusLabel(r.eol_status)}</span>
+                  {r.signal === 'freshness'
+                    ? <span className={freshnessClass(r.freshness ?? '')}>{freshnessLabel(r.freshness ?? '')}</span>
+                    : <span className={eolStatusClass(r.eol_status)}>{eolStatusLabel(r.eol_status)}</span>
+                  }
                 </td>
                 <td>{r.latest_available || <Dash />}</td>
                 <td>

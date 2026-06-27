@@ -177,7 +177,7 @@ func parseApplicationListFilter(q url.Values) (ApplicationListFilter, error) {
 	}
 	if v := q.Get("has_dict"); v != "" {
 		switch v {
-		case "true", "1":
+		case headerValueTrue, "1":
 			b := true
 			filter.HasDICT = &b
 		case "false", "0":
@@ -231,8 +231,8 @@ func HandleListApplications(store Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"items":       items,
-			"next_cursor": next,
+			respKeyItems:      items,
+			respKeyNextCursor: next,
 		})
 	}
 }
@@ -381,8 +381,8 @@ func HandleListApplicationMembers(store Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"items":       members,
-			"next_cursor": next,
+			respKeyItems:      members,
+			respKeyNextCursor: next,
 		})
 	}
 }
@@ -417,7 +417,7 @@ func HandleGetApplicationEOL(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"items": rows})
+		writeJSON(w, http.StatusOK, map[string]any{respKeyItems: rows})
 	}
 }
 
@@ -536,6 +536,9 @@ func toWorkloadMember(w *Workload) eolagg.WorkloadMember {
 			}
 			if cv.LastCheckedAt != nil {
 				ec.LastCheckedAt = cv.LastCheckedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+			}
+			if cv.Freshness != nil {
+				ec.Freshness = string(*cv.Freshness)
 			}
 			m.ContainersVersions[container] = ec
 		}

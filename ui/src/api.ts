@@ -1331,6 +1331,8 @@ export type ApplicationEOLRow = {
   product: string;
   cycle: string;
   eol_status: string;
+  signal: 'eol' | 'freshness';
+  freshness?: 'up_to_date' | 'outdated' | 'far_behind' | 'unknown';
   latest_available?: string;
   evaluated_at?: string;
   sources: ApplicationEOLSource[];
@@ -1350,7 +1352,7 @@ export interface ContainerVersionInfo {
   latest_tag?: string;
   is_behind?: boolean;
   last_checked_at?: string;
-  eol_status?: 'supported' | 'approaching_eol' | 'eol';
+  freshness?: 'up_to_date' | 'outdated' | 'far_behind';
   // Origin fields. Absent on passthrough images. Present on mirrored refs.
   origin_image_repo?: string;
   origin_status?: 'resolved' | 'unresolved';
@@ -1585,6 +1587,60 @@ export function extractEol(p: EolExtractParams): Promise<DownloadResult> {
   return downloadExtract(
     `/v1/eol/extract?${params.toString()}`,
     `longue-vue-eol.${p.format}`,
+  );
+}
+
+// --- Container freshness ----------------------------------------------------
+
+export type Freshness = 'up_to_date' | 'outdated' | 'far_behind' | 'unknown';
+
+export interface ContainerFreshnessRow {
+  workload_name: string;
+  cluster_name: string;
+  namespace_name: string;
+  container_name: string;
+  image: string;
+  freshness: Freshness;
+  latest_tag: string;
+}
+
+export interface ContainerFreshnessSummary {
+  total: number;
+  up_to_date: number;
+  outdated: number;
+  far_behind: number;
+  unknown: number;
+}
+
+export function listContainerFreshness(
+  filter: {
+    image?: string;
+    freshness?: Freshness;
+    cluster?: string;
+    namespace?: string;
+    kind?: string;
+    cursor?: string;
+    limit?: number;
+  } = {},
+) {
+  return request<PagedResponse<ContainerFreshnessRow> & { summary: ContainerFreshnessSummary }>(
+    '/v1/container-freshness' +
+      query({
+        image: filter.image,
+        freshness: filter.freshness,
+        cluster: filter.cluster,
+        namespace: filter.namespace,
+        kind: filter.kind,
+        cursor: filter.cursor,
+        limit: filter.limit,
+      }),
+  );
+}
+
+export function extractContainerFreshness(format: ExtractFormat): Promise<DownloadResult> {
+  return downloadExtract(
+    `/v1/container-freshness/extract?format=${encodeURIComponent(format)}`,
+    `longue-vue-container-freshness.${format}`,
   );
 }
 

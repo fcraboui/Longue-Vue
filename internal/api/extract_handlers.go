@@ -51,6 +51,31 @@ const (
 	extractKindWorkloads    = "workloads"
 	extractKindPods         = "pods"
 	extractKindVMs          = "virtual_machines"
+	// headerValueTrue is the string "true" used in HTTP response headers
+	// (e.g. X-Longue-Vue-Truncated) and boolean query-parameter matching.
+	headerValueTrue = "true"
+
+	// audit detail map keys shared across extract handlers.
+	auditKeyAction   = "action"
+	auditKeyRowCount = "row_count"
+	auditKeyTrunc    = "truncated"
+	auditKeyError    = "error"
+	auditKeyFormat   = "format"
+	auditKeyOutcome  = "outcome"
+	auditKeyPage     = "page"
+
+	// audit outcome values.
+	auditOutcomeDenied = "denied"
+	auditOutcomeError  = "error"
+
+	// auditActionExtract is the action label used in audit detail maps for all
+	// extract endpoints.
+	auditActionExtract = "extract"
+
+	// CSV column name literals shared across extract functions.
+	csvColClusterName  = "cluster_name"
+	csvColImage        = "image"
+	csvColWorkloadName = "workload_name"
 )
 
 // HandleEolExtract — read scope. GET /v1/eol/extract?format=csv|json
@@ -77,17 +102,18 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 			return
 		}
 		entityType := q.Get("entity_type")
-		if entityType != "" && entityType != "cluster" && entityType != "node" && entityType != "vm" && entityType != "workload" {
+		if entityType != "" && entityType != string(EolExtractRowEntityTypeCluster) &&
+			entityType != string(EolExtractRowEntityTypeNode) && entityType != string(EolExtractRowEntityTypeVm) {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "eol", "format": format, "outcome": "denied",
 			})
 			metrics.ObserveExtract("eol", format, "denied", 0)
-			writeProblem(w, http.StatusBadRequest, "Bad Request", "entity_type must be 'cluster', 'node', 'vm', or 'workload'")
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "entity_type must be 'cluster', 'node', or 'vm'")
 			return
 		}
 		status := q.Get("status")
-		if status != "" && status != string(Eol) && status != string(ApproachingEol) &&
-			status != string(Supported) && status != extractStatusUnknown {
+		if status != "" && status != string(EolExtractRowStatusEol) && status != string(EolExtractRowStatusApproachingEol) &&
+			status != string(EolExtractRowStatusSupported) && status != extractStatusUnknown {
 			SetAuditDetails(r.Context(), map[string]any{
 				"action": "extract", "page": "eol", "format": format, "outcome": "denied",
 			})
@@ -128,20 +154,6 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		}
 
 		rows := eolagg.Flatten(toEolaggClusters(clusters), toEolaggNodes(nodes), toEolaggVMs(vms))
-
-		if entityType == "" || entityType == "workload" {
-			wlRows, err := collectWorkloadEolRows(r.Context(), store)
-			if err != nil {
-				slog.Error("extract: list workloads", slog.Any("error", err))
-				SetAuditDetails(r.Context(), map[string]any{
-					"action": "extract", "page": "eol", "format": format, "outcome": "error",
-				})
-				metrics.ObserveExtract("eol", format, "error", 0)
-				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
-				return
-			}
-			rows = append(rows, wlRows...)
-		}
 
 		if entityType != "" {
 			filtered := rows[:0]
@@ -203,7 +215,7 @@ func HandleEolExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		outcome := "ok"
 		if truncated {
 			outcome = extractOutcomeTruncated
-			w.Header().Set("X-Longue-Vue-Truncated", "true")
+			w.Header().Set("X-Longue-Vue-Truncated", headerValueTrue)
 		}
 		filename := fmt.Sprintf("longue-vue-eol-%s.%s", extractTimestamp(time.Now()), format)
 		w.Header().Set("Content-Type", extractContentType(format))
@@ -474,7 +486,7 @@ func HandleSearchExtract(store ExtractStore, maxRows int) http.HandlerFunc {
 		outcome := "ok"
 		if truncated {
 			outcome = extractOutcomeTruncated
-			w.Header().Set("X-Longue-Vue-Truncated", "true")
+			w.Header().Set("X-Longue-Vue-Truncated", headerValueTrue)
 		}
 		kindSeg := kindFilenameSegment(kind)
 		ts := extractTimestamp(time.Now())
@@ -628,27 +640,6 @@ func derefTimeStr(t *time.Time) string {
 
 func collectAllWorkloads(ctx context.Context, store ExtractStore) ([]Workload, error) {
 	return listAllWorkloadsByFilter(ctx, store, WorkloadListFilter{})
-}
-
-// collectWorkloadEolRows lists every workload, enriches each one's containers
-// with latest-tag/eol_status info, and flattens them into eolagg rows for the
-// global EOL dashboard extract (ADR-0032).
-func collectWorkloadEolRows(ctx context.Context, store ExtractStore) ([]eolagg.Row, error) {
-	workloads, err := collectAllWorkloads(ctx, store)
-	if err != nil {
-		return nil, err
-	}
-	wlInputs := make([]eolagg.WorkloadInput, 0, len(workloads))
-	for i := range workloads {
-		var containers []map[string]any
-		if workloads[i].Containers != nil {
-			containers = *workloads[i].Containers
-		}
-		cv := map[string]ContainerVersionInfo(EnrichContainersVersions(ctx, store, containers))
-		workloads[i].ContainersVersions = &cv
-		wlInputs = append(wlInputs, workloadToEolaggInput(&workloads[i]))
-	}
-	return eolagg.FlattenWorkloads(wlInputs), nil
 }
 
 // listAllWorkloadsByFilter paginates ListWorkloads with the given filter and
@@ -1061,7 +1052,7 @@ func HandleSearchExtractZip(store ExtractStore, maxRows int) http.HandlerFunc {
 		outcome := "ok"
 		if truncated {
 			outcome = extractOutcomeTruncated
-			w.Header().Set("X-Longue-Vue-Truncated", "true")
+			w.Header().Set("X-Longue-Vue-Truncated", headerValueTrue)
 		}
 		filename := fmt.Sprintf("longue-vue-search-%s-%s.zip", slugForFilename(q), extractTimestamp(generated))
 		w.Header().Set("Content-Type", extractContentType("zip"))

@@ -25,27 +25,6 @@ type EolStatus = EolAnnotation['eol_status'];
 
 const EOL_PREFIX = 'longue-vue.io/eol.';
 
-// imageRepo returns the last path segment of an image ref's repo for display
-// (e.g. "nginx" from "docker.io/library/nginx:1.25.3").
-function imageRepo(image: string): string {
-  const noDigest = image.split('@')[0];
-  const lastColon = noDigest.lastIndexOf(':');
-  const lastSlash = noDigest.lastIndexOf('/');
-  const repo = lastColon > lastSlash ? noDigest.slice(0, lastColon) : noDigest;
-  const seg = repo.split('/');
-  return seg[seg.length - 1];
-}
-
-// majorMinor returns "X.Y" from the leading semver of an image tag.
-function majorMinor(image: string): string {
-  const noDigest = image.split('@')[0];
-  const lastColon = noDigest.lastIndexOf(':');
-  const lastSlash = noDigest.lastIndexOf('/');
-  const tag = lastColon > lastSlash ? noDigest.slice(lastColon + 1) : '';
-  const m = tag.match(/^v?(\d+)\.(\d+)/);
-  return m ? `${m[1]}.${m[2]}` : '';
-}
-
 function parseEolAnnotations(annotations?: Record<string, string> | null): EolAnnotation[] {
   if (!annotations) return [];
   const results: EolAnnotation[] = [];
@@ -121,7 +100,6 @@ function buildRows(
   nodes: api.Node[],
   vms: api.VirtualMachine[],
   appNameById: Map<string, string> = new Map(),
-  workloads: api.Workload[] = [],
 ): EolRow[] {
   const clusterById = new Map(clusters.map((c) => [c.id, c]));
   const rows: EolRow[] = [];
@@ -188,40 +166,6 @@ function buildRows(
           : undefined,
       });
     }
-  }
-
-  for (const wl of workloads) {
-    const cvs = wl.containers_versions ?? {};
-    const containers = wl.containers ?? [];
-    const appId = wl.application_id ?? undefined;
-    const worstByRepo = new Map<string, EolRow>();
-    for (const c of containers) {
-      if (!c.name || !c.image || !cvs[c.name]?.eol_status) continue;
-      const cv = cvs[c.name];
-      const repo = imageRepo(c.image);
-      const row: EolRow = {
-        entityType: 'workload',
-        entityId: wl.id,
-        entityName: wl.name,
-        clusterName: wl.cluster_name ?? '',
-        product: repo,
-        cycle: majorMinor(c.image),
-        eolStatus: cv.eol_status as EolStatus,
-        eolDate: undefined,
-        latest: cv.latest_tag,
-        latestAvailable: cv.latest_tag,
-        checkedAt: cv.last_checked_at,
-        applicationId: appId,
-        applicationName: appId
-          ? appNameById.get(appId) ?? `${appId.slice(0, 8)}…`
-          : undefined,
-      };
-      const prev = worstByRepo.get(repo);
-      if (!prev || (STATUS_ORDER[row.eolStatus] ?? 4) < (STATUS_ORDER[prev.eolStatus] ?? 4)) {
-        worstByRepo.set(repo, row);
-      }
-    }
-    for (const row of worstByRepo.values()) rows.push(row);
   }
 
   rows.sort((a, b) => (STATUS_ORDER[a.eolStatus] ?? 4) - (STATUS_ORDER[b.eolStatus] ?? 4));
@@ -304,7 +248,6 @@ export default function EolDashboard() {
       () => api.listNodes(),
       () => api.listVirtualMachines(),
       () => api.listApplications({ limit: 200 }),
-      () => api.listWorkloads({ include: 'containers_versions', limit: 200 }),
     ] as const,
     [],
   );
@@ -337,7 +280,7 @@ export default function EolDashboard() {
       </p>
       <TruncationBanner visible={truncated} />
       <AsyncView state={state}>
-        {([clustersResp, nodesResp, vmsResp, appsResp, workloadsResp]) => {
+        {([clustersResp, nodesResp, vmsResp, appsResp]) => {
           const appNameById = new Map(
             (appsResp.items ?? []).map((a) => [a.id, a.display_name || a.name]),
           );
@@ -349,7 +292,6 @@ export default function EolDashboard() {
                   nodesResp.items,
                   vmsResp.items,
                   appNameById,
-                  workloadsResp.items,
                 );
                 if (rows.length === 0) return null;
                 return (
@@ -371,7 +313,6 @@ export default function EolDashboard() {
                 clusters={clustersResp.items}
                 nodes={nodesResp.items}
                 vms={vmsResp.items}
-                workloads={workloadsResp.items}
                 appNameById={appNameById}
                 statusFilter={statusFilter}
                 appFilter={appFilter}
@@ -393,7 +334,6 @@ function EolTable({
   clusters,
   nodes,
   vms,
-  workloads,
   appNameById,
   statusFilter,
   appFilter,
@@ -406,7 +346,6 @@ function EolTable({
   clusters: api.Cluster[];
   nodes: api.Node[];
   vms: api.VirtualMachine[];
-  workloads: api.Workload[];
   appNameById: Map<string, string>;
   statusFilter: EolStatus | null;
   appFilter: string;
@@ -417,8 +356,8 @@ function EolTable({
   onSort: (key: SortKey) => void;
 }) {
   const allRows = useMemo(
-    () => buildRows(clusters, nodes, vms, appNameById, workloads),
-    [clusters, nodes, vms, appNameById, workloads],
+    () => buildRows(clusters, nodes, vms, appNameById),
+    [clusters, nodes, vms, appNameById],
   );
   const counts = useMemo(() => countStatuses(allRows), [allRows]);
   const tableRef = useEntityTable('eol.table');

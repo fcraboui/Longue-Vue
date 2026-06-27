@@ -46,23 +46,24 @@ func (v containerVersion) gt(other containerVersion) bool {
 	return semver.Compare(v.raw, other.raw) > 0
 }
 
-// minorDistanceStatus maps the minor-version distance between the deployed
-// tag (cur) and the latest registry tag (latest) onto the traffic-light EOL
-// status (ADR-0032). Patch differences are ignored; any major gap is "eol".
-func minorDistanceStatus(cur, latest containerVersion) ContainerVersionInfoEolStatus {
+// FreshnessOf maps the minor-version distance between the deployed tag
+// (cur) and the latest registry tag (latest) onto the freshness scale.
+// Patch differences are ignored; any major gap is far_behind. This is a
+// pure version-distance signal — NOT an endoflife.date/support status.
+func FreshnessOf(cur, latest containerVersion) ContainerVersionInfoFreshness {
 	if !latest.gt(cur) {
-		return ContainerVersionInfoEolStatusSupported
+		return ContainerVersionInfoFreshnessUpToDate
 	}
 	if semver.Major(latest.raw) != semver.Major(cur.raw) {
-		return ContainerVersionInfoEolStatusEol
+		return ContainerVersionInfoFreshnessFarBehind
 	}
 	switch latest.minor() - cur.minor() {
 	case 0:
-		return ContainerVersionInfoEolStatusSupported
+		return ContainerVersionInfoFreshnessUpToDate
 	case 1:
-		return ContainerVersionInfoEolStatusApproachingEol
+		return ContainerVersionInfoFreshnessOutdated
 	default:
-		return ContainerVersionInfoEolStatusEol
+		return ContainerVersionInfoFreshnessFarBehind
 	}
 }
 
@@ -275,12 +276,12 @@ func lookupVersionRow(ctx context.Context, s containerVersionLookup, imageRepo s
 			continue
 		}
 		isBehind := latest.version.gt(cur.version)
-		status := minorDistanceStatus(cur.version, latest.version)
+		freshness := FreshnessOf(cur.version, latest.version)
 		return ContainerVersionInfo{
 			LatestTag:     row.LatestTag,
 			IsBehind:      &isBehind,
 			LastCheckedAt: &row.LastCheckedAt,
-			EolStatus:     &status,
+			Freshness:     &freshness,
 		}, true
 	}
 	return ContainerVersionInfo{}, false

@@ -17,6 +17,7 @@ Proposed | **Accepted** | Rejected | Superseded | Deprecated
 - **Date:** 2026-05-29
 - **Supersedes:** none
 - **Superseded by:** none
+- **Amended by:** [ADR-0041](adr-0041-container-image-freshness-vs-eol.md) — freshness/EOL split; `eol_status` renamed to `freshness`; workload rows removed from EOL dashboard/extract.
 
 ## Context
 
