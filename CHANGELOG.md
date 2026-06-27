@@ -6,6 +6,27 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.9.0](https://github.com/sthalbert/Longue-Vue/compare/v1.8.0...v1.9.0) (2026-06-27)
+
+
+### Features
+
+* **api:** add audited container-freshness CSV/JSON extract ([0757f0e](https://github.com/sthalbert/Longue-Vue/commit/0757f0e73eb6e4f4cd1f0ffd27fe708451ac2b87))
+* **api:** add ContainerFreshnessRow summarize/filter/page helpers ([9b650d0](https://github.com/sthalbert/Longue-Vue/commit/9b650d02f7b7f8519b477dbcfd2433da5e0a7e6a))
+* **api:** add GET /v1/container-freshness list endpoint ([c770823](https://github.com/sthalbert/Longue-Vue/commit/c77082302d42601449b3446bf5e4d40e1e842247))
+* distinguish container image freshness from EOL ([cfb8529](https://github.com/sthalbert/Longue-Vue/commit/cfb8529225a4af1d4e740be4dc782aba22537a9d))
+* **ui:** add container freshness page and drop image rows from eol dashboard ([d9ac647](https://github.com/sthalbert/Longue-Vue/commit/d9ac647f18cfe2b7fa88937e6ec392f6f4ff7816))
+* **ui:** freshness types + container-freshness API client ([a70664f](https://github.com/sthalbert/Longue-Vue/commit/a70664f8961a442a7164f87d98d3f74322af70a4))
+* **ui:** render container freshness as a distinct signal in Application EOL card ([f8c7eb8](https://github.com/sthalbert/Longue-Vue/commit/f8c7eb828846a0bd319f148491b1cbe9e68120c0))
+* **ui:** wire Load more pagination on Container Freshness page ([7e53349](https://github.com/sthalbert/Longue-Vue/commit/7e5334990fc24219eeb791011b04402723205786))
+
+
+### Bug Fixes
+
+* **api:** add unknown freshness tier, filters, and fleet builder ([05b83eb](https://github.com/sthalbert/Longue-Vue/commit/05b83eb1cc20433120727d4bf2377bbee10a469f))
+* **codegen:** exclude hand-written container-freshness endpoint from oapi-codegen ([778cc55](https://github.com/sthalbert/Longue-Vue/commit/778cc556c6d09444bdc13183a8dbce79d8ec6939))
+* **codegen:** own container freshness enum constants in-package; make generate idempotent ([a13643e](https://github.com/sthalbert/Longue-Vue/commit/a13643e1ceb7954c0058d76ceaa10194a5db6c3b))
+
 ## [1.8.0](https://github.com/sthalbert/Longue-Vue/compare/v1.7.0...v1.8.0) (2026-06-20)
 
 
