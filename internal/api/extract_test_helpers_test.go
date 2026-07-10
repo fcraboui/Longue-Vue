@@ -186,7 +186,7 @@ func (s *extractStubStore) ListNodes(_ context.Context, _ api.NodeListFilter, _ 
 	return s.nodes, "", nil
 }
 
-func (s *extractStubStore) ListNamespaces(_ context.Context, _ *uuid.UUID, _ int, _ string, _ bool) ([]api.Namespace, string, error) {
+func (s *extractStubStore) ListNamespaces(_ context.Context, _ api.NamespaceListFilter, _ api.ListPage) ([]api.Namespace, string, error) {
 	return s.namespaces, "", nil
 }
 

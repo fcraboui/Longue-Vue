@@ -173,7 +173,7 @@ func TestListNamespacesIncludeTerminated(t *testing.T) {
 
 	// Test 1: ListNamespaces with includeTerminated=false (default).
 	// Should return 2 namespaces.
-	items, _, err := pg.ListNamespaces(ctx, cluster.Id, 0, "", false)
+	items, _, err := pg.ListNamespaces(ctx, api.NamespaceListFilter{ClusterID: cluster.Id}, api.ListPage{})
 	if err != nil {
 		t.Fatalf("ListNamespaces (includeTerminated=false): %v", err)
 	}
@@ -186,7 +186,7 @@ func TestListNamespacesIncludeTerminated(t *testing.T) {
 
 	// Test 2: ListNamespaces with includeTerminated=true.
 	// Should return 3 namespaces.
-	items, _, err = pg.ListNamespaces(ctx, cluster.Id, 0, "", true)
+	items, _, err = pg.ListNamespaces(ctx, api.NamespaceListFilter{ClusterID: cluster.Id, IncludeTerminated: true}, api.ListPage{})
 	if err != nil {
 		t.Fatalf("ListNamespaces (includeTerminated=true): %v", err)
 	}

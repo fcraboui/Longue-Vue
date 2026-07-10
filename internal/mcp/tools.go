@@ -456,7 +456,7 @@ func (s *Server) handleListNamespaces(ctx context.Context, request mcp.CallToolR
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Namespace, string, error) {
-		return s.store.ListNamespaces(ctx, clusterID, maxPageSize, cursor, false)
+		return s.store.ListNamespaces(ctx, api.NamespaceListFilter{ClusterID: clusterID}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list namespaces: %w", err)

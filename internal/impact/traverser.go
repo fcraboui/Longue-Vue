@@ -28,7 +28,7 @@ type TraverserStore interface {
 	GetPersistentVolumeClaim(ctx context.Context, id uuid.UUID) (api.PersistentVolumeClaim, error)
 
 	ListNodes(ctx context.Context, filter api.NodeListFilter, page api.ListPage) ([]api.Node, string, error)
-	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Namespace, string, error)
+	ListNamespaces(ctx context.Context, filter api.NamespaceListFilter, page api.ListPage) ([]api.Namespace, string, error)
 	ListPods(ctx context.Context, filter api.PodListFilter, limit int, cursor string) ([]api.Pod, string, error)
 	ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, limit int, cursor string) ([]api.Workload, string, error)
 	ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Service, string, error)
@@ -288,7 +288,7 @@ func (b *builder) expandCluster(ctx context.Context, id uuid.UUID, nodeID string
 
 	// downstream: namespaces
 	nss, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Namespace, string, error) {
-		return b.store.ListNamespaces(ctx, &id, maxPageSize, cursor, false)
+		return b.store.ListNamespaces(ctx, api.NamespaceListFilter{ClusterID: &id}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return fmt.Errorf("list namespaces: %w", err)
@@ -567,7 +567,7 @@ func (b *builder) expandPV(ctx context.Context, id uuid.UUID, nodeID string, dep
 	// downstream: PVCs bound to this PV — scan all PVCs in the cluster
 	// and match on bound_volume_id.
 	nss, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Namespace, string, error) {
-		return b.store.ListNamespaces(ctx, &pv.ClusterId, maxPageSize, cursor, false)
+		return b.store.ListNamespaces(ctx, api.NamespaceListFilter{ClusterID: &pv.ClusterId}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return fmt.Errorf("list namespaces: %w", err)

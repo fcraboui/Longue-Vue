@@ -55,7 +55,7 @@ type Store interface {
 	GetNode(ctx context.Context, id uuid.UUID) (api.Node, error)
 
 	// Namespaces
-	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Namespace, string, error)
+	ListNamespaces(ctx context.Context, filter api.NamespaceListFilter, page api.ListPage) ([]api.Namespace, string, error)
 	GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, error)
 
 	// Workloads

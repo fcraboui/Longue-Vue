@@ -628,20 +628,33 @@ func (m *memStore) GetNamespace(_ context.Context, id uuid.UUID) (Namespace, err
 	return n, nil
 }
 
-func (m *memStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, limit int, _ string, includeTerminated bool) ([]Namespace, string, error) {
+var fakeNamespaceSortKeys = map[string]bool{
+	"": true, "name": true, "phase": true, "created_at": true, "updated_at": true,
+}
+
+func (m *memStore) ListNamespaces(_ context.Context, filter NamespaceListFilter, page ListPage) ([]Namespace, string, error) {
+	if !fakeNamespaceSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]Namespace, 0, len(m.nsByID))
 	for _, n := range m.nsByID { //nolint:gocritic // acceptable copy in test code
-		if clusterID != nil && n.ClusterId != *clusterID {
+		if filter.ClusterID != nil && n.ClusterId != *filter.ClusterID {
 			continue
 		}
-		// Filter out terminated namespaces unless includeTerminated is true.
+		if filter.Name != nil {
+			if !strings.Contains(strings.ToLower(n.Name), strings.ToLower(*filter.Name)) {
+				continue
+			}
+		}
+		// Filter out terminated namespaces unless IncludeTerminated is true.
 		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
-		_ = includeTerminated
+		_ = filter.IncludeTerminated
 		out = append(out, n)
 	}
 	if len(out) > limit {

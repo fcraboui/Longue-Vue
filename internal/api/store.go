@@ -246,6 +246,16 @@ type NodeStore interface {
 	BackfillNodeImages(ctx context.Context, images []NodeImage) (matched, updated int, err error)
 }
 
+// NamespaceListFilter — nil fields are ignored; set fields AND-combine
+// (same contract as NodeListFilter).
+type NamespaceListFilter struct {
+	ClusterID *uuid.UUID
+	// Name is the uniform name= filter: ci substring, or anchored
+	// glob when the term contains `*` (spec 2026-07-10).
+	Name              *string
+	IncludeTerminated bool
+}
+
 // NamespaceStore covers namespace CRUD, upsert, soft-delete, and reconcile.
 type NamespaceStore interface {
 	// CreateNamespace inserts a new namespace. Returns ErrNotFound when the
@@ -256,15 +266,10 @@ type NamespaceStore interface {
 	// GetNamespace fetches a namespace by id. Returns ErrNotFound if absent.
 	GetNamespace(ctx context.Context, id uuid.UUID) (Namespace, error)
 
-	// ListNamespaces returns up to limit namespaces after the given opaque
-	// cursor. When clusterID is non-nil, results are filtered to that cluster.
-	ListNamespaces(
-		ctx context.Context,
-		clusterID *uuid.UUID,
-		limit int,
-		cursor string,
-		includeTerminated bool,
-	) (items []Namespace, nextCursor string, err error)
+	// ListNamespaces returns a paged list of namespaces matching filter,
+	// sorted by page.Sort/page.Order. Unknown sort keys → ErrInvalidSort;
+	// mismatched cursor → ErrInvalidCursor.
+	ListNamespaces(ctx context.Context, filter NamespaceListFilter, page ListPage) (items []Namespace, nextCursor string, err error)
 
 	// UpdateNamespace applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the namespace does not exist.

@@ -113,10 +113,10 @@ func (f *fakeStore) GetNode(_ context.Context, id uuid.UUID) (api.Node, error) {
 
 // --- Namespaces ----
 
-func (f *fakeStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, _ int, _ string, _ bool) ([]api.Namespace, string, error) {
+func (f *fakeStore) ListNamespaces(_ context.Context, filter api.NamespaceListFilter, _ api.ListPage) ([]api.Namespace, string, error) {
 	out := make([]api.Namespace, 0, len(f.nss))
 	for _, n := range f.nss {
-		if clusterID != nil && n.ClusterId != *clusterID {
+		if filter.ClusterID != nil && n.ClusterId != *filter.ClusterID {
 			continue
 		}
 		out = append(out, n)

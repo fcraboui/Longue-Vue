@@ -299,7 +299,7 @@ func TestPGNamespaceCRUD(t *testing.T) {
 		t.Errorf("phase=%v", updated.Phase)
 	}
 
-	items, _, err := pg.ListNamespaces(ctx, cluster.Id, 10, "", false)
+	items, _, err := pg.ListNamespaces(ctx, api.NamespaceListFilter{ClusterID: cluster.Id}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

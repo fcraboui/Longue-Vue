@@ -20,7 +20,7 @@ import (
 type ExtractStore interface {
 	ListClusters(ctx context.Context, filter ClusterListFilter, page ListPage) ([]Cluster, string, error)
 	ListNodes(ctx context.Context, filter NodeListFilter, page ListPage) ([]Node, string, error)
-	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]Namespace, string, error)
+	ListNamespaces(ctx context.Context, filter NamespaceListFilter, page ListPage) ([]Namespace, string, error)
 	ListWorkloads(ctx context.Context, filter WorkloadListFilter, limit int, cursor string) ([]Workload, string, error)
 	ListPods(ctx context.Context, filter PodListFilter, limit int, cursor string) ([]Pod, string, error)
 	ListVirtualMachines(ctx context.Context, filter VirtualMachineListFilter, limit int, cursor string) ([]VirtualMachine, string, error)
@@ -564,7 +564,7 @@ func loadClusterNamespaceIndex(
 	nsByID = make(map[uuid.UUID]Namespace)
 	cursor := ""
 	for {
-		items, next, err := store.ListNamespaces(ctx, nil, extractPageSize, cursor, false)
+		items, next, err := store.ListNamespaces(ctx, NamespaceListFilter{}, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, nil, fmt.Errorf("loadClusterNamespaceIndex namespaces: %w", err)
 		}
