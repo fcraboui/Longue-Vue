@@ -18,7 +18,7 @@ import (
 
 // ExtractStore is the narrow slice of Store the extract handlers consume.
 type ExtractStore interface {
-	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) ([]Cluster, string, error)
+	ListClusters(ctx context.Context, filter ClusterListFilter, page ListPage) ([]Cluster, string, error)
 	ListNodes(ctx context.Context, filter NodeListFilter, page ListPage) ([]Node, string, error)
 	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]Namespace, string, error)
 	ListWorkloads(ctx context.Context, filter WorkloadListFilter, limit int, cursor string) ([]Workload, string, error)
@@ -272,7 +272,7 @@ func collectAllClusters(ctx context.Context, store ExtractStore) ([]Cluster, err
 	var out []Cluster
 	cursor := ""
 	for {
-		items, next, err := store.ListClusters(ctx, extractPageSize, cursor, false)
+		items, next, err := store.ListClusters(ctx, ClusterListFilter{}, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("listClusters: %w", err)
 		}

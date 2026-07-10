@@ -47,7 +47,7 @@ type Store interface {
 	GetSettings(ctx context.Context) (api.Settings, error)
 
 	// Clusters
-	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) ([]api.Cluster, string, error)
+	ListClusters(ctx context.Context, filter api.ClusterListFilter, page api.ListPage) ([]api.Cluster, string, error)
 	GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error)
 
 	// Nodes

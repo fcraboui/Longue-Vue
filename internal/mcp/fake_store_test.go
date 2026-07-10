@@ -62,7 +62,7 @@ func (f *fakeStore) GetSettings(_ context.Context) (api.Settings, error) {
 
 // --- Clusters ----
 
-func (f *fakeStore) ListClusters(_ context.Context, _ int, _ string, _ bool) ([]api.Cluster, string, error) {
+func (f *fakeStore) ListClusters(_ context.Context, _ api.ClusterListFilter, _ api.ListPage) ([]api.Cluster, string, error) {
 	if err := f.errOn["ListClusters"]; err != nil {
 		return nil, "", err
 	}

@@ -131,6 +131,14 @@ type Store interface {
 	Ping(ctx context.Context) error
 }
 
+// ClusterListFilter — uniform list filter for clusters. Name matches
+// case-insensitively over BOTH name and display_name (substring, or
+// anchored glob when the term contains `*`).
+type ClusterListFilter struct {
+	Name              *string
+	IncludeTerminated bool
+}
+
 // ClusterStore covers cluster CRUD, the idempotent EnsureCluster, and the
 // cascade soft-delete helpers.
 type ClusterStore interface {
@@ -159,9 +167,9 @@ type ClusterStore interface {
 	// Returns ErrNotFound when no cluster carries that name.
 	GetClusterByName(ctx context.Context, name string) (Cluster, error)
 
-	// ListClusters returns up to limit clusters after the given opaque cursor,
-	// plus the cursor for the next page (empty when exhausted).
-	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) (items []Cluster, nextCursor string, err error)
+	// ListClusters returns up to page.Limit clusters after the given cursor,
+	// filtered by filter, plus the cursor for the next page (empty when exhausted).
+	ListClusters(ctx context.Context, filter ClusterListFilter, page ListPage) (items []Cluster, nextCursor string, err error)
 
 	// UpdateCluster applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the cluster does not exist.

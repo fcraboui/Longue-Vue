@@ -172,17 +172,32 @@ func (m *memStore) GetClusterByName(_ context.Context, name string) (Cluster, er
 	return m.byID[id], nil
 }
 
-func (m *memStore) ListClusters(_ context.Context, limit int, _ string, includeTerminated bool) ([]Cluster, string, error) {
+var fakeClusterSortKeys = map[string]bool{
+	"": true, "name": true, "environment": true, "provider": true,
+	"region": true, "kubernetes_version": true, "created_at": true, "updated_at": true,
+}
+
+func (m *memStore) ListClusters(_ context.Context, filter ClusterListFilter, page ListPage) ([]Cluster, string, error) {
+	if !fakeClusterSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]Cluster, 0, len(m.byID))
 	for _, c := range m.byID { //nolint:gocritic // acceptable copy in test code
-		// Filter out terminated clusters unless includeTerminated is true.
-		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
-		_ = includeTerminated
+		// memStore doesn't track terminated_at; IncludeTerminated is accepted but a no-op.
+		if filter.Name != nil && *filter.Name != "" {
+			lower := strings.ToLower(*filter.Name)
+			nameMatch := strings.Contains(strings.ToLower(c.Name), lower)
+			displayMatch := c.DisplayName != nil && strings.Contains(strings.ToLower(*c.DisplayName), lower)
+			if !nameMatch && !displayMatch {
+				continue
+			}
+		}
 		out = append(out, c)
 	}
 	if len(out) > limit {

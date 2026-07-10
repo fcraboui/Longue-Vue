@@ -161,44 +161,45 @@ func (s *Server) GetReadyz(ctx context.Context, _ GetReadyzRequestObject) (GetRe
 
 // ── Clusters ─────────────────────────────────────────────────────────
 
-// ListClusters returns a paged list of clusters.
+// ListClusters returns a paged cluster list. name= is the uniform
+// ci-substring/glob filter (it USED to be an exact-match short-circuit
+// to GetClusterByName; recon 2026-07-10 found zero live callers of the
+// exact semantics — the push collector bootstraps via the idempotent
+// POST /v1/clusters, ADR-0016).
 //
-//nolint:gocyclo // parameter extraction and filtering logic; complexity is not branching
+//nolint:gocyclo // parameter extraction; if-chains are unavoidable for optional pointer params
 func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject) (ListClustersResponseObject, error) {
-	// Exact name filter: short-circuit to GetClusterByName and return a
-	// single-item list (or empty). Used by the push collector to resolve
-	// its cluster record without paginating.
-	if req.Params.Name != nil && *req.Params.Name != "" {
-		c, err := s.store.GetClusterByName(ctx, *req.Params.Name)
-		if err != nil {
-			if errors.Is(err, ErrNotFound) {
-				return ListClusters200JSONResponse(ClusterList{Items: []Cluster{}}), nil
-			}
-			return nil, fmt.Errorf("getClusterByName: %w", err)
-		}
-		c = withClusterLayer(c)
-		return ListClusters200JSONResponse(ClusterList{Items: []Cluster{c}}), nil
-	}
-
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
 	}
-
-	includeTerminated := false
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := ClusterListFilter{}
+	if req.Params.Name != nil && *req.Params.Name != "" {
+		n := *req.Params.Name
+		filter.Name = &n
+	}
 	if req.Params.IncludeTerminated != nil {
-		includeTerminated = *req.Params.IncludeTerminated
+		filter.IncludeTerminated = *req.Params.IncludeTerminated
 	}
 
-	items, next, err := s.store.ListClusters(ctx, limit, cursor, includeTerminated)
+	items, next, err := s.store.ListClusters(ctx, filter, page)
 	if err != nil {
-		return nil, fmt.Errorf("listClusters: %w", err)
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListClusters400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
+		return nil, storeErr("listClusters", err)
 	}
-
 	for i := range items {
 		items[i] = withClusterLayer(items[i])
 	}

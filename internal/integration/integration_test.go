@@ -495,6 +495,19 @@ func TestClusterCRUD(t *testing.T) {
 		t.Fatalf("list: expected 1 item, got %d", len(listed.Items))
 	}
 
+	// Uniform list contract: name= is now a ci substring / glob.
+	status = env.doJSON(t, http.MethodGet, "/v1/clusters?name=test", "", &listed)
+	if status != http.StatusOK {
+		t.Fatalf("substring list: status %d", status)
+	}
+	if len(listed.Items) != 1 {
+		t.Fatalf("substring list: expected 1 item, got %d", len(listed.Items))
+	}
+	status = env.doJSON(t, http.MethodGet, "/v1/clusters?name=test-*", "", &listed)
+	if status != http.StatusOK || len(listed.Items) != 1 {
+		t.Fatalf("glob list: status=%d items=%d", status, len(listed.Items))
+	}
+
 	// PATCH
 	patched := patchClusterViaAPI(t, env, clusterID, `{"kubernetes_version":"v1.29.1"}`)
 	if patched.KubernetesVersion == nil || *patched.KubernetesVersion != "v1.29.1" {

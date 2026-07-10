@@ -178,7 +178,7 @@ func newExtractStubStore() *extractStubStore {
 	}
 }
 
-func (s *extractStubStore) ListClusters(_ context.Context, _ int, _ string, _ bool) ([]api.Cluster, string, error) {
+func (s *extractStubStore) ListClusters(_ context.Context, _ api.ClusterListFilter, _ api.ListPage) ([]api.Cluster, string, error) {
 	return s.clusters, "", nil
 }
 

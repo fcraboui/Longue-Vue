@@ -393,8 +393,6 @@ func orderBy(col sortColumn, idExpr, dir string) string {
 // the cursor's serialized sort value (nil = the cursor row sat in the
 // NULLS LAST region). Placeholders are numbered $len(args) after each
 // append, matching the package-wide convention.
-//
-//nolint:unparam // idExpr is always "n.id" while nodes is the only migrated entity; later list rewrites pass their own alias
 func keysetCond(col sortColumn, idExpr, dir string, val *string, id uuid.UUID, conds *[]string, args *[]any) error {
 	op := ">"
 	if dir == dirDesc {

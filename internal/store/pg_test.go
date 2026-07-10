@@ -2535,7 +2535,7 @@ func TestPGListPagination(t *testing.T) {
 		}
 	}
 
-	page1, next, err := pg.ListClusters(ctx, 2, "", false)
+	page1, next, err := pg.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{Limit: 2})
 	if err != nil {
 		t.Fatalf("list page1: %v", err)
 	}
@@ -2546,7 +2546,7 @@ func TestPGListPagination(t *testing.T) {
 		t.Fatal("next cursor empty after page1")
 	}
 
-	page2, next, err := pg.ListClusters(ctx, 2, next, false)
+	page2, next, err := pg.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{Limit: 2, Cursor: next})
 	if err != nil {
 		t.Fatalf("list page2: %v", err)
 	}
@@ -2554,7 +2554,7 @@ func TestPGListPagination(t *testing.T) {
 		t.Fatalf("page2 len=%d, want 2", len(page2))
 	}
 
-	page3, next, err := pg.ListClusters(ctx, 2, next, false)
+	page3, next, err := pg.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{Limit: 2, Cursor: next})
 	if err != nil {
 		t.Fatalf("list page3: %v", err)
 	}

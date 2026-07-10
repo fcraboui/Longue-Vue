@@ -343,7 +343,7 @@ func (s *Server) handleListClusters(ctx context.Context, request mcp.CallToolReq
 	defer func() { metrics.ObserveMCPToolCall("list_clusters", time.Since(start)) }()
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Cluster, string, error) {
-		return s.store.ListClusters(ctx, maxPageSize, cursor, false)
+		return s.store.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list clusters: %w", err)
@@ -816,7 +816,7 @@ func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRe
 	defer func() { metrics.ObserveMCPToolCall("get_eol_summary", time.Since(start)) }()
 
 	clusters, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Cluster, string, error) {
-		return s.store.ListClusters(ctx, maxPageSize, cursor, false)
+		return s.store.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list clusters for eol: %w", err)

@@ -20,7 +20,7 @@ const annotationPrefix = "longue-vue.io/eol."
 // EnricherStore is the narrow subset of api.Store the enricher needs.
 type EnricherStore interface {
 	GetSettings(ctx context.Context) (api.Settings, error)
-	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) ([]api.Cluster, string, error)
+	ListClusters(ctx context.Context, filter api.ClusterListFilter, page api.ListPage) ([]api.Cluster, string, error)
 	GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error)
 	UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error)
 	ListNodes(ctx context.Context, filter api.NodeListFilter, page api.ListPage) ([]api.Node, string, error)
@@ -89,7 +89,7 @@ func (e *Enricher) enrich(ctx context.Context) {
 
 	cursor := ""
 	for {
-		clusters, next, err := e.store.ListClusters(ctx, 100, cursor, false)
+		clusters, next, err := e.store.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{Limit: 100, Cursor: cursor})
 		if err != nil {
 			slog.Error("eol enricher: list clusters", slog.Any("error", err))
 			metrics.ObserveEOLError("_all_", "cluster", "list")
