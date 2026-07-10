@@ -63,12 +63,12 @@ func (s *fakeStore) UpdateCluster(_ context.Context, id uuid.UUID, in api.Cluste
 	return api.Cluster{}, api.ErrNotFound
 }
 
-func (s *fakeStore) ListNodes(_ context.Context, clusterID *uuid.UUID, _ int, _ string, _ bool) ([]api.Node, string, error) {
+func (s *fakeStore) ListNodes(_ context.Context, filter api.NodeListFilter, _ api.ListPage) ([]api.Node, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var result []api.Node
 	for i := range s.nodes {
-		if clusterID == nil || s.nodes[i].ClusterId == *clusterID {
+		if filter.ClusterID == nil || s.nodes[i].ClusterId == *filter.ClusterID {
 			result = append(result, s.nodes[i])
 		}
 	}

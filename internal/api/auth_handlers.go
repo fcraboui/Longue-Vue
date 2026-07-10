@@ -931,6 +931,8 @@ func (s *Server) RevokeSession(ctx context.Context, request RevokeSessionRequest
 // ── /v1/admin/audit ──────────────────────────────────────────────────
 
 // ListAuditEvents returns a filtered, paged list of audit events.
+//
+//nolint:gocritic // hugeParam: generated StrictServerInterface mandates the value param
 func (s *Server) ListAuditEvents(ctx context.Context, request ListAuditEventsRequestObject) (ListAuditEventsResponseObject, error) {
 	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
 	filter := AuditEventFilter{

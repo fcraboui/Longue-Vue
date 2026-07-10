@@ -446,9 +446,10 @@ type pagingFakeStore struct {
 	pageCalls int
 }
 
-func (p *pagingFakeStore) ListNodes(_ context.Context, clusterID *uuid.UUID, _ int, cursor string, _ bool) ([]api.Node, string, error) {
+func (p *pagingFakeStore) ListNodes(_ context.Context, filter api.NodeListFilter, page api.ListPage) ([]api.Node, string, error) {
 	p.pageCalls++
-	if cursor == "" {
+	clusterID := filter.ClusterID
+	if page.Cursor == "" {
 		return []api.Node{{Id: ptrUUID(uuid.New()), ClusterId: *clusterID, Name: "n1"}}, "page2", nil
 	}
 	return []api.Node{{Id: ptrUUID(uuid.New()), ClusterId: *clusterID, Name: "n2"}}, "", nil

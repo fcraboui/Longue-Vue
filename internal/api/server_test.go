@@ -416,24 +416,28 @@ func (m *memStore) GetNode(_ context.Context, id uuid.UUID) (Node, error) {
 	return n, nil
 }
 
-func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int, _ string, includeTerminated bool) ([]Node, string, error) {
+var fakeNodeSortKeys = map[string]bool{
+	"": true, "name": true, "role": true, "zone": true,
+	"instance_type": true, "created_at": true, "updated_at": true,
+}
+
+func (m *memStore) ListNodes(_ context.Context, filter NodeListFilter, page ListPage) ([]Node, string, error) {
+	if !fakeNodeSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if limit <= 0 {
-		limit = 50
-	}
-	out := make([]Node, 0, len(m.nodesByID))
+	out := []Node{}
 	for _, n := range m.nodesByID { //nolint:gocritic // acceptable copy in test code
-		if clusterID != nil && n.ClusterId != *clusterID {
+		if filter.ClusterID != nil && n.ClusterId != *filter.ClusterID {
 			continue
 		}
-		// Filter out terminated nodes unless includeTerminated is true.
-		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
-		_ = includeTerminated
+		if filter.Name != nil {
+			if !strings.Contains(strings.ToLower(n.Name), strings.ToLower(*filter.Name)) {
+				continue
+			}
+		}
 		out = append(out, n)
-	}
-	if len(out) > limit {
-		out = out[:limit]
 	}
 	return out, "", nil
 }
@@ -3020,6 +3024,19 @@ func TestDeleteClusterAuditEnrichment(t *testing.T) { //nolint:gocyclo // end-to
 // Application store methods live in server_application_fake_test.go
 // (real in-memory impl, used by the application handler tests).
 // ApplicationBlock methods live in server_application_block_fake_test.go.
+
+func TestListNodesBadSortReturns400Problem(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t, newMemStore())
+
+	rr := do(h, http.MethodGet, "/v1/nodes?sort=bogus", "")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%q, want 400", rr.Code, rr.Body.String())
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("content-type=%q, want application/problem+json", ct)
+	}
+}
 
 func do(h http.Handler, method, target, body string) *httptest.ResponseRecorder {
 	req, _ := http.NewRequestWithContext(context.Background(), method, target, strings.NewReader(body))

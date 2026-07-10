@@ -27,7 +27,7 @@ type TraverserStore interface {
 	GetPersistentVolume(ctx context.Context, id uuid.UUID) (api.PersistentVolume, error)
 	GetPersistentVolumeClaim(ctx context.Context, id uuid.UUID) (api.PersistentVolumeClaim, error)
 
-	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Node, string, error)
+	ListNodes(ctx context.Context, filter api.NodeListFilter, page api.ListPage) ([]api.Node, string, error)
 	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Namespace, string, error)
 	ListPods(ctx context.Context, filter api.PodListFilter, limit int, cursor string) ([]api.Pod, string, error)
 	ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, limit int, cursor string) ([]api.Workload, string, error)
@@ -272,7 +272,7 @@ func (b *builder) expand(ctx context.Context, node GraphNode, depth int) error {
 func (b *builder) expandCluster(ctx context.Context, id uuid.UUID, nodeID string, depth int) error {
 	// downstream: nodes
 	nodes, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Node, string, error) {
-		return b.store.ListNodes(ctx, &id, maxPageSize, cursor, false)
+		return b.store.ListNodes(ctx, api.NodeListFilter{ClusterID: &id}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return fmt.Errorf("list nodes: %w", err)
@@ -483,7 +483,7 @@ func (b *builder) expandPod(ctx context.Context, id uuid.UUID, nodeID string, de
 		ns, err := b.store.GetNamespace(ctx, p.NamespaceId)
 		if err == nil {
 			allNodes, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Node, string, error) {
-				return b.store.ListNodes(ctx, &ns.ClusterId, maxPageSize, cursor, false)
+				return b.store.ListNodes(ctx, api.NodeListFilter{ClusterID: &ns.ClusterId}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 			})
 			if err == nil {
 				for i := range allNodes {

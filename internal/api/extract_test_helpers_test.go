@@ -182,7 +182,7 @@ func (s *extractStubStore) ListClusters(_ context.Context, _ int, _ string, _ bo
 	return s.clusters, "", nil
 }
 
-func (s *extractStubStore) ListNodes(_ context.Context, _ *uuid.UUID, _ int, _ string, _ bool) ([]api.Node, string, error) {
+func (s *extractStubStore) ListNodes(_ context.Context, _ api.NodeListFilter, _ api.ListPage) ([]api.Node, string, error) {
 	return s.nodes, "", nil
 }
 

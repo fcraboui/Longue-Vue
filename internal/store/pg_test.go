@@ -185,7 +185,7 @@ func TestPGNodeCRUD(t *testing.T) {
 		t.Errorf("architecture=%v", updated.Architecture)
 	}
 
-	items, _, err := pg.ListNodes(ctx, cluster.Id, 10, "", false)
+	items, _, err := pg.ListNodes(ctx, api.NodeListFilter{ClusterID: cluster.Id}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list filtered: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestPGNodeCRUD(t *testing.T) {
 	}
 
 	other := uuid.New()
-	items, _, err = pg.ListNodes(ctx, &other, 10, "", false)
+	items, _, err = pg.ListNodes(ctx, api.NodeListFilter{ClusterID: &other}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list foreign cluster: %v", err)
 	}
@@ -492,7 +492,7 @@ func TestPGListNodes_ExcludesTerminatedByDefault(t *testing.T) {
 	}
 
 	cid := *cluster.Id
-	items, _, err := pg.ListNodes(ctx, &cid, 50, "", false)
+	items, _, err := pg.ListNodes(ctx, api.NodeListFilter{ClusterID: &cid}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +500,7 @@ func TestPGListNodes_ExcludesTerminatedByDefault(t *testing.T) {
 		t.Fatalf("default len=%d, want 2", len(items))
 	}
 
-	items, _, err = pg.ListNodes(ctx, &cid, 50, "", true)
+	items, _, err = pg.ListNodes(ctx, api.NodeListFilter{ClusterID: &cid, IncludeTerminated: true}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}

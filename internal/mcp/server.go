@@ -51,7 +51,7 @@ type Store interface {
 	GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error)
 
 	// Nodes
-	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Node, string, error)
+	ListNodes(ctx context.Context, filter api.NodeListFilter, page api.ListPage) ([]api.Node, string, error)
 	GetNode(ctx context.Context, id uuid.UUID) (api.Node, error)
 
 	// Namespaces

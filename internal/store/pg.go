@@ -288,7 +288,13 @@ type listCursor struct {
 // encodeListCursor mints the opaque cursor for the row whose sort-column
 // value is val (already serialized: lowercased text, or RFC3339Nano time).
 func encodeListCursor(col string, val *string, id uuid.UUID, dir string) string {
-	raw, _ := json.Marshal(listCursor{V: 1, Col: col, Val: val, ID: id, Dir: dir})
+	raw, err := json.Marshal(listCursor{V: 1, Col: col, Val: val, ID: id, Dir: dir})
+	if err != nil {
+		// Unreachable: every listCursor field marshals without error
+		// (uuid.UUID's MarshalText never fails). An empty cursor merely
+		// ends pagination early rather than corrupting a page.
+		return ""
+	}
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
@@ -322,6 +328,13 @@ const (
 	sortText
 )
 
+// dirAsc / dirDesc are the two order= directions accepted by list
+// endpoints and recorded in cursors.
+const (
+	dirAsc  = "asc"
+	dirDesc = "desc"
+)
+
 // sortColumn describes one sortable column of a paginated list query.
 // expr is a trusted SQL expression (a package constant — never derived
 // from user input). nullable columns sort NULLS LAST and get a
@@ -343,18 +356,18 @@ type sortSpec struct {
 // resolve validates page.Sort/page.Order against the allowlist.
 // "" Sort → (defaultKey, "desc"): unsorted requests keep the
 // historical order. "" Order with an explicit Sort → "asc".
-func (s sortSpec) resolve(page api.ListPage) (string, sortColumn, string, error) {
-	key := page.Sort
-	dir := page.Order
+func (s sortSpec) resolve(page api.ListPage) (key string, col sortColumn, dir string, err error) {
+	key = page.Sort
+	dir = page.Order
 	if key == "" {
 		key = s.defaultKey
 		// order= is documented as ignored when sort= is absent — the
 		// historical implicit order (DESC) always applies.
-		dir = "desc"
+		dir = dirDesc
 	} else if dir == "" {
-		dir = "asc"
+		dir = dirAsc
 	}
-	if dir != "asc" && dir != "desc" {
+	if dir != dirAsc && dir != dirDesc {
 		return "", sortColumn{}, "", fmt.Errorf("%w: order %q", api.ErrInvalidSort, page.Order)
 	}
 	col, ok := s.columns[key]
@@ -378,9 +391,11 @@ func orderBy(col sortColumn, idExpr, dir string) string {
 // the cursor's serialized sort value (nil = the cursor row sat in the
 // NULLS LAST region). Placeholders are numbered $len(args) after each
 // append, matching the package-wide convention.
+//
+//nolint:unparam // idExpr is always "n.id" while nodes is the only migrated entity; later list rewrites pass their own alias
 func keysetCond(col sortColumn, idExpr, dir string, val *string, id uuid.UUID, conds *[]string, args *[]any) error {
 	op := ">"
-	if dir == "desc" {
+	if dir == dirDesc {
 		op = "<"
 	}
 	if val == nil {

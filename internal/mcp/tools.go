@@ -406,7 +406,7 @@ func (s *Server) handleListNodes(ctx context.Context, request mcp.CallToolReques
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Node, string, error) {
-		return s.store.ListNodes(ctx, clusterID, maxPageSize, cursor, false)
+		return s.store.ListNodes(ctx, api.NodeListFilter{ClusterID: clusterID}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list nodes: %w", err)
@@ -823,7 +823,7 @@ func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRe
 	}
 
 	nodes, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Node, string, error) {
-		return s.store.ListNodes(ctx, nil, maxPageSize, cursor, false)
+		return s.store.ListNodes(ctx, api.NodeListFilter{}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list nodes for eol: %w", err)

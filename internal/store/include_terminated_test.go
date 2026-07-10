@@ -73,7 +73,7 @@ func TestListNodesIncludeTerminated(t *testing.T) {
 
 	// Test 1: ListNodes with includeTerminated=false (default).
 	// Should return 2 nodes (live-1 and live-2).
-	items, _, err := pg.ListNodes(ctx, cluster.Id, 0, "", false)
+	items, _, err := pg.ListNodes(ctx, api.NodeListFilter{ClusterID: cluster.Id}, api.ListPage{})
 	if err != nil {
 		t.Fatalf("ListNodes (includeTerminated=false): %v", err)
 	}
@@ -86,7 +86,7 @@ func TestListNodesIncludeTerminated(t *testing.T) {
 
 	// Test 2: ListNodes with includeTerminated=true.
 	// Should return 3 nodes (live-1, live-2, and soon-dead).
-	items, _, err = pg.ListNodes(ctx, cluster.Id, 0, "", true)
+	items, _, err = pg.ListNodes(ctx, api.NodeListFilter{ClusterID: cluster.Id, IncludeTerminated: true}, api.ListPage{})
 	if err != nil {
 		t.Fatalf("ListNodes (includeTerminated=true): %v", err)
 	}

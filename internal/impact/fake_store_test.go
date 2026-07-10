@@ -138,14 +138,14 @@ func (f *fakeStore) GetPersistentVolumeClaim(_ context.Context, id uuid.UUID) (a
 // the filter in a single page (cursor "" on return). The pagination test
 // uses a dedicated pager (see pagingFakeStore in traverser_test.go).
 
-func (f *fakeStore) ListNodes(_ context.Context, clusterID *uuid.UUID, _ int, _ string, _ bool) ([]api.Node, string, error) {
+func (f *fakeStore) ListNodes(_ context.Context, filter api.NodeListFilter, _ api.ListPage) ([]api.Node, string, error) {
 	f.bump("ListNodes")
 	if err := f.errOn["ListNodes"]; err != nil {
 		return nil, "", err
 	}
 	out := make([]api.Node, 0, len(f.nodes))
 	for _, n := range f.nodes {
-		if clusterID != nil && n.ClusterId != *clusterID {
+		if filter.ClusterID != nil && n.ClusterId != *filter.ClusterID {
 			continue
 		}
 		out = append(out, n)

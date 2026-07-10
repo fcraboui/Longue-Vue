@@ -23,7 +23,7 @@ type EnricherStore interface {
 	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) ([]api.Cluster, string, error)
 	GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error)
 	UpdateCluster(ctx context.Context, id uuid.UUID, in api.ClusterUpdate) (api.Cluster, error)
-	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Node, string, error)
+	ListNodes(ctx context.Context, filter api.NodeListFilter, page api.ListPage) ([]api.Node, string, error)
 	GetNode(ctx context.Context, id uuid.UUID) (api.Node, error)
 	UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (api.Node, error)
 	ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, limit int, cursor string) ([]api.VirtualMachine, string, error)
@@ -175,7 +175,7 @@ func (e *Enricher) enrichClusterVersion(ctx context.Context, clusterID uuid.UUID
 func (e *Enricher) enrichClusterNodes(ctx context.Context, clusterID uuid.UUID, clusterName string) {
 	nodeCursor := ""
 	for {
-		nodes, next, err := e.store.ListNodes(ctx, &clusterID, 100, nodeCursor, false)
+		nodes, next, err := e.store.ListNodes(ctx, api.NodeListFilter{ClusterID: &clusterID}, api.ListPage{Limit: 100, Cursor: nodeCursor})
 		if err != nil {
 			slog.Error("eol enricher: list nodes",
 				slog.Any("error", err), slog.String("cluster", clusterName))

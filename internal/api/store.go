@@ -182,6 +182,16 @@ type ClusterStore interface {
 	CountClusterChildren(ctx context.Context, clusterID uuid.UUID) (CascadeCounts, error)
 }
 
+// NodeListFilter — nil fields are ignored; set fields AND-combine
+// (same contract as PodListFilter).
+type NodeListFilter struct {
+	ClusterID *uuid.UUID
+	// Name is the uniform name= filter: ci substring, or anchored
+	// glob when the term contains `*` (spec 2026-07-10).
+	Name              *string
+	IncludeTerminated bool
+}
+
 // NodeStore covers node CRUD, upsert, and reconcile.
 type NodeStore interface {
 	// CreateNode inserts a new node. Returns ErrNotFound when the parent
@@ -192,15 +202,10 @@ type NodeStore interface {
 	// GetNode fetches a node by id. Returns ErrNotFound if absent.
 	GetNode(ctx context.Context, id uuid.UUID) (Node, error)
 
-	// ListNodes returns up to limit nodes after the given opaque cursor. When
-	// clusterID is non-nil, results are filtered to that cluster.
-	ListNodes(
-		ctx context.Context,
-		clusterID *uuid.UUID,
-		limit int,
-		cursor string,
-		includeTerminated bool,
-	) (items []Node, nextCursor string, err error)
+	// ListNodes returns a paged list of nodes matching filter, sorted by
+	// page.Sort/page.Order. Unknown sort keys → ErrInvalidSort; mismatched
+	// cursor → ErrInvalidCursor.
+	ListNodes(ctx context.Context, filter NodeListFilter, page ListPage) (items []Node, nextCursor string, err error)
 
 	// UpdateNode applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the node does not exist.

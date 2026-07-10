@@ -37,9 +37,9 @@ func TestNamePattern(t *testing.T) {
 func TestListCursorRoundTrip(t *testing.T) {
 	id := uuid.New()
 	val := "widget-7"
-	enc := encodeListCursor("name", &val, id, "asc")
+	enc := encodeListCursor("name", &val, id, dirAsc)
 
-	gotVal, gotID, err := decodeListCursor(enc, "name", "asc")
+	gotVal, gotID, err := decodeListCursor(enc, "name", dirAsc)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -53,8 +53,8 @@ func TestListCursorRoundTrip(t *testing.T) {
 
 func TestListCursorNullVal(t *testing.T) {
 	id := uuid.New()
-	enc := encodeListCursor("owner", nil, id, "asc")
-	gotVal, gotID, err := decodeListCursor(enc, "owner", "asc")
+	enc := encodeListCursor("owner", nil, id, dirAsc)
+	gotVal, gotID, err := decodeListCursor(enc, "owner", dirAsc)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -69,18 +69,18 @@ func TestListCursorNullVal(t *testing.T) {
 func TestListCursorRejectsMismatchAndGarbage(t *testing.T) {
 	id := uuid.New()
 	val := "x"
-	enc := encodeListCursor("name", &val, id, "asc")
+	enc := encodeListCursor("name", &val, id, dirAsc)
 
 	cases := []struct {
-		name          string
-		cursor        string
+		name             string
+		cursor           string
 		wantCol, wantDir string
 	}{
-		{"different sort column", enc, "created_at", "asc"},
-		{"different direction", enc, "name", "desc"},
-		{"garbage", "not-base64!!", "name", "asc"},
-		{"legacy pipe cursor", encodeCursor(timeNowFixed(t), id), "created_at", "desc"},
-		{"valid b64, not json", "aGVsbG8", "name", "asc"},
+		{"different sort column", enc, "created_at", dirAsc},
+		{"different direction", enc, "name", dirDesc},
+		{"garbage", "not-base64!!", "name", dirAsc},
+		{"legacy pipe cursor", encodeCursor(timeNowFixed(t), id), "created_at", dirDesc},
+		{"valid b64, not json", "aGVsbG8", "name", dirAsc},
 	}
 	for _, tc := range cases {
 		_, _, err := decodeListCursor(tc.cursor, tc.wantCol, tc.wantDir)
@@ -109,20 +109,21 @@ var testSpec = sortSpec{
 	defaultKey: "created_at",
 }
 
+//nolint:gocyclo // sequential assertion script; no real branching
 func TestSortSpecResolve(t *testing.T) {
 	// No sort → default key, desc (historical order preserved).
 	key, _, dir, err := testSpec.resolve(api.ListPage{})
-	if err != nil || key != "created_at" || dir != "desc" {
+	if err != nil || key != "created_at" || dir != dirDesc {
 		t.Fatalf("default: key=%q dir=%q err=%v, want created_at/desc/nil", key, dir, err)
 	}
 	// Explicit sort, no order → asc.
 	key, _, dir, err = testSpec.resolve(api.ListPage{Sort: "name"})
-	if err != nil || key != "name" || dir != "asc" {
+	if err != nil || key != "name" || dir != dirAsc {
 		t.Fatalf("sort=name: key=%q dir=%q err=%v, want name/asc/nil", key, dir, err)
 	}
 	// Explicit desc honored.
-	_, _, dir, err = testSpec.resolve(api.ListPage{Sort: "name", Order: "desc"})
-	if err != nil || dir != "desc" {
+	_, _, dir, err = testSpec.resolve(api.ListPage{Sort: "name", Order: dirDesc})
+	if err != nil || dir != dirDesc {
 		t.Fatalf("order=desc: dir=%q err=%v", dir, err)
 	}
 	// Unknown key / bad order → ErrInvalidSort.
@@ -133,8 +134,8 @@ func TestSortSpecResolve(t *testing.T) {
 		t.Errorf("bad order: err=%v, want ErrInvalidSort", err)
 	}
 	// order without sort is ignored — historical order preserved.
-	key, _, dir, err = testSpec.resolve(api.ListPage{Order: "asc"})
-	if err != nil || key != "created_at" || dir != "desc" {
+	key, _, dir, err = testSpec.resolve(api.ListPage{Order: dirAsc})
+	if err != nil || key != "created_at" || dir != dirDesc {
 		t.Fatalf("order-no-sort: key=%q dir=%q err=%v, want created_at/desc/nil", key, dir, err)
 	}
 }
@@ -145,10 +146,10 @@ func TestOrderBy(t *testing.T) {
 		dir  string
 		want string
 	}{
-		{testSpec.columns["created_at"], "desc", "ORDER BY n.created_at DESC, n.id DESC"},
-		{testSpec.columns["name"], "asc", "ORDER BY LOWER(n.name) ASC, n.id ASC"},
-		{testSpec.columns["zone"], "asc", "ORDER BY LOWER(n.zone) ASC NULLS LAST, n.id ASC"},
-		{testSpec.columns["zone"], "desc", "ORDER BY LOWER(n.zone) DESC NULLS LAST, n.id DESC"},
+		{testSpec.columns["created_at"], dirDesc, "ORDER BY n.created_at DESC, n.id DESC"},
+		{testSpec.columns["name"], dirAsc, "ORDER BY LOWER(n.name) ASC, n.id ASC"},
+		{testSpec.columns["zone"], dirAsc, "ORDER BY LOWER(n.zone) ASC NULLS LAST, n.id ASC"},
+		{testSpec.columns["zone"], dirDesc, "ORDER BY LOWER(n.zone) DESC NULLS LAST, n.id DESC"},
 	}
 	for _, tc := range cases {
 		if got := orderBy(tc.col, "n.id", tc.dir); got != tc.want {
@@ -157,6 +158,7 @@ func TestOrderBy(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // sequential assertion script over the predicate matrix; no real branching
 func TestKeysetCond(t *testing.T) {
 	id := uuid.New()
 	v := "widget"
@@ -164,7 +166,7 @@ func TestKeysetCond(t *testing.T) {
 
 	// Non-nullable text asc → row-value comparison, 2 args (string, uuid).
 	conds, args := []string{}, []any{}
-	if err := keysetCond(testSpec.columns["name"], "n.id", "asc", &v, id, &conds, &args); err != nil {
+	if err := keysetCond(testSpec.columns["name"], "n.id", dirAsc, &v, id, &conds, &args); err != nil {
 		t.Fatal(err)
 	}
 	if len(conds) != 1 || conds[0] != "(LOWER(n.name), n.id) > ($1, $2)" {
@@ -176,7 +178,7 @@ func TestKeysetCond(t *testing.T) {
 
 	// Non-nullable time desc → row-value <, arg parsed to time.Time.
 	conds, args = []string{}, []any{}
-	if err := keysetCond(testSpec.columns["created_at"], "n.id", "desc", &ts, id, &conds, &args); err != nil {
+	if err := keysetCond(testSpec.columns["created_at"], "n.id", dirDesc, &ts, id, &conds, &args); err != nil {
 		t.Fatal(err)
 	}
 	if conds[0] != "(n.created_at, n.id) < ($1, $2)" {
@@ -188,7 +190,7 @@ func TestKeysetCond(t *testing.T) {
 
 	// Nullable asc with value → OR-form including IS NULL region.
 	conds, args = []string{}, []any{}
-	if err := keysetCond(testSpec.columns["zone"], "n.id", "asc", &v, id, &conds, &args); err != nil {
+	if err := keysetCond(testSpec.columns["zone"], "n.id", dirAsc, &v, id, &conds, &args); err != nil {
 		t.Fatal(err)
 	}
 	want := "(LOWER(n.zone) > $1 OR (LOWER(n.zone) = $1 AND n.id > $2) OR LOWER(n.zone) IS NULL)"
@@ -198,7 +200,7 @@ func TestKeysetCond(t *testing.T) {
 
 	// Nullable, cursor inside the NULL region (val nil).
 	conds, args = []string{}, []any{}
-	if err := keysetCond(testSpec.columns["zone"], "n.id", "asc", nil, id, &conds, &args); err != nil {
+	if err := keysetCond(testSpec.columns["zone"], "n.id", dirAsc, nil, id, &conds, &args); err != nil {
 		t.Fatal(err)
 	}
 	if conds[0] != "(LOWER(n.zone) IS NULL AND n.id > $1)" {
@@ -211,19 +213,19 @@ func TestKeysetCond(t *testing.T) {
 	// Bad time value in cursor → ErrInvalidCursor.
 	bad := "not-a-time"
 	conds, args = []string{}, []any{}
-	if err := keysetCond(testSpec.columns["created_at"], "n.id", "asc", &bad, id, &conds, &args); !errors.Is(err, api.ErrInvalidCursor) {
+	if err := keysetCond(testSpec.columns["created_at"], "n.id", dirAsc, &bad, id, &conds, &args); !errors.Is(err, api.ErrInvalidCursor) {
 		t.Errorf("bad time: err=%v, want ErrInvalidCursor", err)
 	}
 
 	// Nil val on a non-nullable column → corrupt cursor.
 	conds, args = []string{}, []any{}
-	if err := keysetCond(testSpec.columns["name"], "n.id", "asc", nil, id, &conds, &args); !errors.Is(err, api.ErrInvalidCursor) {
+	if err := keysetCond(testSpec.columns["name"], "n.id", dirAsc, nil, id, &conds, &args); !errors.Is(err, api.ErrInvalidCursor) {
 		t.Errorf("nil val non-nullable: err=%v, want ErrInvalidCursor", err)
 	}
 
 	// Nullable desc with value → OR-form with < and IS NULL tail.
 	conds, args = []string{}, []any{}
-	if err := keysetCond(testSpec.columns["zone"], "n.id", "desc", &v, id, &conds, &args); err != nil {
+	if err := keysetCond(testSpec.columns["zone"], "n.id", dirDesc, &v, id, &conds, &args); err != nil {
 		t.Fatal(err)
 	}
 	wantDesc := "(LOWER(n.zone) < $1 OR (LOWER(n.zone) = $1 AND n.id < $2) OR LOWER(n.zone) IS NULL)"

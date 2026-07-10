@@ -136,6 +136,13 @@ func storeErr(op string, err error) error {
 	return fmt.Errorf("%s: %w", op, err)
 }
 
+// listBadRequest builds the 400 problem body for ErrInvalidCursor /
+// ErrInvalidSort returned by List* store methods.
+func listBadRequest(err error) Problem {
+	detail := err.Error()
+	return Problem{Type: "about:blank", Title: "Bad Request", Status: http.StatusBadRequest, Detail: &detail}
+}
+
 // ── Health probes ────────────────────────────────────────────────────
 
 // GetHealthz reports that the process is alive.
@@ -347,24 +354,39 @@ func clusterDeletionSnapshot(c *Cluster, counts CascadeCounts) map[string]any {
 
 // ── Nodes ────────────────────────────────────────────────────────────
 
-// ListNodes returns a paged list of nodes, optionally filtered by cluster_id.
+// ListNodes returns a paged list of nodes, optionally filtered by cluster_id and/or name.
+//
+//nolint:gocyclo // parameter extraction and error mapping; complexity is not branching
 func (s *Server) ListNodes(ctx context.Context, req ListNodesRequestObject) (ListNodesResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
 	}
-
-	includeTerminated := false
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := NodeListFilter{ClusterID: req.Params.ClusterId}
+	if req.Params.Name != nil {
+		n := *req.Params.Name
+		filter.Name = &n
+	}
 	if req.Params.IncludeTerminated != nil {
-		includeTerminated = *req.Params.IncludeTerminated
+		filter.IncludeTerminated = *req.Params.IncludeTerminated
 	}
 
-	items, next, err := s.store.ListNodes(ctx, req.Params.ClusterId, limit, cursor, includeTerminated)
+	items, next, err := s.store.ListNodes(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListNodes400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
 		return nil, storeErr("listNodes", err)
 	}
 
