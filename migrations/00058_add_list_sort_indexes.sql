@@ -1,6 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
--- Uniform list search & sort (spec 2026-07-10, ADR-0039).
+-- Uniform list search & sort (spec 2026-07-10, ADR-0042).
 --
 -- (LOWER(name), id) composites on the three large tables back the new
 -- sort-by-name keyset pagination AND left-anchored `name=du*` glob

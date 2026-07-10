@@ -35,7 +35,7 @@ var (
 )
 
 // ListPage carries the uniform pagination + sort controls shared by
-// every paginated List* method (ADR-0039). The zero value means: first
+// every paginated List* method (ADR-0042). The zero value means: first
 // page, default page size, the entity's historical default order.
 type ListPage struct {
 	Limit  int

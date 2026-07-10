@@ -271,7 +271,7 @@ func decodeCursor(c string) (time.Time, uuid.UUID, error) {
 	return ts, id, nil
 }
 
-// listCursor is the tagged, versioned pagination cursor (ADR-0039).
+// listCursor is the tagged, versioned pagination cursor (ADR-0042).
 // It replaces the positional "<RFC3339Nano>|<uuid>" format: it names
 // the sort column and direction it was minted under, so a cursor
 // replayed with different sort parameters is rejected instead of
