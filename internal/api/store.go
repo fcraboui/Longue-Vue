@@ -715,9 +715,12 @@ type AuditStore interface {
 	// Never returns ErrConflict — id collisions are caller bugs.
 	InsertAuditEvent(ctx context.Context, in AuditEventInsert) error
 
-	// ListAuditEvents returns the newest events first, paged by opaque
-	// cursor. filter fields are AND-combined; nil fields are ignored.
-	ListAuditEvents(ctx context.Context, filter AuditEventFilter, limit int, cursor string) (items []AuditEvent, nextCursor string, err error)
+	// ListAuditEvents returns audit events paged by opaque cursor. filter
+	// fields are AND-combined; nil fields are ignored. page.Sort selects
+	// the sort column (default: occurred_at DESC); ErrInvalidSort is
+	// returned for unknown keys and ErrInvalidCursor for stale/mismatched
+	// cursors.
+	ListAuditEvents(ctx context.Context, filter AuditEventFilter, page ListPage) (items []AuditEvent, nextCursor string, err error)
 }
 
 // CloudAccountStore covers cloud accounts (ADR-0015), including the

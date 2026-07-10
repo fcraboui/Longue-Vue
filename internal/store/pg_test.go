@@ -3280,7 +3280,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	}
 
 	// Default list: newest first, no filter.
-	got, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, 10, "")
+	got, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -3296,7 +3296,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	}
 
 	// Filter by actor.
-	actorFiltered, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{ActorID: &userID}, 10, "")
+	actorFiltered, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{ActorID: &userID}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list actor: %v", err)
 	}
@@ -3308,7 +3308,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	resType := "cluster"
 	resID := "c1"
 	resFiltered, _, err := pg.ListAuditEvents(ctx,
-		api.AuditEventFilter{ResourceType: &resType, ResourceID: &resID}, 10, "")
+		api.AuditEventFilter{ResourceType: &resType, ResourceID: &resID}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list resource: %v", err)
 	}
@@ -3320,7 +3320,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	since := base.Add(-2*time.Minute - 30*time.Second)
 	until := base.Add(-30 * time.Second)
 	windowed, _, err := pg.ListAuditEvents(ctx,
-		api.AuditEventFilter{Since: &since, Until: &until}, 10, "")
+		api.AuditEventFilter{Since: &since, Until: &until}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list window: %v", err)
 	}
@@ -3329,7 +3329,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	}
 
 	// Cursor pagination: page size 2 should yield 2 + next cursor, then 1.
-	page1, next, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, 2, "")
+	page1, next, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, api.ListPage{Limit: 2})
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
@@ -3339,7 +3339,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	if next == "" {
 		t.Fatal("expected next cursor")
 	}
-	page2, next2, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, 2, next)
+	page2, next2, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, api.ListPage{Limit: 2, Cursor: next})
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}

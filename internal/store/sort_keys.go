@@ -18,4 +18,11 @@ const (
 	sortKeyUsername         = "username"
 	sortKeyLastUsedAt       = "last_used_at"
 	sortKeyExpiresAt        = "expires_at"
+
+	// Audit sort keys.
+	sortKeyOccurredAt    = "occurred_at"
+	sortKeyAction        = "action"
+	sortKeyResourceType  = "resource_type"
+	sortKeyActorUsername = "actor_username"
+	sortKeySource        = "source"
 )

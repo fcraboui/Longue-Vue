@@ -770,12 +770,27 @@ func (m *memStore) UpdateSettings(_ context.Context, patch SettingsPatch) (Setti
 	return m.settings, nil
 }
 
+// fakeAuditSortKeys are the sort keys accepted by the fake memStore.
+// The fake does not actually sort — it just validates the key.
+var fakeAuditSortKeys = map[string]bool{
+	"":               true,
+	"occurred_at":    true,
+	"action":         true,
+	"resource_type":  true,
+	"actor_username": true,
+	"source":         true,
+}
+
 //nolint:gocyclo // multi-filter test fake
 func (m *memStore) ListAuditEvents(
-	_ context.Context, filter AuditEventFilter, limit int, _ string,
+	_ context.Context, filter AuditEventFilter, page ListPage,
 ) ([]AuditEvent, string, error) {
+	if !fakeAuditSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}

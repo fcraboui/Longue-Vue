@@ -65,20 +65,52 @@ func (p *PG) InsertAuditEvent(ctx context.Context, in api.AuditEventInsert) erro
 	return nil
 }
 
-// ListAuditEvents returns a cursor-paginated, newest-first list of audit events
+// auditSortSpec is the sort=<key> allowlist for GET /v1/admin/audit.
+var auditSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyOccurredAt:    {expr: "occurred_at", kind: sortTime},
+		sortKeyAction:        {expr: "LOWER(action)", kind: sortText},
+		sortKeyResourceType:  {expr: "LOWER(resource_type)", kind: sortText, nullable: true},
+		sortKeyActorUsername: {expr: "LOWER(actor_username)", kind: sortText, nullable: true},
+		sortKeySource:        {expr: "LOWER(source)", kind: sortText},
+	},
+	defaultKey: sortKeyOccurredAt,
+}
+
+// auditSortVal extracts the serialized sort value for cursor minting.
+func auditSortVal(ev *api.AuditEvent, key string) *string {
+	switch key {
+	case sortKeyAction:
+		return sortValText(&ev.Action)
+	case sortKeyResourceType:
+		return sortValText(ev.ResourceType)
+	case sortKeyActorUsername:
+		return sortValText(ev.ActorUsername)
+	case sortKeySource:
+		if ev.Source != nil {
+			s := string(*ev.Source)
+			return sortValText(&s)
+		}
+		return sortValText(nil)
+	default: // occurred_at
+		return sortValTime(&ev.OccurredAt)
+	}
+}
+
+// ListAuditEvents returns a cursor-paginated list of audit events
 // with optional filters on actor, resource, action, and time range.
 //
 //nolint:gocyclo // cursor-paginated query builder with multiple optional filters
-func (p *PG) ListAuditEvents(ctx context.Context, filter api.AuditEventFilter, limit int, cursor string) ([]api.AuditEvent, string, error) {
-	if limit <= 0 {
-		limit = 50
+func (p *PG) ListAuditEvents(ctx context.Context, filter api.AuditEventFilter, page api.ListPage) ([]api.AuditEvent, string, error) {
+	limit := clampLimit(page.Limit, 500)
+	key, col, dir, err := auditSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
-	if limit > 500 {
-		limit = 500
-	}
+
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT ` + auditEventSelectColumns + ` FROM audit_events WHERE 1=1`)
-	args := make([]any, 0, 8)
+	args := make([]any, 0, 10)
 	if filter.ActorID != nil {
 		args = append(args, *filter.ActorID)
 		fmt.Fprintf(&sb, " AND actor_id = $%d", len(args))
@@ -107,22 +139,19 @@ func (p *PG) ListAuditEvents(ctx context.Context, filter api.AuditEventFilter, l
 		args = append(args, *filter.Until)
 		fmt.Fprintf(&sb, " AND occurred_at < $%d", len(args))
 	}
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
-		if err != nil {
-			return nil, "", err
+	if page.Cursor != "" {
+		val, cid, decErr := decodeListCursor(page.Cursor, key, dir)
+		if decErr != nil {
+			return nil, "", decErr
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		// (occurred_at, id) is strictly decreasing through the result set;
-		// paginate on the tuple so concurrent inserts don't shift rows
-		// between pages.
-		fmt.Fprintf(&sb, " AND (occurred_at, id) < ($%d, $%d)", tsIdx, idIdx)
+		localConds := []string{}
+		if ksErr := keysetCond(col, "id", dir, val, cid, &localConds, &args); ksErr != nil {
+			return nil, "", ksErr
+		}
+		fmt.Fprintf(&sb, " AND %s", localConds[0])
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY occurred_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -179,9 +208,9 @@ func (p *PG) ListAuditEvents(ctx context.Context, filter api.AuditEventFilter, l
 
 	var next string
 	if len(items) > limit {
+		last := &items[limit-1]
+		next = encodeListCursor(key, auditSortVal(last, key), last.Id, dir)
 		items = items[:limit]
-		last := items[len(items)-1]
-		next = encodeCursor(last.OccurredAt, last.Id)
 	}
 	return items, next, nil
 }

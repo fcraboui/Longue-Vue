@@ -2997,7 +2997,7 @@ func TestDeleteClusterAuditEnrichment(t *testing.T) { //nolint:gocyclo // end-to
 	}
 
 	// Verify the audit event contains the enriched details.
-	evs, _, err := store.ListAuditEvents(context.Background(), AuditEventFilter{}, 10, "")
+	evs, _, err := store.ListAuditEvents(context.Background(), AuditEventFilter{}, ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list audit events: %v", err)
 	}
