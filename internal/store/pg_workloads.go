@@ -167,7 +167,7 @@ func (p *PG) ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, p
 	}
 	if filter.ImageSubstring != nil && *filter.ImageSubstring != "" {
 		// ILIKE handles case-insensitivity; escapeLike + ESCAPE makes
-		// operator-pasted % / _ literal (was unescaped before ADR-0039).
+		// operator-pasted % / _ literal (was unescaped before ADR-0042).
 		args = append(args, "%"+escapeLike(*filter.ImageSubstring)+"%")
 		conds = append(conds, fmt.Sprintf(
 			"EXISTS (SELECT 1 FROM jsonb_array_elements(w.containers) elem WHERE elem->>'image' ILIKE $%d ESCAPE '\\')",

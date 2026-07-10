@@ -234,7 +234,7 @@ func clusterSortVal(c *api.Cluster, key string) *string {
 
 // ListClusters returns up to page.Limit clusters. Default order is the
 // historical (created_at DESC, id DESC); sort/order/name follow the
-// uniform list contract (ADR-0039).
+// uniform list contract (ADR-0042).
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListClusters(ctx context.Context, filter api.ClusterListFilter, page api.ListPage) ([]api.Cluster, string, error) {

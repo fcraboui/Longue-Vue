@@ -7,7 +7,7 @@ package store
 // Follows the canonical pattern in pg_cloud_accounts.go: column constant +
 // scan helper, sqlc-free direct pgx queries, pgx.ErrNoRows ⇒ ErrNotFound,
 // 23505 unique-violation ⇒ ErrConflict, opaque (created_at, id) keyset
-// cursor matching encodeCursor / decodeCursor (pg.go).
+// cursor using encodeListCursor / decodeListCursor (pg.go, ADR-0042).
 
 import (
 	"context"

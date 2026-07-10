@@ -182,7 +182,7 @@ func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, page api.Li
 	}
 	if filter.ImageSubstring != nil && *filter.ImageSubstring != "" {
 		// ILIKE handles case-insensitivity; escapeLike + ESCAPE makes
-		// operator-pasted % / _ literal (was unescaped before ADR-0039).
+		// operator-pasted % / _ literal (was unescaped before ADR-0042).
 		args = append(args, "%"+escapeLike(*filter.ImageSubstring)+"%")
 		conds = append(conds, fmt.Sprintf(
 			"EXISTS (SELECT 1 FROM jsonb_array_elements(p.containers) elem WHERE elem->>'image' ILIKE $%d ESCAPE '\\')",

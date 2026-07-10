@@ -6,8 +6,8 @@ package store
 //
 // Follows the same pattern as pg_application_blocks.go: direct pgx
 // queries, pgx.ErrNoRows ⇒ ErrNotFound, 23505 unique-violation ⇒
-// ErrConflict, opaque (created_at, id) keyset cursor matching
-// encodeCursor / decodeCursor (pg.go).
+// ErrConflict, opaque (created_at, id) keyset cursor using
+// encodeListCursor / decodeListCursor (pg.go, ADR-0042).
 //
 // On top of the block implementation this file adds:
 //   - block resolution by EITHER id OR name (id wins on conflict, mirrors
