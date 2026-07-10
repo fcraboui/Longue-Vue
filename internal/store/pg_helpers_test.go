@@ -132,6 +132,11 @@ func TestSortSpecResolve(t *testing.T) {
 	if _, _, _, err = testSpec.resolve(api.ListPage{Sort: "name", Order: "sideways"}); !errors.Is(err, api.ErrInvalidSort) {
 		t.Errorf("bad order: err=%v, want ErrInvalidSort", err)
 	}
+	// order without sort is ignored — historical order preserved.
+	key, _, dir, err = testSpec.resolve(api.ListPage{Order: "asc"})
+	if err != nil || key != "created_at" || dir != "desc" {
+		t.Fatalf("order-no-sort: key=%q dir=%q err=%v, want created_at/desc/nil", key, dir, err)
+	}
 }
 
 func TestOrderBy(t *testing.T) {
@@ -209,6 +214,22 @@ func TestKeysetCond(t *testing.T) {
 	if err := keysetCond(testSpec.columns["created_at"], "n.id", "asc", &bad, id, &conds, &args); !errors.Is(err, api.ErrInvalidCursor) {
 		t.Errorf("bad time: err=%v, want ErrInvalidCursor", err)
 	}
+
+	// Nil val on a non-nullable column → corrupt cursor.
+	conds, args = []string{}, []any{}
+	if err := keysetCond(testSpec.columns["name"], "n.id", "asc", nil, id, &conds, &args); !errors.Is(err, api.ErrInvalidCursor) {
+		t.Errorf("nil val non-nullable: err=%v, want ErrInvalidCursor", err)
+	}
+
+	// Nullable desc with value → OR-form with < and IS NULL tail.
+	conds, args = []string{}, []any{}
+	if err := keysetCond(testSpec.columns["zone"], "n.id", "desc", &v, id, &conds, &args); err != nil {
+		t.Fatal(err)
+	}
+	wantDesc := "(LOWER(n.zone) < $1 OR (LOWER(n.zone) = $1 AND n.id < $2) OR LOWER(n.zone) IS NULL)"
+	if conds[0] != wantDesc {
+		t.Errorf("nullable desc cond = %q, want %q", conds[0], wantDesc)
+	}
 }
 
 func TestClampLimit(t *testing.T) {
@@ -223,5 +244,25 @@ func TestClampLimit(t *testing.T) {
 	}
 	if got := clampLimit(120, 500); got != 120 {
 		t.Errorf("clampLimit(120,500)=%d want 120", got)
+	}
+}
+
+func TestSortVals(t *testing.T) {
+	if got := sortValText(nil); got != nil {
+		t.Errorf("sortValText(nil) = %v, want nil", got)
+	}
+	s := "MiXeD"
+	if got := sortValText(&s); got == nil || *got != "mixed" {
+		t.Errorf("sortValText = %v, want mixed", got)
+	}
+	if got := sortValTime(nil); got != nil {
+		t.Errorf("sortValTime(nil) = %v, want nil", got)
+	}
+	ts, err := time.Parse(time.RFC3339Nano, "2026-01-02T03:04:05.000000006Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sortValTime(&ts); got == nil || *got != "2026-01-02T03:04:05.000000006Z" {
+		t.Errorf("sortValTime = %v, want RFC3339Nano string", got)
 	}
 }

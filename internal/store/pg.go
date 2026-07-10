@@ -348,9 +348,9 @@ func (s sortSpec) resolve(page api.ListPage) (string, sortColumn, string, error)
 	dir := page.Order
 	if key == "" {
 		key = s.defaultKey
-		if dir == "" {
-			dir = "desc"
-		}
+		// order= is documented as ignored when sort= is absent — the
+		// historical implicit order (DESC) always applies.
+		dir = "desc"
 	} else if dir == "" {
 		dir = "asc"
 	}
