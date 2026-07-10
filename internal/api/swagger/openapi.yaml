@@ -125,18 +125,17 @@ paths:
       tags: [clusters]
       summary: List clusters
       operationId: listClusters
+      description: |
+        Sortable keys: name, environment, provider, region, kubernetes_version, created_at, updated_at
       security:
         - BearerAuth: [read]
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/IncludeTerminated'
-        - name: name
-          in: query
-          required: false
-          description: Exact cluster name filter. When set, returns at most one item.
-          schema:
-            type: string
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of clusters.
@@ -276,6 +275,8 @@ paths:
       tags: [nodes]
       summary: List nodes
       operationId: listNodes
+      description: |
+        Sortable keys: name, role, zone, instance_type, created_at, updated_at
       security:
         - BearerAuth: [read]
       parameters:
@@ -283,6 +284,9 @@ paths:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/IncludeTerminated'
         - $ref: '#/components/parameters/NodeClusterIdFilter'
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of nodes.
@@ -408,6 +412,8 @@ paths:
       tags: [namespaces]
       summary: List namespaces
       operationId: listNamespaces
+      description: |
+        Sortable keys: name, phase, created_at, updated_at
       security:
         - BearerAuth: [read]
       parameters:
@@ -415,6 +421,9 @@ paths:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/IncludeTerminated'
         - $ref: '#/components/parameters/NamespaceClusterIdFilter'
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of namespaces.
@@ -539,11 +548,16 @@ paths:
     get:
       operationId: listNetworkPolicies
       summary: List NetworkPolicies
+      description: |
+        Sortable keys: name, reconcile_seen_at
       parameters:
         - { in: query, name: cluster_id,   required: true,  schema: { type: string, format: uuid } }
         - { in: query, name: namespace_id, required: false, schema: { type: string, format: uuid } }
         - { in: query, name: limit,        required: false, schema: { type: integer, default: 50, maximum: 500 } }
         - { in: query, name: cursor,       required: false, schema: { type: string } }
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         "200":
           description: OK
@@ -647,6 +661,8 @@ paths:
       tags: [pods]
       summary: List pods
       operationId: listPods
+      description: |
+        Sortable keys: name, phase, node_name, pod_ip, created_at, updated_at
       security:
         - BearerAuth: [read]
       parameters:
@@ -656,6 +672,9 @@ paths:
         - $ref: '#/components/parameters/PodImageFilter'
         - $ref: '#/components/parameters/PodNodeNameFilter'
         - $ref: '#/components/parameters/PodWorkloadIdFilter'
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of pods.
@@ -781,6 +800,8 @@ paths:
       tags: [workloads]
       summary: List workloads
       operationId: listWorkloads
+      description: |
+        Sortable keys: name, kind, created_at, updated_at
       security:
         - BearerAuth: [read]
       parameters:
@@ -793,6 +814,9 @@ paths:
         - $ref: '#/components/parameters/WorkloadApplicationIdFilter'
         - $ref: '#/components/parameters/WorkloadApplicationNameFilter'
         - $ref: '#/components/parameters/WorkloadUnlinkedFilter'
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
         - name: include
           in: query
           required: false
@@ -956,12 +980,17 @@ paths:
       tags: [services]
       summary: List services
       operationId: listServices
+      description: |
+        Sortable keys: name, type, cluster_ip, created_at, updated_at
       security:
         - BearerAuth: [read]
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/ServiceNamespaceIdFilter'
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of services.
@@ -1087,12 +1116,17 @@ paths:
       tags: [ingresses]
       summary: List ingresses
       operationId: listIngresses
+      description: |
+        Sortable keys: name, ingress_class_name, created_at, updated_at
       security:
         - BearerAuth: [read]
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/IngressNamespaceIdFilter'
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of ingresses.
@@ -1218,12 +1252,17 @@ paths:
       tags: [persistentvolumes]
       summary: List persistent volumes
       operationId: listPersistentVolumes
+      description: |
+        Sortable keys: name, phase, storage_class_name, csi_driver, capacity, created_at, updated_at
       security:
         - BearerAuth: [read]
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/PersistentVolumeClusterIdFilter'
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of persistent volumes.
@@ -1349,12 +1388,17 @@ paths:
       tags: [persistentvolumeclaims]
       summary: List persistent volume claims
       operationId: listPersistentVolumeClaims
+      description: |
+        Sortable keys: name, phase, storage_class_name, requested_storage, created_at, updated_at
       security:
         - BearerAuth: [read]
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/PersistentVolumeClaimNamespaceIdFilter'
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of persistent volume claims.
@@ -1957,12 +2001,17 @@ paths:
       tags: [admin]
       summary: List human users
       operationId: listUsers
+      description: |
+        Sortable keys: username, role, created_at, last_login_at
       security:
         - BearerAuth: [admin]
         - SessionCookie: [admin]
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of users.
@@ -2098,12 +2147,17 @@ paths:
       tags: [admin]
       summary: List machine tokens (metadata only — plaintext never leaves creation)
       operationId: listApiTokens
+      description: |
+        Sortable keys: name, created_at, expires_at, last_used_at
       security:
         - BearerAuth: [admin]
         - SessionCookie: [admin]
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of tokens.
@@ -2175,12 +2229,17 @@ paths:
       tags: [admin]
       summary: List active human sessions
       operationId: listSessions
+      description: |
+        Sortable keys: username, created_at, last_used_at, expires_at
       security:
         - BearerAuth: [admin]
         - SessionCookie: [admin]
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of sessions.
@@ -2205,6 +2264,8 @@ paths:
 
         Filters are AND-combined. `since` / `until` bound the
         `occurred_at` range (half-open: `[since, until)`).
+
+        Sortable keys: occurred_at, action, resource_type, actor_username, source
       operationId: listAuditEvents
       security:
         - BearerAuth: [audit]
@@ -2252,6 +2313,8 @@ paths:
           schema:
             type: string
             format: date-time
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of audit events.
@@ -2807,12 +2870,16 @@ paths:
     get:
       operationId: listSecurityGroups
       summary: List Security Groups
+      description: |
+        Sortable keys: name, vpc_id, reconcile_seen_at
       parameters:
         - { in: query, name: cloud_account_id, required: true,  schema: { type: string, format: uuid } }
         - { in: query, name: vpc_id,           required: false, schema: { type: string } }
-        - { in: query, name: name,             required: false, schema: { type: string } }
         - { in: query, name: limit,            required: false, schema: { type: integer, default: 50, maximum: 500 } }
         - { in: query, name: cursor,           required: false, schema: { type: string } }
+        - $ref: '#/components/parameters/NameFilter'
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         "200":
           description: OK
@@ -3142,6 +3209,8 @@ paths:
       tags: [application-blocks]
       summary: List application blocks
       operationId: listApplicationBlocks
+      description: |
+        Sortable keys: name, owner, created_at, updated_at
       security:
         - BearerAuth: [read]
         - SessionCookie: [read]
@@ -3151,13 +3220,21 @@ paths:
         - name: name
           in: query
           required: false
-          description: Case-insensitive substring filter on name + display_name.
+          description: |
+            Case-insensitive name filter. A plain term matches as a
+            substring (`du` matches anywhere in the name); a term
+            containing `*` matches as an anchored glob pattern (`du*` =
+            starts with, `*du` = ends with, `prod-*-db` = anchored both
+            ends). LIKE metacharacters (`%`, `_`, `\`) are treated
+            literally.
           schema: { type: string }
         - name: owner
           in: query
           required: false
           description: Exact owner filter.
           schema: { type: string }
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of application blocks.
@@ -3290,6 +3367,8 @@ paths:
       tags: [applications]
       summary: List applications
       operationId: listApplications
+      description: |
+        Sortable keys: name, owner, criticality, created_at, updated_at
       security:
         - BearerAuth: [read]
         - SessionCookie: [read]
@@ -3299,7 +3378,13 @@ paths:
         - name: name
           in: query
           required: false
-          description: Case-insensitive substring filter on name + display_name.
+          description: |
+            Case-insensitive name filter. A plain term matches as a
+            substring (`du` matches anywhere in the name); a term
+            containing `*` matches as an anchored glob pattern (`du*` =
+            starts with, `*du` = ends with, `prod-*-db` = anchored both
+            ends). LIKE metacharacters (`%`, `_`, `\`) are treated
+            literally.
           schema: { type: string }
         - name: application_block_id
           in: query
@@ -3336,6 +3421,8 @@ paths:
             type: integer
             minimum: 0
             maximum: 4
+        - $ref: '#/components/parameters/SortKey'
+        - $ref: '#/components/parameters/SortOrder'
       responses:
         '200':
           description: Paged list of applications.
@@ -4133,6 +4220,44 @@ components:
       schema:
         type: boolean
         default: false
+
+    NameFilter:
+      name: name
+      in: query
+      required: false
+      description: |
+        Case-insensitive name filter. A plain term matches as a
+        substring (`du` matches anywhere in the name); a term
+        containing `*` matches as an anchored glob pattern (`du*` =
+        starts with, `*du` = ends with, `prod-*-db` = anchored both
+        ends). LIKE metacharacters (`%`, `_`, `\`) are treated
+        literally.
+      schema:
+        type: string
+        maxLength: 100
+
+    SortKey:
+      name: sort
+      in: query
+      required: false
+      description: |
+        Column key to sort by. Each list endpoint documents its
+        sortable keys; an unknown key returns 400. Without `sort`,
+        the endpoint's historical default order is preserved.
+      schema:
+        type: string
+        maxLength: 64
+
+    SortOrder:
+      name: order
+      in: query
+      required: false
+      description: |
+        Sort direction. Defaults to `asc` when `sort` is set;
+        ignored when `sort` is absent.
+      schema:
+        type: string
+        enum: [asc, desc]
 
     ApplicationBlockId:
       name: id
