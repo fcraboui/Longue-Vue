@@ -610,9 +610,31 @@ func (s *Server) VerifyToken(ctx context.Context, request VerifyTokenRequestObje
 
 // ListUsers returns a paged list of all users (admin view).
 func (s *Server) ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error) {
-	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
-	items, next, err := s.store.ListUsers(ctx, limit, cursor)
+	page := ListPage{}
+	if request.Params.Limit != nil {
+		page.Limit = *request.Params.Limit
+	}
+	if request.Params.Cursor != nil {
+		page.Cursor = *request.Params.Cursor
+	}
+	if request.Params.Sort != nil {
+		page.Sort = *request.Params.Sort
+	}
+	if request.Params.Order != nil {
+		page.Order = string(*request.Params.Order)
+	}
+	filter := UserListFilter{}
+	if request.Params.Name != nil {
+		n := *request.Params.Name
+		filter.Name = &n
+	}
+	items, next, err := s.store.ListUsers(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListUsers400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
 		return nil, fmt.Errorf("listUsers: %w", err)
 	}
 	resp := UserList{Items: items}
@@ -795,9 +817,31 @@ func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject
 
 // ListApiTokens returns a paged list of API tokens (admin view).
 func (s *Server) ListApiTokens(ctx context.Context, request ListApiTokensRequestObject) (ListApiTokensResponseObject, error) {
-	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
-	items, next, err := s.store.ListAPITokens(ctx, limit, cursor)
+	page := ListPage{}
+	if request.Params.Limit != nil {
+		page.Limit = *request.Params.Limit
+	}
+	if request.Params.Cursor != nil {
+		page.Cursor = *request.Params.Cursor
+	}
+	if request.Params.Sort != nil {
+		page.Sort = *request.Params.Sort
+	}
+	if request.Params.Order != nil {
+		page.Order = string(*request.Params.Order)
+	}
+	filter := APITokenListFilter{}
+	if request.Params.Name != nil {
+		n := *request.Params.Name
+		filter.Name = &n
+	}
+	items, next, err := s.store.ListAPITokens(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListApiTokens400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
 		return nil, fmt.Errorf("listApiTokens: %w", err)
 	}
 	resp := ApiTokenList{Items: items}

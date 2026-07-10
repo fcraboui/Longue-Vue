@@ -521,6 +521,17 @@ type PersistentVolumeClaimStore interface {
 	DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 }
 
+// UserListFilter is the predicate set accepted by ListUsers.
+// Name matches the username field (case-insensitive).
+type UserListFilter struct {
+	Name *string
+}
+
+// APITokenListFilter is the predicate set accepted by ListAPITokens.
+type APITokenListFilter struct { //nolint:revive // stutter is acceptable here for clarity alongside the APIToken generated type
+	Name *string
+}
+
 // AuthStore covers the auth substrate (ADR-0007): users, sessions, API
 // tokens, and the one-shot OIDC state rows. The auth package also defines
 // a narrower `auth.Store` interface with just the lookup methods the
@@ -559,8 +570,8 @@ type AuthStore interface {
 	// (callers always do an argon2 verify regardless).
 	GetUserByUsername(ctx context.Context, username string) (UserWithSecret, error)
 
-	// ListUsers returns a page of users (admin view).
-	ListUsers(ctx context.Context, limit int, cursor string) (items []User, nextCursor string, err error)
+	// ListUsers returns a page of users (admin view), sorted and filtered per ListPage/UserListFilter.
+	ListUsers(ctx context.Context, filter UserListFilter, page ListPage) (items []User, nextCursor string, err error)
 
 	// UpdateUser applies merge-patch on role / disabled / must_change_password.
 	// Password changes go through SetUserPassword because they need the
@@ -651,7 +662,7 @@ type AuthStore interface {
 
 	// ListAPITokens (admin view, metadata only — plaintext is never in
 	// responses except at creation).
-	ListAPITokens(ctx context.Context, limit int, cursor string) (items []ApiToken, nextCursor string, err error)
+	ListAPITokens(ctx context.Context, filter APITokenListFilter, page ListPage) (items []ApiToken, nextCursor string, err error)
 
 	// RevokeAPIToken sets revoked_at. Idempotent: revoking an
 	// already-revoked token returns nil.
