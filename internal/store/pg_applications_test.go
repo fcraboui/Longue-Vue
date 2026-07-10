@@ -668,6 +668,21 @@ func TestApplicationMembersKindCursorMismatch(t *testing.T) {
 	}
 }
 
+// TestApplicationMembersGarbageCursor verifies that a malformed cursor
+// (garbage base64, invalid JSON, etc.) is rejected with api.ErrInvalidCursor.
+func TestApplicationMembersGarbageCursor(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	app := seedApplicationWithMembers(t, pg)
+
+	// Pass a garbage cursor that is not valid base64.
+	_, _, err := pg.ListApplicationMembers(ctx, app.ID, "", 100, "not-base64!!")
+	if !errors.Is(err, api.ErrInvalidCursor) {
+		t.Fatalf("expected ErrInvalidCursor on garbage cursor, got %v", err)
+	}
+}
+
 // names is a tiny helper to keep ListApplications assertions readable.
 // Iterates by index because api.Application is a wide value (the lint
 // catches a 216-byte copy on each range iteration).

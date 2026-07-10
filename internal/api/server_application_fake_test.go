@@ -27,6 +27,8 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -482,6 +484,19 @@ func (m *memStore) DeleteApplication(_ context.Context, id uuid.UUID) error {
 // (Tasks 2.1-2.5), so the fake has nothing real to walk. The PG impl
 // owns the actual three-source walk (including the kind filter) and is
 // exercised by pg_applications_test.go.
-func (m *memStore) ListApplicationMembers(_ context.Context, _ uuid.UUID, _ string, _ int, _ string) ([]ApplicationMember, string, error) {
+// However, we still validate the cursor to exercise the error path.
+func (m *memStore) ListApplicationMembers(_ context.Context, _ uuid.UUID, _ string, _ int, cursor string) ([]ApplicationMember, string, error) {
+	if cursor != "" {
+		// Perform basic base64 + JSON validation to catch malformed cursors.
+		// Mirrors the store-side validation so handler tests can verify error handling.
+		raw, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("%w: base64 decode: %v", ErrInvalidCursor, err)
+		}
+		var c map[string]interface{}
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return nil, "", fmt.Errorf("%w: unmarshal members cursor: %v", ErrInvalidCursor, err)
+		}
+	}
 	return []ApplicationMember{}, "", nil
 }

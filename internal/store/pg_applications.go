@@ -531,7 +531,7 @@ func (p *PG) ListApplicationMembers(
 	if cursor != "" {
 		raw, err := decodeMemberCursor(cursor)
 		if err != nil {
-			return nil, "", fmt.Errorf("decode members cursor: %w", err)
+			return nil, "", fmt.Errorf("%w: %v", api.ErrInvalidCursor, err)
 		}
 		if kind != "" && raw.Kind != kind {
 			return nil, "", fmt.Errorf("%w: cursor kind %q does not match kind filter %q",

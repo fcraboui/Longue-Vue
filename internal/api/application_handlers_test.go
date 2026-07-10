@@ -399,6 +399,26 @@ func TestApplicationListMembers_BadKind(t *testing.T) {
 	}
 }
 
+// TestApplicationListMembers_BadCursor verifies that a malformed cursor
+// (garbage base64) is rejected with 400 problem+json.
+func TestApplicationListMembers_BadCursor(t *testing.T) {
+	resetApplicationFakes()
+	store := newMemStore()
+	h := buildApplicationMux(t, store, editorCaller())
+
+	rr := doReq(t, h, http.MethodPost, "/v1/applications", map[string]any{"name": "cursor-test"})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed status=%d", rr.Code)
+	}
+	var app Application
+	_ = json.Unmarshal(rr.Body.Bytes(), &app)
+
+	rr = doReq(t, h, http.MethodGet, fmt.Sprintf("/v1/applications/%s/members?cursor=not-base64!!", app.ID), nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for garbage cursor, got %d body=%q", rr.Code, rr.Body.String())
+	}
+}
+
 func TestApplicationList_DICTMinFilter(t *testing.T) {
 	resetApplicationFakes()
 	store := newMemStore()
