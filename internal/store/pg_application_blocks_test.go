@@ -98,7 +98,7 @@ func TestPGApplicationBlockCRUD(t *testing.T) {
 		t.Errorf("annotations should be preserved across patch: %v", patched.Annotations)
 	}
 
-	items, next, err := pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{}, 50, "")
+	items, next, err := pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestPGApplicationBlockListFilter(t *testing.T) {
 
 	// Name substring filter (case-insensitive).
 	nameQ := "PaY" // matches "payments-core"
-	items, _, err := pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{Name: &nameQ}, 50, "")
+	items, _, err := pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{Name: &nameQ}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by name: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestPGApplicationBlockListFilter(t *testing.T) {
 	}
 
 	// Owner exact filter.
-	items, _, err = pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{Owner: &teamA}, 50, "")
+	items, _, err = pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{Owner: &teamA}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by owner: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestPGApplicationBlockListFilter(t *testing.T) {
 	items, _, err = pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{
 		Name:  &billing,
 		Owner: &teamA,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by name+owner: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestPGApplicationBlockListFilter(t *testing.T) {
 
 	// No-match returns empty, not error.
 	missing := "nonexistent-xyz"
-	items, _, err = pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{Name: &missing}, 50, "")
+	items, _, err = pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{Name: &missing}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list no-match: %v", err)
 	}
@@ -259,6 +259,74 @@ func TestPGApplicationBlockNormalisesNameOnCreate(t *testing.T) {
 	}
 	if dbName != want {
 		t.Errorf("db name = %q, want %q", dbName, want)
+	}
+}
+
+// TestApplicationBlockListNameMatchesDisplayName is the spec-drift
+// regression (Task 16): the name= filter must match display_name too,
+// mirroring ListApplications. Seed {name: "b-1", display_name:
+// "Facturation"} and assert name=factu finds it.
+func TestApplicationBlockListNameMatchesDisplayName(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	dispName := "Facturation"
+	if _, err := pg.CreateApplicationBlock(ctx, api.ApplicationBlockCreate{
+		Name:        "b-1",
+		DisplayName: &dispName,
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	name := "factu"
+	items, _, err := pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{Name: &name}, api.ListPage{Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("display_name filter %q got %d items, want 1", name, len(items))
+	}
+	if items[0].Name != "b-1" {
+		t.Errorf("expected b-1, got %q", items[0].Name)
+	}
+}
+
+// TestApplicationBlockListSortByName verifies the uniform sort=name
+// ordering on application blocks.
+func TestApplicationBlockListSortByName(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	for _, name := range []string{"zeta-block", "alpha-block", "beta-block"} {
+		if _, err := pg.CreateApplicationBlock(ctx, api.ApplicationBlockCreate{Name: name}); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+
+	items, _, err := pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{}, api.ListPage{Limit: 10, Sort: "name"})
+	if err != nil {
+		t.Fatalf("list sort=name: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("expected 3 rows, got %d", len(items))
+	}
+	want := []string{"alpha-block", "beta-block", "zeta-block"}
+	for i := range want {
+		if items[i].Name != want[i] {
+			t.Errorf("items[%d].Name = %q, want %q", i, items[i].Name, want[i])
+		}
+	}
+}
+
+// TestApplicationBlockListBadSort verifies an unknown sort key surfaces
+// as api.ErrInvalidSort.
+func TestApplicationBlockListBadSort(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	_, _, err := pg.ListApplicationBlocks(ctx, api.ApplicationBlockListFilter{}, api.ListPage{Sort: "bogus"})
+	if !errors.Is(err, api.ErrInvalidSort) {
+		t.Fatalf("expected ErrInvalidSort, got %v", err)
 	}
 }
 

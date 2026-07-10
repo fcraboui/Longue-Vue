@@ -85,12 +85,13 @@ func parseLimit(raw string, def int) int {
 }
 
 // parseListPage extracts the uniform limit/cursor/sort/order controls
-// for hand-written list handlers. Validation of sort/order happens in
+// for hand-written list handlers (default page size 50, matching the
+// store-side clampLimit default). Validation of sort/order happens in
 // the store (allowlist) — unknown values surface as ErrInvalidSort.
-func parseListPage(r *http.Request, defLimit int) ListPage {
+func parseListPage(r *http.Request) ListPage {
 	q := r.URL.Query()
 	return ListPage{
-		Limit:  parseLimit(q.Get("limit"), defLimit),
+		Limit:  parseLimit(q.Get("limit"), 50),
 		Cursor: q.Get("cursor"),
 		Sort:   q.Get("sort"),
 		Order:  q.Get("order"),

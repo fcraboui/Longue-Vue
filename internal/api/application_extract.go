@@ -27,7 +27,7 @@ import (
 // extract handlers consume. Kept separate from ExtractStore because the
 // applications extract only needs the one paginated list call.
 type ApplicationExtractStore interface {
-	ListApplications(ctx context.Context, filter ApplicationListFilter, limit int, cursor string) ([]Application, string, error)
+	ListApplications(ctx context.Context, filter ApplicationListFilter, page ListPage) ([]Application, string, error)
 }
 
 // HandleExtractApplicationsCSV — read scope.
@@ -149,7 +149,7 @@ func collectAllApplications(
 	var out []Application
 	cursor := ""
 	for {
-		items, next, err := store.ListApplications(ctx, filter, extractPageSize, cursor)
+		items, next, err := store.ListApplications(ctx, filter, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("listApplications: %w", err)
 		}

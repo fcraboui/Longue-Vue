@@ -263,14 +263,37 @@ func applicationMatchesFilter(app *Application, filter ApplicationListFilter) bo
 }
 
 func applicationNameMatches(app *Application, needle string) bool {
-	needle = strings.ToLower(needle)
-	if strings.Contains(strings.ToLower(app.Name), needle) {
+	if fakeNameTermMatch(app.Name, needle) {
 		return true
 	}
-	if app.DisplayName != nil && strings.Contains(strings.ToLower(*app.DisplayName), needle) {
+	if app.DisplayName != nil && fakeNameTermMatch(*app.DisplayName, needle) {
 		return true
 	}
 	return false
+}
+
+// fakeNameTermMatch mirrors the store's namePattern semantics (spec
+// 2026-07-10): case-insensitive substring, or anchored glob when the
+// term contains `*` (each `*` matches any run of characters).
+func fakeNameTermMatch(name, term string) bool {
+	name = strings.ToLower(name)
+	term = strings.ToLower(term)
+	if !strings.Contains(term, "*") {
+		return strings.Contains(name, term)
+	}
+	parts := strings.Split(term, "*")
+	if !strings.HasPrefix(name, parts[0]) {
+		return false
+	}
+	rest := name[len(parts[0]):]
+	for _, p := range parts[1 : len(parts)-1] {
+		idx := strings.Index(rest, p)
+		if idx < 0 {
+			return false
+		}
+		rest = rest[idx+len(p):]
+	}
+	return strings.HasSuffix(rest, parts[len(parts)-1])
 }
 
 func applicationBlockNameMatches(app *Application, blockName string) bool {
@@ -297,13 +320,23 @@ func applicationMaxDICTAxis(app *Application) int {
 	return maxAxis
 }
 
+// fakeApplicationSortKeys mirrors the store-side applicationSortSpec
+// allowlist so the handler's 400-on-bad-sort path is testable without PG.
+var fakeApplicationSortKeys = map[string]bool{
+	"": true, "name": true, "owner": true, "criticality": true,
+	"created_at": true, "updated_at": true,
+}
+
 //nolint:gocyclo // cursor decode + filter + sort + pagination; helper-extracted further would obscure intent
 func (m *memStore) ListApplications(
 	_ context.Context,
 	filter ApplicationListFilter,
-	limit int,
-	cursor string,
+	page ListPage,
 ) ([]Application, string, error) {
+	if !fakeApplicationSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
@@ -323,16 +356,24 @@ func (m *memStore) ListApplications(
 	}
 
 	// Order by (created_at DESC, id DESC) — matches PG impl so cursor
-	// semantics are consistent.
-	sort.Slice(all, func(i, j int) bool {
-		if !all[i].CreatedAt.Equal(all[j].CreatedAt) {
-			return all[i].CreatedAt.After(all[j].CreatedAt)
-		}
-		return all[i].ID.String() > all[j].ID.String()
-	})
+	// semantics are consistent. sort= support in the fake is limited to
+	// name ascending (enough for the handler tests; the full matrix is
+	// exercised against PG in pg_applications_sort_test.go).
+	if page.Sort == "name" {
+		sort.Slice(all, func(i, j int) bool {
+			return strings.ToLower(all[i].Name) < strings.ToLower(all[j].Name)
+		})
+	} else {
+		sort.Slice(all, func(i, j int) bool {
+			if !all[i].CreatedAt.Equal(all[j].CreatedAt) {
+				return all[i].CreatedAt.After(all[j].CreatedAt)
+			}
+			return all[i].ID.String() > all[j].ID.String()
+		})
+	}
 
-	if cursor != "" {
-		ts, cid, err := decodeFakeCursor(cursor)
+	if page.Cursor != "" {
+		ts, cid, err := decodeFakeCursor(page.Cursor)
 		if err != nil {
 			return nil, "", err
 		}
@@ -439,8 +480,8 @@ func (m *memStore) DeleteApplication(_ context.Context, id uuid.UUID) error {
 // ListApplicationMembers returns an empty page in Phase 1 — there's no
 // handler path to link workloads / VMs to applications until Phase 2
 // (Tasks 2.1-2.5), so the fake has nothing real to walk. The PG impl
-// owns the actual three-source walk and is exercised by
-// pg_applications_test.go.
-func (m *memStore) ListApplicationMembers(_ context.Context, _ uuid.UUID, _ int, _ string) ([]ApplicationMember, string, error) {
+// owns the actual three-source walk (including the kind filter) and is
+// exercised by pg_applications_test.go.
+func (m *memStore) ListApplicationMembers(_ context.Context, _ uuid.UUID, _ string, _ int, _ string) ([]ApplicationMember, string, error) {
 	return []ApplicationMember{}, "", nil
 }

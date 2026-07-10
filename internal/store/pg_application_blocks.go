@@ -105,23 +105,47 @@ func (p *PG) GetApplicationBlockByName(ctx context.Context, name string) (api.Ap
 	return block, nil
 }
 
-// ListApplicationBlocks returns paged rows ordered by (created_at DESC,
-// id DESC). The opaque cursor matches the codebase encoding (base64 of
-// "RFC3339Nano|uuid"). Filters: name → case-insensitive substring on
-// LOWER(name) with LIKE-escaped pattern; owner → exact match.
+// blockSortSpec is the sort=<key> allowlist for GET /v1/application-blocks
+// (ADR-0042). Bare column names — the query has no table alias.
+var blockSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:      {expr: "LOWER(name)", kind: sortText},
+		sortKeyOwner:     {expr: "LOWER(owner)", kind: sortText, nullable: true},
+		sortKeyCreatedAt: {expr: "created_at", kind: sortTime},
+		sortKeyUpdatedAt: {expr: "updated_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+// blockSortVal extracts the serialized sort value for cursor minting.
+func blockSortVal(b *api.ApplicationBlock, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&b.Name)
+	case sortKeyOwner:
+		return sortValText(b.Owner)
+	case sortKeyUpdatedAt:
+		return sortValTime(&b.UpdatedAt)
+	default: // created_at
+		return sortValTime(&b.CreatedAt)
+	}
+}
+
+// ListApplicationBlocks returns paged rows under the uniform sort +
+// cursor contract (ADR-0042; default order stays created_at DESC, id
+// DESC). Filters: name → uniform name= semantics (ci substring, or
+// anchored glob with `*`) over (name, display_name); owner → exact match.
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListApplicationBlocks(
 	ctx context.Context,
 	filter api.ApplicationBlockListFilter,
-	limit int,
-	cursor string,
+	page api.ListPage,
 ) ([]api.ApplicationBlock, string, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := blockSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
 
 	sb := strings.Builder{}
@@ -132,31 +156,35 @@ func (p *PG) ListApplicationBlocks(
 	args := make([]any, 0, 4)
 	conds := make([]string, 0, 3)
 
-	if filter.Name != nil {
-		args = append(args, escapeLike(strings.ToLower(*filter.Name)))
-		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE '%%' || $%d || '%%' ESCAPE '\\'", len(args)))
+	// Name matches (name, display_name) — spec commitment shared with
+	// ListApplications. Bind once and reference twice ($N OR $N).
+	if filter.Name != nil && *filter.Name != "" {
+		args = append(args, namePattern(*filter.Name))
+		idx := len(args)
+		conds = append(conds, fmt.Sprintf(
+			"(LOWER(name) LIKE $%d ESCAPE '\\' OR LOWER(COALESCE(display_name,'')) LIKE $%d ESCAPE '\\')",
+			idx, idx,
+		))
 	}
 	if filter.Owner != nil {
 		args = append(args, *filter.Owner)
 		conds = append(conds, fmt.Sprintf("owner = $%d", len(args)))
 	}
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
-		if err != nil {
-			return nil, "", err
+	if page.Cursor != "" {
+		val, cid, curErr := decodeListCursor(page.Cursor, key, dir)
+		if curErr != nil {
+			return nil, "", curErr
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		if curErr := keysetCond(col, "id", dir, val, cid, &conds, &args); curErr != nil {
+			return nil, "", curErr
+		}
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -178,8 +206,8 @@ func (p *PG) ListApplicationBlocks(
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		next = encodeCursor(last.CreatedAt, last.ID)
+		last := &items[limit-1]
+		next = encodeListCursor(key, blockSortVal(last, key), last.ID, dir)
 		items = items[:limit]
 	}
 	return items, next, nil

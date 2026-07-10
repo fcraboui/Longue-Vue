@@ -195,31 +195,60 @@ func (p *PG) GetApplicationByName(ctx context.Context, name string) (api.Applica
 	return app, nil
 }
 
-// ListApplications returns paged rows ordered by (created_at DESC, id
-// DESC). The opaque cursor matches the codebase encoding (base64 of
-// "RFC3339Nano|uuid"). Filters are documented inline.
+// applicationSortSpec is the sort=<key> allowlist for GET /v1/applications
+// (ADR-0042). Column expressions carry the `a.` alias to match
+// applicationFrom.
+var applicationSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:        {expr: "LOWER(a.name)", kind: sortText},
+		sortKeyOwner:       {expr: "LOWER(a.owner)", kind: sortText, nullable: true},
+		sortKeyCriticality: {expr: "LOWER(a.criticality)", kind: sortText, nullable: true},
+		sortKeyCreatedAt:   {expr: "a.created_at", kind: sortTime},
+		sortKeyUpdatedAt:   {expr: "a.updated_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+// applicationSortVal extracts the serialized sort value for cursor minting.
+func applicationSortVal(a *api.Application, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&a.Name)
+	case sortKeyOwner:
+		return sortValText(a.Owner)
+	case sortKeyCriticality:
+		return sortValText(a.Criticality)
+	case sortKeyUpdatedAt:
+		return sortValTime(&a.UpdatedAt)
+	default: // created_at
+		return sortValTime(&a.CreatedAt)
+	}
+}
+
+// ListApplications returns paged rows under the uniform sort + cursor
+// contract (ADR-0042; default order stays created_at DESC, id DESC).
+// Filters are documented inline.
 //
 //nolint:gocyclo // cursor-paginated query builder with six optional filters
 func (p *PG) ListApplications(
 	ctx context.Context,
 	filter api.ApplicationListFilter,
-	limit int,
-	cursor string,
+	page api.ListPage,
 ) ([]api.Application, string, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := applicationSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
 
 	conds := make([]string, 0, 7)
 	args := make([]any, 0, 8)
 
-	// Name: case-insensitive substring on (name, display_name). Bind
-	// once and reference twice ($N OR $N).
+	// Name: uniform name= semantics (spec 2026-07-10) — ci substring, or
+	// anchored glob when the term contains `*` — matched over (name,
+	// display_name). Bind once and reference twice ($N OR $N).
 	if filter.Name != nil && *filter.Name != "" {
-		args = append(args, "%"+strings.ToLower(escapeLike(*filter.Name))+"%")
+		args = append(args, namePattern(*filter.Name))
 		idx := len(args)
 		conds = append(conds, fmt.Sprintf(
 			"(LOWER(a.name) LIKE $%d ESCAPE '\\' OR LOWER(COALESCE(a.display_name,'')) LIKE $%d ESCAPE '\\')",
@@ -260,16 +289,14 @@ func (p *PG) ListApplications(
 			len(args),
 		))
 	}
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
-		if err != nil {
-			return nil, "", err
+	if page.Cursor != "" {
+		val, cid, curErr := decodeListCursor(page.Cursor, key, dir)
+		if curErr != nil {
+			return nil, "", curErr
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(a.created_at, a.id) < ($%d, $%d)", tsIdx, idIdx))
+		if curErr := keysetCond(col, "a.id", dir, val, cid, &conds, &args); curErr != nil {
+			return nil, "", curErr
+		}
 	}
 
 	where := ""
@@ -278,8 +305,8 @@ func (p *PG) ListApplications(
 	}
 	args = append(args, limit+1)
 	q := fmt.Sprintf(
-		`SELECT %s %s %s ORDER BY a.created_at DESC, a.id DESC LIMIT $%d`,
-		applicationSelect, applicationFrom, where, len(args),
+		`SELECT %s %s %s %s LIMIT $%d`,
+		applicationSelect, applicationFrom, where, orderBy(col, "a.id", dir), len(args),
 	)
 
 	rows, err := p.pool.Query(ctx, q, args...)
@@ -302,8 +329,8 @@ func (p *PG) ListApplications(
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		next = encodeCursor(last.CreatedAt, last.ID)
+		last := &items[limit-1]
+		next = encodeListCursor(key, applicationSortVal(last, key), last.ID, dir)
 		items = items[:limit]
 	}
 	return items, next, nil
@@ -475,10 +502,17 @@ const (
 // across calls. Each call returns up to `limit` members (default 100,
 // hard cap 500) and an opaque cursor that resumes mid-walk.
 //
-//nolint:gocyclo // three-source walk; each branch is delegated to a helper but the dispatcher still trips the threshold.
+// kind narrows the walk to a single source (memberKindWorkload /
+// memberKindVM / memberKindVMApp); "" keeps the full three-source walk.
+// The handler validates kind against the OpenAPI enum before calling.
+// A cursor minted under a different kind (its Kind doesn't match the
+// requested filter) is rejected with api.ErrInvalidCursor.
+//
+//nolint:gocyclo,gocognit // three-source walk; each branch is delegated to a helper but the dispatcher still trips the threshold.
 func (p *PG) ListApplicationMembers(
 	ctx context.Context,
 	id uuid.UUID,
+	kind string,
 	limit int,
 	cursor string,
 ) ([]api.ApplicationMember, string, error) {
@@ -489,11 +523,19 @@ func (p *PG) ListApplicationMembers(
 		limit = 500
 	}
 
-	c := memberCursor{Kind: memberKindWorkload, Off: 0}
+	start := memberKindWorkload
+	if kind != "" {
+		start = kind
+	}
+	c := memberCursor{Kind: start, Off: 0}
 	if cursor != "" {
 		raw, err := decodeMemberCursor(cursor)
 		if err != nil {
 			return nil, "", fmt.Errorf("decode members cursor: %w", err)
+		}
+		if kind != "" && raw.Kind != kind {
+			return nil, "", fmt.Errorf("%w: cursor kind %q does not match kind filter %q",
+				api.ErrInvalidCursor, raw.Kind, kind)
 		}
 		c = raw
 	}
@@ -513,6 +555,9 @@ func (p *PG) ListApplicationMembers(
 			}
 			return out, next, nil
 		}
+		if kind != "" {
+			return out, "", nil
+		}
 		c = memberCursor{Kind: memberKindVM, Off: 0}
 	}
 
@@ -529,6 +574,9 @@ func (p *PG) ListApplicationMembers(
 				return nil, "", err
 			}
 			return out, next, nil
+		}
+		if kind != "" {
+			return out, "", nil
 		}
 		c = memberCursor{Kind: memberKindVMApp, Off: 0}
 	}

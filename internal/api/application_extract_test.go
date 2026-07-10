@@ -26,8 +26,7 @@ type appExtractStubStore struct {
 func (s *appExtractStubStore) ListApplications(
 	_ context.Context,
 	filter api.ApplicationListFilter,
-	_ int,
-	_ string,
+	_ api.ListPage,
 ) ([]api.Application, string, error) {
 	out := make([]api.Application, 0, len(s.apps))
 	for i := range s.apps {

@@ -335,7 +335,7 @@ func HandleListVirtualMachines(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", problem)
 			return
 		}
-		page := parseListPage(r, 50)
+		page := parseListPage(r)
 		items, next, err := store.ListVirtualMachines(r.Context(), filter, page)
 		if err != nil {
 			writeListError(w, "list virtual machines", err)

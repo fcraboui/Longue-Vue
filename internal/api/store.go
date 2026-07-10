@@ -912,8 +912,7 @@ type ApplicationStore interface {
 	ListApplicationBlocks(
 		ctx context.Context,
 		filter ApplicationBlockListFilter,
-		limit int,
-		cursor string,
+		page ListPage,
 	) (items []ApplicationBlock, nextCursor string, err error)
 	UpdateApplicationBlock(ctx context.Context, id uuid.UUID, in ApplicationBlockPatch) (ApplicationBlock, error)
 	DeleteApplicationBlock(ctx context.Context, id uuid.UUID) error
@@ -927,10 +926,16 @@ type ApplicationStore interface {
 	// list responses to avoid an N+1 (ADR-0029 §6).
 	GetApplicationsByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Application, error)
 	GetApplicationByName(ctx context.Context, name string) (Application, error)
-	ListApplications(ctx context.Context, filter ApplicationListFilter, limit int, cursor string) (items []Application, nextCursor string, err error)
+	ListApplications(ctx context.Context, filter ApplicationListFilter, page ListPage) (items []Application, nextCursor string, err error)
 	UpdateApplication(ctx context.Context, id uuid.UUID, in ApplicationPatch) (Application, error)
 	DeleteApplication(ctx context.Context, id uuid.UUID) error
-	ListApplicationMembers(ctx context.Context, id uuid.UUID, limit int, cursor string) (items []ApplicationMember, nextCursor string, err error)
+	ListApplicationMembers(
+		ctx context.Context,
+		id uuid.UUID,
+		kind string,
+		limit int,
+		cursor string,
+	) (items []ApplicationMember, nextCursor string, err error)
 	// DICTCoverageCounts returns the number of workloads in each
 	// effective-DICT source bucket (application | workload | none), feeding
 	// the longue_vue_dict_coverage gauge (ADR-0029 §6).

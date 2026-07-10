@@ -125,7 +125,7 @@ func HandleListCloudAccounts(store Store) http.HandlerFunc {
 			}
 			filter.Name = &v
 		}
-		page := parseListPage(r, 50)
+		page := parseListPage(r)
 		items, next, err := store.ListCloudAccounts(r.Context(), filter, page)
 		if err != nil {
 			writeListError(w, "list cloud accounts", err)

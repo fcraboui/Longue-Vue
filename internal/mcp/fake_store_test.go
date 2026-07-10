@@ -443,8 +443,7 @@ func (f *fakeStore) GetImageVersionsByRepo(_ context.Context, imageRepo string) 
 func (f *fakeStore) ListApplications(
 	_ context.Context,
 	filter api.ApplicationListFilter,
-	_ int,
-	_ string,
+	_ api.ListPage,
 ) ([]api.Application, string, error) {
 	f.lastAppFilter = filter
 	if err := f.errOn["ListApplications"]; err != nil {
@@ -487,8 +486,7 @@ func (f *fakeStore) GetApplicationByName(_ context.Context, name string) (api.Ap
 func (f *fakeStore) ListApplicationBlocks(
 	_ context.Context,
 	filter api.ApplicationBlockListFilter,
-	_ int,
-	_ string,
+	_ api.ListPage,
 ) ([]api.ApplicationBlock, string, error) {
 	if err := f.errOn["ListApplicationBlocks"]; err != nil {
 		return nil, "", err

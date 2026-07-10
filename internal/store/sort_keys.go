@@ -36,4 +36,8 @@ const (
 	sortKeyResourceType  = "resource_type"
 	sortKeyActorUsername = "actor_username"
 	sortKeySource        = "source"
+
+	// Application / ApplicationBlock sort keys.
+	sortKeyOwner       = "owner"
+	sortKeyCriticality = "criticality"
 )
