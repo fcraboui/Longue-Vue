@@ -694,7 +694,11 @@ func (s *Server) handleListPersistentVolumes(ctx context.Context, request mcp.Ca
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.PersistentVolume, string, error) {
-		return s.store.ListPersistentVolumes(ctx, clusterID, maxPageSize, cursor)
+		return s.store.ListPersistentVolumes(
+			ctx,
+			api.PersistentVolumeListFilter{ClusterID: clusterID},
+			api.ListPage{Limit: maxPageSize, Cursor: cursor},
+		)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list persistent volumes: %w", err)
@@ -720,7 +724,11 @@ func (s *Server) handleListPersistentVolumeClaims(ctx context.Context, request m
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.PersistentVolumeClaim, string, error) {
-		return s.store.ListPersistentVolumeClaims(ctx, nsID, maxPageSize, cursor)
+		return s.store.ListPersistentVolumeClaims(
+			ctx,
+			api.PersistentVolumeClaimListFilter{NamespaceID: nsID},
+			api.ListPage{Limit: maxPageSize, Cursor: cursor},
+		)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list persistent volume claims: %w", err)

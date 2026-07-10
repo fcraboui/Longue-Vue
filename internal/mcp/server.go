@@ -73,10 +73,14 @@ type Store interface {
 	ListIngresses(ctx context.Context, filter api.IngressListFilter, page api.ListPage) ([]api.Ingress, string, error)
 
 	// PersistentVolumes
-	ListPersistentVolumes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolume, string, error)
+	ListPersistentVolumes(ctx context.Context, filter api.PersistentVolumeListFilter, page api.ListPage) ([]api.PersistentVolume, string, error)
 
 	// PersistentVolumeClaims
-	ListPersistentVolumeClaims(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolumeClaim, string, error)
+	ListPersistentVolumeClaims(
+		ctx context.Context,
+		filter api.PersistentVolumeClaimListFilter,
+		page api.ListPage,
+	) ([]api.PersistentVolumeClaim, string, error)
 
 	// CloudAccounts (ADR-0015)
 	ListCloudAccounts(ctx context.Context, limit int, cursor string) ([]api.CloudAccount, string, error)

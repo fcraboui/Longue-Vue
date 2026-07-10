@@ -232,10 +232,14 @@ func (f *fakeStore) GetIngress(_ context.Context, id uuid.UUID) (api.Ingress, er
 
 // --- PVs / PVCs ----
 
-func (f *fakeStore) ListPersistentVolumes(_ context.Context, clusterID *uuid.UUID, _ int, _ string) ([]api.PersistentVolume, string, error) {
+func (f *fakeStore) ListPersistentVolumes(
+	_ context.Context,
+	filter api.PersistentVolumeListFilter,
+	_ api.ListPage,
+) ([]api.PersistentVolume, string, error) {
 	out := make([]api.PersistentVolume, 0, len(f.pvs))
 	for _, pv := range f.pvs {
-		if clusterID != nil && pv.ClusterId != *clusterID {
+		if filter.ClusterID != nil && pv.ClusterId != *filter.ClusterID {
 			continue
 		}
 		out = append(out, pv)
@@ -254,13 +258,12 @@ func (f *fakeStore) GetPersistentVolume(_ context.Context, id uuid.UUID) (api.Pe
 
 func (f *fakeStore) ListPersistentVolumeClaims(
 	_ context.Context,
-	namespaceID *uuid.UUID,
-	_ int,
-	_ string,
+	filter api.PersistentVolumeClaimListFilter,
+	_ api.ListPage,
 ) ([]api.PersistentVolumeClaim, string, error) {
 	out := make([]api.PersistentVolumeClaim, 0, len(f.pvcs))
 	for _, pvc := range f.pvcs {
-		if namespaceID != nil && pvc.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && pvc.NamespaceId != *filter.NamespaceID {
 			continue
 		}
 		out = append(out, pvc)

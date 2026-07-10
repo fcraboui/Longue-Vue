@@ -121,15 +121,57 @@ func (p *PG) GetPersistentVolume(ctx context.Context, id uuid.UUID) (api.Persist
 	return pv, nil
 }
 
-// ListPersistentVolumes returns up to limit PVs, optionally filtered by cluster.
+// pvSortSpec is the sort=<key> allowlist for GET /v1/persistentvolumes.
+//
+// capacity / requested_storage are TEXT ("10Gi") — sort is
+// lexicographic on the stored value (native-column semantics, spec
+// decision #3); numeric ordering would need a computed column.
+var pvSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:             {expr: "LOWER(name)", kind: sortText},
+		sortKeyPhase:            {expr: "LOWER(phase)", kind: sortText, nullable: true},
+		sortKeyStorageClassName: {expr: "LOWER(storage_class_name)", kind: sortText, nullable: true},
+		sortKeyCsiDriver:        {expr: "LOWER(csi_driver)", kind: sortText, nullable: true},
+		sortKeyCapacity:         {expr: "LOWER(capacity)", kind: sortText, nullable: true},
+		sortKeyCreatedAt:        {expr: "created_at", kind: sortTime},
+		sortKeyUpdatedAt:        {expr: "updated_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+// pvSortVal extracts the serialized sort value for cursor minting.
+func pvSortVal(pv *api.PersistentVolume, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&pv.Name)
+	case sortKeyPhase:
+		return sortValText(pv.Phase)
+	case sortKeyStorageClassName:
+		return sortValText(pv.StorageClassName)
+	case sortKeyCsiDriver:
+		return sortValText(pv.CsiDriver)
+	case sortKeyCapacity:
+		return sortValText(pv.Capacity)
+	case sortKeyUpdatedAt:
+		return sortValTime(pv.UpdatedAt)
+	default: // created_at
+		return sortValTime(pv.CreatedAt)
+	}
+}
+
+// ListPersistentVolumes returns a cursor-paginated page of PVs, optionally
+// filtered by cluster id and/or name.
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
-func (p *PG) ListPersistentVolumes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolume, string, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
+func (p *PG) ListPersistentVolumes(
+	ctx context.Context,
+	filter api.PersistentVolumeListFilter,
+	page api.ListPage,
+) ([]api.PersistentVolume, string, error) {
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := pvSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
 
 	sb := strings.Builder{}
@@ -139,30 +181,32 @@ func (p *PG) ListPersistentVolumes(ctx context.Context, clusterID *uuid.UUID, li
 	                       claim_ref_namespace, claim_ref_name,
 	                       labels, created_at, updated_at
 	                FROM persistent_volumes`)
-	args := make([]any, 0, 4)
-	conds := make([]string, 0, 2)
+	args := make([]any, 0, 6)
+	conds := make([]string, 0, 4)
 
-	if clusterID != nil {
-		args = append(args, *clusterID)
+	if filter.ClusterID != nil {
+		args = append(args, *filter.ClusterID)
 		conds = append(conds, fmt.Sprintf("cluster_id = $%d", len(args)))
 	}
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
+	if filter.Name != nil && *filter.Name != "" {
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE $%d ESCAPE '\\'", len(args)))
+	}
+	if page.Cursor != "" {
+		val, cid, err := decodeListCursor(page.Cursor, key, dir)
 		if err != nil {
 			return nil, "", err
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		if err := keysetCond(col, "id", dir, val, cid, &conds, &args); err != nil {
+			return nil, "", err
+		}
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -184,9 +228,9 @@ func (p *PG) ListPersistentVolumes(ctx context.Context, clusterID *uuid.UUID, li
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		if last.CreatedAt != nil && last.Id != nil {
-			next = encodeCursor(*last.CreatedAt, *last.Id)
+		last := &items[limit-1]
+		if last.Id != nil {
+			next = encodeListCursor(key, pvSortVal(last, key), *last.Id, dir)
 		}
 		items = items[:limit]
 	}

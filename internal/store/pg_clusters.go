@@ -202,21 +202,20 @@ func (p *PG) GetClusterByName(ctx context.Context, name string) (api.Cluster, er
 // clusterSortSpec is the sort=<key> allowlist for GET /v1/clusters.
 var clusterSortSpec = sortSpec{
 	columns: map[string]sortColumn{
-		"name":               {expr: "LOWER(name)", kind: sortText},
+		sortKeyName:          {expr: "LOWER(name)", kind: sortText},
 		"environment":        {expr: "LOWER(environment)", kind: sortText, nullable: true},
 		"provider":           {expr: "LOWER(provider)", kind: sortText, nullable: true},
 		"region":             {expr: "LOWER(region)", kind: sortText, nullable: true},
 		"kubernetes_version": {expr: "LOWER(kubernetes_version)", kind: sortText, nullable: true},
-		"created_at":         {expr: "created_at", kind: sortTime},
-		"updated_at":         {expr: "updated_at", kind: sortTime},
+		sortKeyCreatedAt:     {expr: "created_at", kind: sortTime},
+		sortKeyUpdatedAt:     {expr: "updated_at", kind: sortTime},
 	},
-	defaultKey: "created_at",
+	defaultKey: sortKeyCreatedAt,
 }
 
-//nolint:goconst // "name" and "updated_at" are sort keys shared with other entities; extracting constants adds no clarity
 func clusterSortVal(c *api.Cluster, key string) *string {
 	switch key {
-	case "name":
+	case sortKeyName:
 		return sortValText(&c.Name)
 	case "environment":
 		return sortValText(c.Environment)
@@ -226,7 +225,7 @@ func clusterSortVal(c *api.Cluster, key string) *string {
 		return sortValText(c.Region)
 	case "kubernetes_version":
 		return sortValText(c.KubernetesVersion)
-	case "updated_at":
+	case sortKeyUpdatedAt:
 		return sortValTime(c.UpdatedAt)
 	default:
 		return sortValTime(c.CreatedAt)

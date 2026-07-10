@@ -206,22 +206,22 @@ func (p *PG) GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, err
 // namespaceSortSpec is the sort=<key> allowlist for GET /v1/namespaces.
 var namespaceSortSpec = sortSpec{
 	columns: map[string]sortColumn{
-		"name":       {expr: "LOWER(n.name)", kind: sortText},
-		"phase":      {expr: "LOWER(n.phase)", kind: sortText, nullable: true},
-		"created_at": {expr: "n.created_at", kind: sortTime},
-		"updated_at": {expr: "n.updated_at", kind: sortTime},
+		sortKeyName:      {expr: "LOWER(n.name)", kind: sortText},
+		sortKeyPhase:     {expr: "LOWER(n.phase)", kind: sortText, nullable: true},
+		sortKeyCreatedAt: {expr: "n.created_at", kind: sortTime},
+		sortKeyUpdatedAt: {expr: "n.updated_at", kind: sortTime},
 	},
-	defaultKey: "created_at",
+	defaultKey: sortKeyCreatedAt,
 }
 
 // namespaceSortVal extracts the serialized sort value for cursor minting.
 func namespaceSortVal(n *api.Namespace, key string) *string {
 	switch key {
-	case "name":
+	case sortKeyName:
 		return sortValText(&n.Name)
-	case "phase":
+	case sortKeyPhase:
 		return sortValText(n.Phase)
-	case "updated_at":
+	case sortKeyUpdatedAt:
 		return sortValTime(n.UpdatedAt)
 	default: // created_at
 		return sortValTime(n.CreatedAt)
@@ -320,7 +320,7 @@ func (p *PG) UpdateNamespace(ctx context.Context, id uuid.UUID, in api.Namespace
 		appendSet("display_name", *in.DisplayName)
 	}
 	if in.Phase != nil {
-		appendSet("phase", *in.Phase)
+		appendSet(sortKeyPhase, *in.Phase)
 	}
 	if in.Labels != nil {
 		b, err := marshalLabels(in.Labels)

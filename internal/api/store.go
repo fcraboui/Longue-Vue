@@ -431,6 +431,12 @@ type IngressStore interface {
 	DeleteIngressesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 }
 
+// PersistentVolumeListFilter is the predicate set accepted by ListPersistentVolumes.
+type PersistentVolumeListFilter struct {
+	ClusterID *uuid.UUID
+	Name      *string
+}
+
 // PersistentVolumeStore covers cluster-scoped PV CRUD, upsert, and reconcile.
 type PersistentVolumeStore interface {
 	// CreatePersistentVolume inserts a new cluster-scoped PV. Returns
@@ -441,9 +447,13 @@ type PersistentVolumeStore interface {
 	// GetPersistentVolume fetches a PV by id.
 	GetPersistentVolume(ctx context.Context, id uuid.UUID) (PersistentVolume, error)
 
-	// ListPersistentVolumes returns up to limit PVs, optionally filtered by cluster.
+	// ListPersistentVolumes returns a cursor-paginated page of PVs, optionally
+	// filtered by cluster and/or name. See PersistentVolumeListFilter for the
+	// accepted predicates.
 	ListPersistentVolumes(
-		ctx context.Context, clusterID *uuid.UUID, limit int, cursor string,
+		ctx context.Context,
+		filter PersistentVolumeListFilter,
+		page ListPage,
 	) (items []PersistentVolume, nextCursor string, err error)
 
 	// UpdatePersistentVolume applies merge-patch.
@@ -463,6 +473,12 @@ type PersistentVolumeStore interface {
 	DeletePersistentVolumesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
 }
 
+// PersistentVolumeClaimListFilter is the predicate set accepted by ListPersistentVolumeClaims.
+type PersistentVolumeClaimListFilter struct {
+	NamespaceID *uuid.UUID
+	Name        *string
+}
+
 // PersistentVolumeClaimStore covers PVC CRUD, upsert, and reconcile.
 type PersistentVolumeClaimStore interface {
 	// CreatePersistentVolumeClaim inserts a new PVC. Returns ErrNotFound
@@ -473,9 +489,13 @@ type PersistentVolumeClaimStore interface {
 	// GetPersistentVolumeClaim fetches a PVC by id.
 	GetPersistentVolumeClaim(ctx context.Context, id uuid.UUID) (PersistentVolumeClaim, error)
 
-	// ListPersistentVolumeClaims returns up to limit PVCs, optionally filtered by namespace.
+	// ListPersistentVolumeClaims returns a cursor-paginated page of PVCs, optionally
+	// filtered by namespace and/or name. See PersistentVolumeClaimListFilter for the
+	// accepted predicates.
 	ListPersistentVolumeClaims(
-		ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string,
+		ctx context.Context,
+		filter PersistentVolumeClaimListFilter,
+		page ListPage,
 	) (items []PersistentVolumeClaim, nextCursor string, err error)
 
 	// UpdatePersistentVolumeClaim applies merge-patch.

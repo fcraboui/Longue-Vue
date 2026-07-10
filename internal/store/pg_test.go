@@ -2688,7 +2688,7 @@ func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
 	if n != 1 {
 		t.Errorf("deleted=%d, want 1", n)
 	}
-	items, _, err := pg.ListPersistentVolumes(ctx, cluster.Id, 10, "")
+	items, _, err := pg.ListPersistentVolumes(ctx, api.PersistentVolumeListFilter{ClusterID: cluster.Id}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

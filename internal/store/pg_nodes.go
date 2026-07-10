@@ -80,20 +80,20 @@ const nodeFromJoined = `FROM nodes n
 // strings) are deliberately absent (spec decision #3).
 var nodeSortSpec = sortSpec{
 	columns: map[string]sortColumn{
-		"name":          {expr: "LOWER(n.name)", kind: sortText},
-		"role":          {expr: "LOWER(n.role)", kind: sortText, nullable: true},
-		"zone":          {expr: "LOWER(n.zone)", kind: sortText, nullable: true},
-		"instance_type": {expr: "LOWER(n.instance_type)", kind: sortText, nullable: true},
-		"created_at":    {expr: "n.created_at", kind: sortTime},
-		"updated_at":    {expr: "n.updated_at", kind: sortTime},
+		sortKeyName:      {expr: "LOWER(n.name)", kind: sortText},
+		"role":           {expr: "LOWER(n.role)", kind: sortText, nullable: true},
+		"zone":           {expr: "LOWER(n.zone)", kind: sortText, nullable: true},
+		"instance_type":  {expr: "LOWER(n.instance_type)", kind: sortText, nullable: true},
+		sortKeyCreatedAt: {expr: "n.created_at", kind: sortTime},
+		sortKeyUpdatedAt: {expr: "n.updated_at", kind: sortTime},
 	},
-	defaultKey: "created_at",
+	defaultKey: sortKeyCreatedAt,
 }
 
 // nodeSortVal extracts the serialized sort value for cursor minting.
 func nodeSortVal(n *api.Node, key string) *string {
 	switch key {
-	case "name":
+	case sortKeyName:
 		return sortValText(&n.Name)
 	case "role":
 		return sortValText(n.Role)
@@ -101,7 +101,7 @@ func nodeSortVal(n *api.Node, key string) *string {
 		return sortValText(n.Zone)
 	case "instance_type":
 		return sortValText(n.InstanceType)
-	case "updated_at":
+	case sortKeyUpdatedAt:
 		return sortValTime(n.UpdatedAt)
 	default: // created_at
 		return sortValTime(n.CreatedAt)

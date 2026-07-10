@@ -1696,15 +1696,16 @@ func (m *memStore) GetPersistentVolume(_ context.Context, id uuid.UUID) (Persist
 	return pv, nil
 }
 
-func (m *memStore) ListPersistentVolumes(_ context.Context, clusterID *uuid.UUID, limit int, _ string) ([]PersistentVolume, string, error) {
+func (m *memStore) ListPersistentVolumes(_ context.Context, filter PersistentVolumeListFilter, page ListPage) ([]PersistentVolume, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]PersistentVolume, 0, len(m.pvsByID))
 	for _, pv := range m.pvsByID { //nolint:gocritic // acceptable copy in test code
-		if clusterID != nil && pv.ClusterId != *clusterID {
+		if filter.ClusterID != nil && pv.ClusterId != *filter.ClusterID {
 			continue
 		}
 		out = append(out, pv)
@@ -1919,17 +1920,18 @@ func (m *memStore) GetPersistentVolumeClaim(_ context.Context, id uuid.UUID) (Pe
 }
 
 func (m *memStore) ListPersistentVolumeClaims(
-	_ context.Context, namespaceID *uuid.UUID, limit int, _ string,
+	_ context.Context, filter PersistentVolumeClaimListFilter, page ListPage,
 ) ([]PersistentVolumeClaim, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]PersistentVolumeClaim, 0, len(m.pvcsByID))
 	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, pvc := range m.pvcsByID {
-		if namespaceID != nil && pvc.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && pvc.NamespaceId != *filter.NamespaceID {
 			continue
 		}
 		out = append(out, pvc)

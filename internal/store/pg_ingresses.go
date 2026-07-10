@@ -106,22 +106,22 @@ func (p *PG) GetIngress(ctx context.Context, id uuid.UUID) (api.Ingress, error) 
 // ingressSortSpec is the sort=<key> allowlist for GET /v1/ingresses.
 var ingressSortSpec = sortSpec{
 	columns: map[string]sortColumn{
-		"name":               {expr: "LOWER(i.name)", kind: sortText},
-		"ingress_class_name": {expr: "LOWER(i.ingress_class_name)", kind: sortText, nullable: true},
-		"created_at":         {expr: "i.created_at", kind: sortTime},
-		"updated_at":         {expr: "i.updated_at", kind: sortTime},
+		sortKeyName:             {expr: "LOWER(i.name)", kind: sortText},
+		sortKeyIngressClassName: {expr: "LOWER(i.ingress_class_name)", kind: sortText, nullable: true},
+		sortKeyCreatedAt:        {expr: "i.created_at", kind: sortTime},
+		sortKeyUpdatedAt:        {expr: "i.updated_at", kind: sortTime},
 	},
-	defaultKey: "created_at",
+	defaultKey: sortKeyCreatedAt,
 }
 
 // ingressSortVal extracts the serialized sort value for cursor minting.
 func ingressSortVal(i *api.Ingress, key string) *string {
 	switch key {
-	case "name":
+	case sortKeyName:
 		return sortValText(&i.Name)
-	case "ingress_class_name":
+	case sortKeyIngressClassName:
 		return sortValText(i.IngressClassName)
-	case "updated_at":
+	case sortKeyUpdatedAt:
 		return sortValTime(i.UpdatedAt)
 	default: // created_at
 		return sortValTime(i.CreatedAt)

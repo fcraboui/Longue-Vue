@@ -110,29 +110,29 @@ func (p *PG) GetService(ctx context.Context, id uuid.UUID) (api.Service, error) 
 // serviceSortSpec is the sort=<key> allowlist for GET /v1/services.
 var serviceSortSpec = sortSpec{
 	columns: map[string]sortColumn{
-		"name":       {expr: "LOWER(s.name)", kind: sortText},
-		"type":       {expr: "LOWER(s.type)", kind: sortText, nullable: true},
-		"cluster_ip": {expr: "LOWER(s.cluster_ip)", kind: sortText, nullable: true},
-		"created_at": {expr: "s.created_at", kind: sortTime},
-		"updated_at": {expr: "s.updated_at", kind: sortTime},
+		sortKeyName:      {expr: "LOWER(s.name)", kind: sortText},
+		sortKeyType:      {expr: "LOWER(s.type)", kind: sortText, nullable: true},
+		sortKeyClusterIP: {expr: "LOWER(s.cluster_ip)", kind: sortText, nullable: true},
+		sortKeyCreatedAt: {expr: "s.created_at", kind: sortTime},
+		sortKeyUpdatedAt: {expr: "s.updated_at", kind: sortTime},
 	},
-	defaultKey: "created_at",
+	defaultKey: sortKeyCreatedAt,
 }
 
 // serviceSortVal extracts the serialized sort value for cursor minting.
 func serviceSortVal(s *api.Service, key string) *string {
 	switch key {
-	case "name":
+	case sortKeyName:
 		return sortValText(&s.Name)
-	case "type":
+	case sortKeyType:
 		if s.Type == nil {
 			return sortValText(nil)
 		}
 		t := string(*s.Type)
 		return sortValText(&t)
-	case "cluster_ip":
+	case sortKeyClusterIP:
 		return sortValText(s.ClusterIp)
-	case "updated_at":
+	case sortKeyUpdatedAt:
 		return sortValTime(s.UpdatedAt)
 	default: // created_at
 		return sortValTime(s.CreatedAt)

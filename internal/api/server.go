@@ -1232,19 +1232,36 @@ func isValidServiceType(t ServiceType) bool {
 // ── Persistent Volumes ───────────────────────────────────────────────
 
 // ListPersistentVolumes returns a paged list of PVs.
+//
+//nolint:gocyclo // parameter extraction and error mapping; complexity is not branching
 func (s *Server) ListPersistentVolumes(ctx context.Context, req ListPersistentVolumesRequestObject) (ListPersistentVolumesResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := PersistentVolumeListFilter{ClusterID: req.Params.ClusterId}
+	if req.Params.Name != nil {
+		n := *req.Params.Name
+		filter.Name = &n
 	}
 
-	items, next, err := s.store.ListPersistentVolumes(ctx, req.Params.ClusterId, limit, cursor)
+	items, next, err := s.store.ListPersistentVolumes(ctx, filter, page)
 	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListPersistentVolumes400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
+		return nil, storeErr("listPersistentVolumes", err)
 	}
 
 	for i := range items {
@@ -1344,21 +1361,38 @@ func (s *Server) DeletePersistentVolume(ctx context.Context, req DeletePersisten
 // ── Persistent Volume Claims ─────────────────────────────────────────
 
 // ListPersistentVolumeClaims returns a paged list of PVCs.
+//
+//nolint:gocyclo // parameter extraction and error mapping; complexity is not branching
 func (s *Server) ListPersistentVolumeClaims(
 	ctx context.Context, req ListPersistentVolumeClaimsRequestObject,
 ) (ListPersistentVolumeClaimsResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := PersistentVolumeClaimListFilter{NamespaceID: req.Params.NamespaceId}
+	if req.Params.Name != nil {
+		n := *req.Params.Name
+		filter.Name = &n
 	}
 
-	items, next, err := s.store.ListPersistentVolumeClaims(ctx, req.Params.NamespaceId, limit, cursor)
+	items, next, err := s.store.ListPersistentVolumeClaims(ctx, filter, page)
 	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListPersistentVolumeClaims400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
+		return nil, storeErr("listPersistentVolumeClaims", err)
 	}
 
 	for i := range items {
