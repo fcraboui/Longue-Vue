@@ -288,3 +288,17 @@ func escapeLike(s string) string {
 	s = strings.ReplaceAll(s, `_`, `\_`)
 	return s
 }
+
+// namePattern builds the LIKE pattern for the uniform `name=` filter
+// (spec 2026-07-10). The term is lowercased and LIKE-escaped; each `*`
+// then becomes a `%` wildcard. A term without `*` is wrapped in `%…%`
+// (substring semantics); a term with `*` is used as an anchored glob
+// (`du*` = starts-with, `*du` = ends-with). The surrounding SQL must
+// compare against LOWER(col) and carry `ESCAPE '\'`.
+func namePattern(term string) string {
+	escaped := escapeLike(strings.ToLower(term))
+	if !strings.Contains(term, "*") {
+		return "%" + escaped + "%"
+	}
+	return strings.ReplaceAll(escaped, "*", "%")
+}
