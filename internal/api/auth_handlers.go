@@ -937,9 +937,31 @@ func (s *Server) RevokeApiToken(ctx context.Context, request RevokeApiTokenReque
 
 // ListSessions returns a paged list of active sessions (admin view).
 func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error) {
-	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
-	items, next, err := s.store.ListSessions(ctx, limit, cursor)
+	page := ListPage{}
+	if request.Params.Limit != nil {
+		page.Limit = *request.Params.Limit
+	}
+	if request.Params.Cursor != nil {
+		page.Cursor = *request.Params.Cursor
+	}
+	if request.Params.Sort != nil {
+		page.Sort = *request.Params.Sort
+	}
+	if request.Params.Order != nil {
+		page.Order = string(*request.Params.Order)
+	}
+	filter := SessionListFilter{}
+	if request.Params.Name != nil {
+		n := *request.Params.Name
+		filter.Name = &n
+	}
+	items, next, err := s.store.ListSessions(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListSessions400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
 		return nil, fmt.Errorf("listSessions: %w", err)
 	}
 	resp := SessionList{Items: items}

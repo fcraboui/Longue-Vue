@@ -756,36 +756,71 @@ func (p *PG) DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error 
 	return nil
 }
 
+// sessionSortSpec is the sort=<key> allowlist for GET /v1/admin/sessions.
+var sessionSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyUsername:   {expr: "LOWER(u.username)", kind: sortText},
+		sortKeyCreatedAt:  {expr: "s.created_at", kind: sortTime},
+		sortKeyLastUsedAt: {expr: "s.last_used_at", kind: sortTime},
+		sortKeyExpiresAt:  {expr: "s.expires_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+// sessionSortVal extracts the serialized sort value for cursor minting.
+func sessionSortVal(s *api.Session, key string) *string {
+	switch key {
+	case sortKeyUsername:
+		return sortValText(s.Username)
+	case sortKeyLastUsedAt:
+		v := s.LastUsedAt
+		return sortValTime(&v)
+	case sortKeyExpiresAt:
+		v := s.ExpiresAt
+		return sortValTime(&v)
+	default: // created_at
+		v := s.CreatedAt
+		return sortValTime(&v)
+	}
+}
+
 // ListSessions returns active sessions, surfacing each row's public_id
 // (not the cookie value) as the API-facing `id`. Cookie values never
 // leave the database.
-func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.Session, string, error) {
-	if limit <= 0 {
-		limit = 50
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
+func (p *PG) ListSessions(ctx context.Context, filter api.SessionListFilter, page api.ListPage) ([]api.Session, string, error) {
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := sessionSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
-	if limit > 200 {
-		limit = 200
-	}
+
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT s.public_id, s.user_id, u.username, s.created_at, s.last_used_at,
 	                       s.expires_at, s.user_agent, s.source_ip
 	                FROM sessions s
-	                JOIN users u ON u.id = s.user_id
-	                WHERE s.expires_at > NOW()`)
-	args := make([]any, 0, 3)
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
+	                JOIN users u ON u.id = s.user_id`)
+	args := make([]any, 0, 6)
+	conds := []string{"s.expires_at > NOW()"}
+
+	if filter.Name != nil && *filter.Name != "" {
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf(`LOWER(u.username) LIKE $%d ESCAPE '\'`, len(args)))
+	}
+	if page.Cursor != "" {
+		val, cid, err := decodeListCursor(page.Cursor, key, dir)
 		if err != nil {
 			return nil, "", err
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		fmt.Fprintf(&sb, " AND (s.created_at, s.public_id) < ($%d, $%d)", tsIdx, idIdx)
+		if err := keysetCond(col, "s.public_id", dir, val, cid, &conds, &args); err != nil {
+			return nil, "", err
+		}
 	}
+	sb.WriteString(" WHERE ")
+	sb.WriteString(strings.Join(conds, " AND "))
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY s.created_at DESC, s.public_id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "s.public_id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -794,7 +829,6 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 	defer rows.Close()
 
 	items := make([]api.Session, 0, limit)
-	var lastPublicID uuid.UUID
 	for rows.Next() {
 		var (
 			s         api.Session
@@ -815,7 +849,6 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 		s.UserAgent = userAgent
 		s.SourceIp = sourceIP
 		items = append(items, s)
-		lastPublicID = publicID
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", fmt.Errorf("iterate sessions: %w", err)
@@ -823,8 +856,11 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		next = encodeCursor(last.CreatedAt, lastPublicID)
+		last := &items[limit-1]
+		pid, err := uuid.Parse(last.Id)
+		if err == nil {
+			next = encodeListCursor(key, sessionSortVal(last, key), pid, dir)
+		}
 		items = items[:limit]
 	}
 	return items, next, nil

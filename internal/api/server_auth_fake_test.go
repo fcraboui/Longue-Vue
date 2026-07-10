@@ -475,9 +475,10 @@ func (m *memStore) DeleteSessionsForUser(_ context.Context, userID uuid.UUID) er
 	return nil
 }
 
-func (m *memStore) ListSessions(_ context.Context, limit int, _ string) ([]Session, string, error) {
+func (m *memStore) ListSessions(_ context.Context, _ SessionListFilter, page ListPage) ([]Session, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}

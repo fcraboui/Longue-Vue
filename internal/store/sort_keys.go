@@ -15,4 +15,7 @@ const (
 	sortKeyIngressClassName = "ingress_class_name"
 	sortKeyType             = "type"
 	sortKeyClusterIP        = "cluster_ip"
+	sortKeyUsername         = "username"
+	sortKeyLastUsedAt       = "last_used_at"
+	sortKeyExpiresAt        = "expires_at"
 )

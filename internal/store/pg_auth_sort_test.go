@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -399,6 +400,196 @@ func TestListAPITokensDefaultOrderUnchanged(t *testing.T) {
 				t.Fatalf("duplicate %s across pages", tok.Id)
 			}
 			seen[tok.Id.String()] = true
+		}
+		total += len(items)
+		if next == "" {
+			break
+		}
+		page.Cursor = next
+	}
+	if total < 5 {
+		t.Fatalf("total=%d want at least 5", total)
+	}
+}
+
+// ── Sessions ──────────────────────────────────────────────────────────────────
+
+// seedSession creates a session for the given user.
+// ExpiresAt is set 24 h in the future (real clock) so the active-session
+// filter (expires_at > NOW()) does not suppress the test row.
+func seedSession(t *testing.T, pg *PG, userID uuid.UUID) {
+	t.Helper()
+	sid := uuid.New().String()
+	now := time.Now().UTC()
+	err := pg.CreateSession(t.Context(), api.SessionInsert{
+		ID:        sid,
+		UserID:    userID,
+		CreatedAt: now,
+		ExpiresAt: now.Add(24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+}
+
+// TestListSessionsPaginatesAcrossCreatedAtTies is the regression test for the
+// cursor-mint bug: the old code paired items[limit-1].CreatedAt with the
+// loop-trailing lastPublicID (the PEEK row's id), causing a skip or duplicate
+// at a page boundary when adjacent sessions share created_at.
+func TestListSessionsPaginatesAcrossCreatedAtTies(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	// Seed one user + 4 sessions.
+	u := seedUser(t, pg, "tie-user-"+uuid.New().String()[:6], auth.RoleViewer)
+	for range 4 {
+		seedSession(t, pg, *u.Id)
+	}
+
+	// Force identical created_at on ALL sessions so the tiebreaker is exercised
+	// on every page boundary.
+	_, err := pg.pool.Exec(ctx,
+		`UPDATE sessions SET created_at = '2026-01-02T03:04:05Z'`,
+	)
+	if err != nil {
+		t.Fatalf("force created_at: %v", err)
+	}
+
+	seen := map[string]bool{}
+	page := api.ListPage{Limit: 2}
+	total := 0
+	for {
+		items, next, err := pg.ListSessions(ctx, api.SessionListFilter{}, page)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for _, s := range items {
+			if seen[s.Id] {
+				t.Fatalf("session %s duplicated across pages (tie bug)", s.Id)
+			}
+			seen[s.Id] = true
+		}
+		total += len(items)
+		if next == "" {
+			break
+		}
+		page.Cursor = next
+	}
+	if total != 4 {
+		t.Fatalf("total=%d want 4 (boundary row skipped — tie bug)", total)
+	}
+}
+
+func TestListSessionsNameFiltersUsername(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	suffix := uuid.New().String()[:6]
+	alice := seedUser(t, pg, "alice-"+suffix, auth.RoleViewer)
+	bob := seedUser(t, pg, "bob-"+suffix, auth.RoleViewer)
+	seedSession(t, pg, *alice.Id)
+	seedSession(t, pg, *bob.Id)
+
+	term := "alice"
+	items, _, err := pg.ListSessions(ctx, api.SessionListFilter{Name: &term}, api.ListPage{Limit: 50})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1 (alice only)", len(items))
+	}
+	if items[0].Username == nil || *items[0].Username != "alice-"+suffix {
+		t.Fatalf("got username %v, want alice-%s", items[0].Username, suffix)
+	}
+}
+
+func TestListSessionsSortByUsername(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	suffix := uuid.New().String()[:6]
+	for _, name := range []string{"charlie", "alice", "eve", "bob", "diana"} {
+		u := seedUser(t, pg, name+"-"+suffix, auth.RoleViewer)
+		seedSession(t, pg, *u.Id)
+	}
+
+	var got []string
+	page := api.ListPage{Limit: 2, Sort: "username"}
+	for {
+		items, next, err := pg.ListSessions(ctx, api.SessionListFilter{}, page)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for _, s := range items {
+			if s.Username != nil {
+				got = append(got, *s.Username)
+			}
+		}
+		if next == "" {
+			break
+		}
+		page.Cursor = next
+	}
+	if len(got) < 5 {
+		t.Fatalf("got %d items, want at least 5", len(got))
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i] < got[i-1] {
+			t.Fatalf("not sorted asc at index %d: %q > %q", i, got[i-1], got[i])
+		}
+	}
+}
+
+func TestListSessionsRejectsBadSortAndMismatchedCursor(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	u := seedUser(t, pg, "sorttest-"+uuid.New().String()[:6], auth.RoleViewer)
+	seedSession(t, pg, *u.Id)
+	seedSession(t, pg, *u.Id)
+	seedSession(t, pg, *u.Id)
+
+	if _, _, err := pg.ListSessions(ctx, api.SessionListFilter{}, api.ListPage{Sort: "bogus"}); !errors.Is(err, api.ErrInvalidSort) {
+		t.Errorf("bogus sort: %v, want ErrInvalidSort", err)
+	}
+
+	_, next, err := pg.ListSessions(ctx, api.SessionListFilter{}, api.ListPage{Limit: 1, Sort: "username"})
+	if err != nil || next == "" {
+		t.Fatalf("seed cursor: next=%q err=%v", next, err)
+	}
+	// Replay username cursor under created_at (default) → invalid.
+	if _, _, err := pg.ListSessions(ctx, api.SessionListFilter{}, api.ListPage{Limit: 1, Cursor: next}); !errors.Is(err, api.ErrInvalidCursor) {
+		t.Errorf("mismatched cursor: %v, want ErrInvalidCursor", err)
+	}
+	// Legacy pipe cursor → invalid.
+	legacy := encodeCursor(timeNowFixed(t), uuid.New())
+	if _, _, err := pg.ListSessions(ctx, api.SessionListFilter{}, api.ListPage{Cursor: legacy}); !errors.Is(err, api.ErrInvalidCursor) {
+		t.Errorf("legacy cursor: %v, want ErrInvalidCursor", err)
+	}
+}
+
+func TestListSessionsDefaultOrderUnchanged(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	u := seedUser(t, pg, "do-sess-"+uuid.New().String()[:6], auth.RoleViewer)
+	for range 5 {
+		seedSession(t, pg, *u.Id)
+	}
+
+	seen := map[string]bool{}
+	page := api.ListPage{Limit: 2}
+	total := 0
+	for {
+		items, next, err := pg.ListSessions(ctx, api.SessionListFilter{}, page)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for _, s := range items {
+			if seen[s.Id] {
+				t.Fatalf("duplicate %s across pages", s.Id)
+			}
+			seen[s.Id] = true
 		}
 		total += len(items)
 		if next == "" {

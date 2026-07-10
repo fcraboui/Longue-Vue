@@ -532,6 +532,12 @@ type APITokenListFilter struct { //nolint:revive // stutter is acceptable here f
 	Name *string
 }
 
+// SessionListFilter is the predicate set accepted by ListSessions.
+// Name matches the owning user's username (case-insensitive).
+type SessionListFilter struct {
+	Name *string
+}
+
 // AuthStore covers the auth substrate (ADR-0007): users, sessions, API
 // tokens, and the one-shot OIDC state rows. The auth package also defines
 // a narrower `auth.Store` interface with just the lookup methods the
@@ -649,7 +655,7 @@ type AuthStore interface {
 
 	// ListSessions returns a page of active sessions with denormalised
 	// username for admin display.
-	ListSessions(ctx context.Context, limit int, cursor string) (items []Session, nextCursor string, err error)
+	ListSessions(ctx context.Context, filter SessionListFilter, page ListPage) (items []Session, nextCursor string, err error)
 
 	// CreateAPIToken inserts a new token row. `hash` is argon2id of the
 	// full plaintext; `prefix` is the first 8 chars of the plaintext
