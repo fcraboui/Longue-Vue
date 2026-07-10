@@ -211,26 +211,62 @@ func TestPG_ListImageOriginMappings(t *testing.T) {
 		}
 	})
 
+	t.Run("filter by q escapes LIKE metacharacters", func(t *testing.T) {
+		// Seed two mappings: "my_lib/app" and "myxlib/app"
+		// The underscore in "my_lib" is a LIKE wildcard that matches any char.
+		// Without escaping, q="my_lib" would match both "my_lib" (exact match)
+		// and "myxlib" (where _ matches x).
+		// With proper escaping, q="my_lib" should match exactly one.
+		if _, err := pg.CreateImageOriginMapping(ctx,
+			api.ImageOriginMappingCreate{ImageName: "my_lib/app", PublicRegistry: "docker.io"},
+			"seed"); err != nil {
+			t.Fatalf("seed my_lib: %v", err)
+		}
+		if _, err := pg.CreateImageOriginMapping(ctx,
+			api.ImageOriginMappingCreate{ImageName: "myxlib/app", PublicRegistry: "docker.io"},
+			"seed"); err != nil {
+			t.Fatalf("seed myxlib: %v", err)
+		}
+
+		items, _, err := pg.ListImageOriginMappings(ctx,
+			api.StoreListImageOriginMappingsParams{Q: "my_lib"})
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if len(items) != 1 {
+			t.Fatalf("want exactly 1 match for q=my_lib, got %d: %v", len(items), items)
+		}
+		if items[0].ImageName != "my_lib/app" {
+			t.Fatalf("want my_lib/app, got %s", items[0].ImageName)
+		}
+	})
+
 	t.Run("pagination", func(t *testing.T) {
-		page1, cursor, err := pg.ListImageOriginMappings(ctx,
-			api.StoreListImageOriginMappingsParams{Limit: 2})
-		if err != nil {
-			t.Fatalf("page1: %v", err)
+		var allItems []api.ImageOriginMapping
+		cursor := ""
+		pageNum := 0
+		for {
+			pageNum++
+			items, nextCursor, err := pg.ListImageOriginMappings(ctx,
+				api.StoreListImageOriginMappingsParams{Limit: 2, Cursor: cursor})
+			if err != nil {
+				t.Fatalf("page%d: %v", pageNum, err)
+			}
+			if len(items) == 0 {
+				t.Fatalf("page%d: got 0 items unexpectedly", pageNum)
+			}
+			allItems = append(allItems, items...)
+			cursor = nextCursor
+			if cursor == "" {
+				break // last page
+			}
 		}
-		if len(page1) != 2 || cursor == "" {
-			t.Fatalf("want 2 + non-empty cursor, got %d / %q", len(page1), cursor)
-		}
-		page2, cursor2, err := pg.ListImageOriginMappings(ctx,
-			api.StoreListImageOriginMappingsParams{Limit: 2, Cursor: cursor})
-		if err != nil {
-			t.Fatalf("page2: %v", err)
-		}
-		if len(page2) != 2 || cursor2 != "" {
-			t.Fatalf("want last page (2, no cursor), got %d / %q", len(page2), cursor2)
+		if len(allItems) != 6 {
+			t.Fatalf("want 6 total (4 initial + 2 from escape test), got %d", len(allItems))
 		}
 		// No overlap between pages.
 		seen := map[string]bool{}
-		for _, m := range append(page1, page2...) {
+		for _, m := range allItems {
 			if seen[m.ImageName] {
 				t.Fatalf("duplicate row across pages: %s", m.ImageName)
 			}
