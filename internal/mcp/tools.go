@@ -521,7 +521,7 @@ func (s *Server) handleListWorkloads(ctx context.Context, request mcp.CallToolRe
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Workload, string, error) {
-		return s.store.ListWorkloads(ctx, filter, maxPageSize, cursor)
+		return s.store.ListWorkloads(ctx, filter, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list workloads: %w", err)
@@ -592,7 +592,7 @@ func (s *Server) handleListPods(ctx context.Context, request mcp.CallToolRequest
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Pod, string, error) {
-		return s.store.ListPods(ctx, filter, maxPageSize, cursor)
+		return s.store.ListPods(ctx, filter, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list pods: %w", err)
@@ -909,14 +909,14 @@ func (s *Server) handleSearchImages(ctx context.Context, request mcp.CallToolReq
 	}
 
 	workloads, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Workload, string, error) {
-		return s.store.ListWorkloads(ctx, api.WorkloadListFilter{ImageSubstring: &query}, maxPageSize, cursor)
+		return s.store.ListWorkloads(ctx, api.WorkloadListFilter{ImageSubstring: &query}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search workloads by image: %w", err)
 	}
 
 	pods, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Pod, string, error) {
-		return s.store.ListPods(ctx, api.PodListFilter{ImageSubstring: &query}, maxPageSize, cursor)
+		return s.store.ListPods(ctx, api.PodListFilter{ImageSubstring: &query}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search pods by image: %w", err)

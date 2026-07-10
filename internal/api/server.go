@@ -642,23 +642,34 @@ func (s *Server) DeleteNamespace(ctx context.Context, req DeleteNamespaceRequest
 // ListPods returns a paged list of pods, optionally filtered by namespace_id,
 // node_name, and/or container image substring.
 func (s *Server) ListPods(ctx context.Context, req ListPodsRequestObject) (ListPodsResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
 	}
 	filter := PodListFilter{
 		NamespaceID:    req.Params.NamespaceId,
 		NodeName:       req.Params.NodeName,
 		WorkloadID:     req.Params.WorkloadId,
 		ImageSubstring: req.Params.Image,
+		Name:           req.Params.Name,
 	}
 
-	items, next, err := s.store.ListPods(ctx, filter, limit, cursor)
+	items, next, err := s.store.ListPods(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidSort) || errors.Is(err, ErrInvalidCursor) {
+			return ListPods400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid parameter", err.Error())),
+			}, nil
+		}
 		return nil, fmt.Errorf("store: %w", err)
 	}
 
@@ -769,20 +780,26 @@ func (s *Server) DeletePod(ctx context.Context, req DeletePodRequestObject) (Del
 // ListWorkloads returns a paged list of workloads, optionally filtered by
 // namespace_id and/or kind.
 //
-//nolint:gocritic // req is passed by value to satisfy the oapi-codegen ServerInterface signature.
+//nolint:gocritic,gocyclo // req is passed by value to satisfy the oapi-codegen ServerInterface signature; link-aware filter branches inflate cyclo count.
 func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObject) (ListWorkloadsResponseObject, error) {
-	limit := 0
-	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
-	}
-	cursor := ""
-	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
-	}
 	if req.Params.Kind != nil && !req.Params.Kind.Valid() {
 		return ListWorkloads400ApplicationProblemPlusJSONResponse{
 			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid filter", "query 'kind' is not a known workload kind")),
 		}, nil
+	}
+
+	page := ListPage{}
+	if req.Params.Limit != nil {
+		page.Limit = *req.Params.Limit
+	}
+	if req.Params.Cursor != nil {
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
 	}
 
 	includeTerminated := false
@@ -800,10 +817,16 @@ func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObje
 		ApplicationID:   req.Params.ApplicationId,
 		ApplicationName: req.Params.ApplicationName,
 		Unlinked:        req.Params.Unlinked,
+		Name:            req.Params.Name,
 	}
 
-	items, next, err := s.store.ListWorkloads(ctx, filter, limit, cursor)
+	items, next, err := s.store.ListWorkloads(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidSort) || errors.Is(err, ErrInvalidCursor) {
+			return ListWorkloads400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid parameter", err.Error())),
+			}, nil
+		}
 		return nil, fmt.Errorf("store: %w", err)
 	}
 

@@ -771,9 +771,10 @@ func (m *memStore) GetPod(_ context.Context, id uuid.UUID) (Pod, error) {
 }
 
 //nolint:gocyclo // multi-filter test fake
-func (m *memStore) ListPods(_ context.Context, filter PodListFilter, limit int, _ string) ([]Pod, string, error) {
+func (m *memStore) ListPods(_ context.Context, filter PodListFilter, page ListPage) ([]Pod, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
@@ -990,10 +991,11 @@ func (m *memStore) GetWorkload(_ context.Context, id uuid.UUID) (Workload, error
 
 //nolint:gocyclo // multi-filter test fake
 func (m *memStore) ListWorkloads(
-	_ context.Context, filter WorkloadListFilter, limit int, _ string,
+	_ context.Context, filter WorkloadListFilter, page ListPage,
 ) ([]Workload, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}

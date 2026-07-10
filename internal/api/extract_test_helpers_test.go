@@ -190,7 +190,7 @@ func (s *extractStubStore) ListNamespaces(_ context.Context, _ api.NamespaceList
 	return s.namespaces, "", nil
 }
 
-func (s *extractStubStore) ListWorkloads(_ context.Context, f api.WorkloadListFilter, _ int, _ string) ([]api.Workload, string, error) {
+func (s *extractStubStore) ListWorkloads(_ context.Context, f api.WorkloadListFilter, _ api.ListPage) ([]api.Workload, string, error) {
 	// Compose the two filters honoured here (ImageSubstring +
 	// ADR-0029 ApplicationNameSubstring) as AND, matching production.
 	candidates := s.workloads
@@ -222,7 +222,7 @@ func (s *extractStubStore) ListWorkloads(_ context.Context, f api.WorkloadListFi
 	return candidates, "", nil
 }
 
-func (s *extractStubStore) ListPods(_ context.Context, f api.PodListFilter, _ int, _ string) ([]api.Pod, string, error) {
+func (s *extractStubStore) ListPods(_ context.Context, f api.PodListFilter, _ api.ListPage) ([]api.Pod, string, error) {
 	if f.ImageSubstring != nil {
 		out := make([]api.Pod, 0)
 		for _, p := range s.pods {

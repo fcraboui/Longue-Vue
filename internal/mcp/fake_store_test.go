@@ -135,7 +135,7 @@ func (f *fakeStore) GetNamespace(_ context.Context, id uuid.UUID) (api.Namespace
 
 // --- Workloads ----
 
-func (f *fakeStore) ListWorkloads(_ context.Context, filter api.WorkloadListFilter, _ int, _ string) ([]api.Workload, string, error) {
+func (f *fakeStore) ListWorkloads(_ context.Context, filter api.WorkloadListFilter, _ api.ListPage) ([]api.Workload, string, error) {
 	if err := f.errOn["ListWorkloads"]; err != nil {
 		return nil, "", err
 	}
@@ -160,7 +160,7 @@ func (f *fakeStore) GetWorkload(_ context.Context, id uuid.UUID) (api.Workload, 
 
 // --- Pods ----
 
-func (f *fakeStore) ListPods(_ context.Context, filter api.PodListFilter, _ int, _ string) ([]api.Pod, string, error) {
+func (f *fakeStore) ListPods(_ context.Context, filter api.PodListFilter, _ api.ListPage) ([]api.Pod, string, error) {
 	out := make([]api.Pod, 0, len(f.pods))
 	for _, p := range f.pods {
 		if filter.NamespaceID != nil && p.NamespaceId != *filter.NamespaceID {

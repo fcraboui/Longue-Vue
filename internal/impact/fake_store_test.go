@@ -165,7 +165,7 @@ func (f *fakeStore) ListNamespaces(_ context.Context, filter api.NamespaceListFi
 	return out, "", nil
 }
 
-func (f *fakeStore) ListPods(_ context.Context, filter api.PodListFilter, _ int, _ string) ([]api.Pod, string, error) {
+func (f *fakeStore) ListPods(_ context.Context, filter api.PodListFilter, _ api.ListPage) ([]api.Pod, string, error) {
 	f.bump("ListPods")
 	out := make([]api.Pod, 0, len(f.pods))
 	for _, p := range f.pods {
@@ -180,7 +180,7 @@ func (f *fakeStore) ListPods(_ context.Context, filter api.PodListFilter, _ int,
 	return out, "", nil
 }
 
-func (f *fakeStore) ListWorkloads(_ context.Context, filter api.WorkloadListFilter, _ int, _ string) ([]api.Workload, string, error) {
+func (f *fakeStore) ListWorkloads(_ context.Context, filter api.WorkloadListFilter, _ api.ListPage) ([]api.Workload, string, error) {
 	f.bump("ListWorkloads")
 	out := make([]api.Workload, 0, len(f.wls))
 	for _, w := range f.wls {

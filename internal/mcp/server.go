@@ -59,11 +59,11 @@ type Store interface {
 	GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, error)
 
 	// Workloads
-	ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, limit int, cursor string) ([]api.Workload, string, error)
+	ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, page api.ListPage) ([]api.Workload, string, error)
 	GetWorkload(ctx context.Context, id uuid.UUID) (api.Workload, error)
 
 	// Pods
-	ListPods(ctx context.Context, filter api.PodListFilter, limit int, cursor string) ([]api.Pod, string, error)
+	ListPods(ctx context.Context, filter api.PodListFilter, page api.ListPage) ([]api.Pod, string, error)
 	GetPod(ctx context.Context, id uuid.UUID) (api.Pod, error)
 
 	// Services

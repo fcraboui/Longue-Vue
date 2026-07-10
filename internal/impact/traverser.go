@@ -29,8 +29,8 @@ type TraverserStore interface {
 
 	ListNodes(ctx context.Context, filter api.NodeListFilter, page api.ListPage) ([]api.Node, string, error)
 	ListNamespaces(ctx context.Context, filter api.NamespaceListFilter, page api.ListPage) ([]api.Namespace, string, error)
-	ListPods(ctx context.Context, filter api.PodListFilter, limit int, cursor string) ([]api.Pod, string, error)
-	ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, limit int, cursor string) ([]api.Workload, string, error)
+	ListPods(ctx context.Context, filter api.PodListFilter, page api.ListPage) ([]api.Pod, string, error)
+	ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, page api.ListPage) ([]api.Workload, string, error)
 	ListServices(ctx context.Context, filter api.ServiceListFilter, page api.ListPage) ([]api.Service, string, error)
 	ListIngresses(ctx context.Context, filter api.IngressListFilter, page api.ListPage) ([]api.Ingress, string, error)
 	ListPersistentVolumes(ctx context.Context, filter api.PersistentVolumeListFilter, page api.ListPage) ([]api.PersistentVolume, string, error)
@@ -344,7 +344,7 @@ func (b *builder) expandNode(ctx context.Context, id uuid.UUID, node GraphNode, 
 	// downstream: pods on this node (by node_name)
 	nodeName := n.Name
 	pods, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Pod, string, error) {
-		return b.store.ListPods(ctx, api.PodListFilter{NodeName: &nodeName}, maxPageSize, cursor)
+		return b.store.ListPods(ctx, api.PodListFilter{NodeName: &nodeName}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return fmt.Errorf("list pods by node: %w", err)
@@ -379,7 +379,7 @@ func (b *builder) expandNamespace(ctx context.Context, id uuid.UUID, nodeID stri
 
 	// downstream: workloads
 	wls, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Workload, string, error) {
-		return b.store.ListWorkloads(ctx, api.WorkloadListFilter{NamespaceID: &id}, maxPageSize, cursor)
+		return b.store.ListWorkloads(ctx, api.WorkloadListFilter{NamespaceID: &id}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return fmt.Errorf("list workloads: %w", err)
@@ -533,7 +533,7 @@ func (b *builder) expandWorkload(ctx context.Context, id uuid.UUID, nodeID strin
 
 	// downstream: pods owned by this workload
 	pods, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Pod, string, error) {
-		return b.store.ListPods(ctx, api.PodListFilter{NamespaceID: &w.NamespaceId}, maxPageSize, cursor)
+		return b.store.ListPods(ctx, api.PodListFilter{NamespaceID: &w.NamespaceId}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return fmt.Errorf("list pods: %w", err)

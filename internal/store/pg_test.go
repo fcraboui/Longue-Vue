@@ -883,7 +883,7 @@ func TestPGPodCRUD(t *testing.T) {
 		t.Errorf("phase=%v", updated.Phase)
 	}
 
-	items, _, err := pg.ListPods(ctx, api.PodListFilter{NamespaceID: ns.Id}, 10, "")
+	items, _, err := pg.ListPods(ctx, api.PodListFilter{NamespaceID: ns.Id}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -1124,7 +1124,7 @@ func TestPGWorkloadCRUD(t *testing.T) {
 
 	// Filter by kind.
 	depKind := api.Deployment
-	items, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{NamespaceID: ns.Id, Kind: &depKind}, 10, "")
+	items, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{NamespaceID: ns.Id, Kind: &depKind}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list by kind: %v", err)
 	}
@@ -2739,7 +2739,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 
 	// node_name filter — only worker-01 pods.
 	node1Filter := api.PodListFilter{NodeName: &node1}
-	gotByNode, _, err := pg.ListPods(ctx, node1Filter, 10, "")
+	gotByNode, _, err := pg.ListPods(ctx, node1Filter, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list by node: %v", err)
 	}
@@ -2749,7 +2749,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 
 	// Image filter, case-insensitive substring — "nginx" matches NGINX:1.27-alpine only.
 	nginxSub := "nginx"
-	gotNginx, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &nginxSub}, 10, "")
+	gotNginx, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &nginxSub}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list by image nginx: %v", err)
 	}
@@ -2759,7 +2759,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 
 	// Init containers participate — "log4j:2.15" hits api-1 via its init container.
 	log4jSub := "log4j:2.15"
-	gotLog4j, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &log4jSub}, 10, "")
+	gotLog4j, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &log4jSub}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list by image log4j: %v", err)
 	}
@@ -2769,7 +2769,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 
 	// Empty match returns no rows — no false positives.
 	noMatch := "definitely-not-present"
-	gotNone, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &noMatch}, 10, "")
+	gotNone, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &noMatch}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list by image none: %v", err)
 	}
@@ -2778,7 +2778,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	}
 
 	// Combined: node + image filter AND together.
-	both, _, err := pg.ListPods(ctx, api.PodListFilter{NodeName: &node1, ImageSubstring: &nginxSub}, 10, "")
+	both, _, err := pg.ListPods(ctx, api.PodListFilter{NodeName: &node1, ImageSubstring: &nginxSub}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list combined: %v", err)
 	}
@@ -2797,7 +2797,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("workload web: %v", err)
 	}
-	wls, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{ImageSubstring: &log4jSub}, 10, "")
+	wls, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{ImageSubstring: &log4jSub}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list workloads: %v", err)
 	}

@@ -21,8 +21,8 @@ type ExtractStore interface {
 	ListClusters(ctx context.Context, filter ClusterListFilter, page ListPage) ([]Cluster, string, error)
 	ListNodes(ctx context.Context, filter NodeListFilter, page ListPage) ([]Node, string, error)
 	ListNamespaces(ctx context.Context, filter NamespaceListFilter, page ListPage) ([]Namespace, string, error)
-	ListWorkloads(ctx context.Context, filter WorkloadListFilter, limit int, cursor string) ([]Workload, string, error)
-	ListPods(ctx context.Context, filter PodListFilter, limit int, cursor string) ([]Pod, string, error)
+	ListWorkloads(ctx context.Context, filter WorkloadListFilter, page ListPage) ([]Workload, string, error)
+	ListPods(ctx context.Context, filter PodListFilter, page ListPage) ([]Pod, string, error)
 	ListVirtualMachines(ctx context.Context, filter VirtualMachineListFilter, limit int, cursor string) ([]VirtualMachine, string, error)
 	ListCloudAccounts(ctx context.Context, limit int, cursor string) ([]CloudAccount, string, error)
 
@@ -653,7 +653,7 @@ func listAllWorkloadsByFilter(
 	var out []Workload
 	cursor := ""
 	for {
-		items, next, err := store.ListWorkloads(ctx, filter, extractPageSize, cursor)
+		items, next, err := store.ListWorkloads(ctx, filter, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("listAllWorkloadsByFilter: %w", err)
 		}
@@ -709,7 +709,7 @@ func collectWorkloadExtract(
 	}
 	cursor := ""
 	for {
-		items, next, err := store.ListWorkloads(ctx, wlFilter, extractPageSize, cursor)
+		items, next, err := store.ListWorkloads(ctx, wlFilter, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, nil, fmt.Errorf("collectWorkloadExtract: %w", err)
 		}
@@ -810,7 +810,7 @@ func collectPodExtract(
 	q := f.q
 	cursor := ""
 	for {
-		items, next, err := store.ListPods(ctx, PodListFilter{ImageSubstring: &q}, extractPageSize, cursor)
+		items, next, err := store.ListPods(ctx, PodListFilter{ImageSubstring: &q}, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, nil, fmt.Errorf("collectPodExtract: %w", err)
 		}

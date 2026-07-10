@@ -59,6 +59,9 @@ type PodListFilter struct {
 	// ImageSubstring matches any container (init included) whose `image`
 	// field case-insensitively contains the substring.
 	ImageSubstring *string
+	// Name is the uniform name= filter: ci substring, or anchored
+	// glob when the term contains `*` (spec 2026-07-10).
+	Name *string
 }
 
 // WorkloadListFilter mirrors PodListFilter for ListWorkloads.
@@ -84,6 +87,9 @@ type WorkloadListFilter struct {
 	// (ESCAPE '\\'). Ignored when empty. AND-combined with the other
 	// link-aware filters.
 	ApplicationNameSubstring *string
+	// Name is the uniform name= filter: ci substring, or anchored
+	// glob when the term contains `*` (spec 2026-07-10).
+	Name *string
 }
 
 // CascadeCounts holds the number of child resources that will be removed
@@ -302,9 +308,10 @@ type PodStore interface {
 	// GetPod fetches a pod by id. Returns ErrNotFound if absent.
 	GetPod(ctx context.Context, id uuid.UUID) (Pod, error)
 
-	// ListPods returns up to limit pods after the given opaque cursor,
-	// optionally filtered. See PodListFilter for the accepted predicates.
-	ListPods(ctx context.Context, filter PodListFilter, limit int, cursor string) (items []Pod, nextCursor string, err error)
+	// ListPods returns a paged list of pods matching filter, sorted by
+	// page.Sort/page.Order. Unknown sort keys → ErrInvalidSort; mismatched
+	// cursor → ErrInvalidCursor.
+	ListPods(ctx context.Context, filter PodListFilter, page ListPage) (items []Pod, nextCursor string, err error)
 
 	// UpdatePod applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the pod does not exist.
@@ -333,10 +340,10 @@ type WorkloadStore interface {
 	// GetWorkload fetches a workload by id. Returns ErrNotFound if absent.
 	GetWorkload(ctx context.Context, id uuid.UUID) (Workload, error)
 
-	// ListWorkloads returns up to limit workloads after the given opaque
-	// cursor, optionally filtered. See WorkloadListFilter for the accepted
-	// predicates.
-	ListWorkloads(ctx context.Context, filter WorkloadListFilter, limit int, cursor string) (items []Workload, nextCursor string, err error)
+	// ListWorkloads returns a paged list of workloads matching filter, sorted by
+	// page.Sort/page.Order. Unknown sort keys → ErrInvalidSort; mismatched
+	// cursor → ErrInvalidCursor.
+	ListWorkloads(ctx context.Context, filter WorkloadListFilter, page ListPage) (items []Workload, nextCursor string, err error)
 
 	// UpdateWorkload applies merge-patch on mutable fields. Returns
 	// ErrNotFound if the workload does not exist. clearApplication carries the

@@ -443,7 +443,7 @@ func (e eolAppStore) ApplicationWorkloadMembers(ctx context.Context, appID uuid.
 	filter := WorkloadListFilter{ApplicationID: &appID}
 	cursor := ""
 	for {
-		items, next, err := e.s.ListWorkloads(ctx, filter, eolMemberPageLimit, cursor)
+		items, next, err := e.s.ListWorkloads(ctx, filter, ListPage{Limit: eolMemberPageLimit, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("list workload members: %w", err)
 		}
