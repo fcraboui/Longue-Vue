@@ -213,7 +213,7 @@ var clusterSortSpec = sortSpec{
 	defaultKey: "created_at",
 }
 
-//nolint:goconst // "name" is a sort key shared with other entities; extracting a constant adds no clarity
+//nolint:goconst // "name" and "updated_at" are sort keys shared with other entities; extracting constants adds no clarity
 func clusterSortVal(c *api.Cluster, key string) *string {
 	switch key {
 	case "name":

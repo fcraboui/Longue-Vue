@@ -31,8 +31,8 @@ type TraverserStore interface {
 	ListNamespaces(ctx context.Context, filter api.NamespaceListFilter, page api.ListPage) ([]api.Namespace, string, error)
 	ListPods(ctx context.Context, filter api.PodListFilter, limit int, cursor string) ([]api.Pod, string, error)
 	ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, limit int, cursor string) ([]api.Workload, string, error)
-	ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Service, string, error)
-	ListIngresses(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Ingress, string, error)
+	ListServices(ctx context.Context, filter api.ServiceListFilter, page api.ListPage) ([]api.Service, string, error)
+	ListIngresses(ctx context.Context, filter api.IngressListFilter, page api.ListPage) ([]api.Ingress, string, error)
 	ListPersistentVolumes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolume, string, error)
 	ListPersistentVolumeClaims(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolumeClaim, string, error)
 }
@@ -396,7 +396,7 @@ func (b *builder) expandNamespace(ctx context.Context, id uuid.UUID, nodeID stri
 
 	// downstream: services
 	svcs, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Service, string, error) {
-		return b.store.ListServices(ctx, &id, maxPageSize, cursor)
+		return b.store.ListServices(ctx, api.ServiceListFilter{NamespaceID: &id}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return fmt.Errorf("list services: %w", err)
@@ -414,7 +414,7 @@ func (b *builder) expandNamespace(ctx context.Context, id uuid.UUID, nodeID stri
 
 	// downstream: ingresses
 	ings, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Ingress, string, error) {
-		return b.store.ListIngresses(ctx, &id, maxPageSize, cursor)
+		return b.store.ListIngresses(ctx, api.IngressListFilter{NamespaceID: &id}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return fmt.Errorf("list ingresses: %w", err)

@@ -1197,16 +1197,20 @@ func (m *memStore) GetIngress(_ context.Context, id uuid.UUID) (Ingress, error) 
 	return i, nil
 }
 
-func (m *memStore) ListIngresses(_ context.Context, namespaceID *uuid.UUID, limit int, _ string) ([]Ingress, string, error) {
+func (m *memStore) ListIngresses(_ context.Context, filter IngressListFilter, page ListPage) ([]Ingress, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]Ingress, 0, len(m.ingressesByID))
 	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, i := range m.ingressesByID {
-		if namespaceID != nil && i.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && i.NamespaceId != *filter.NamespaceID {
+			continue
+		}
+		if filter.Name != nil && *filter.Name != "" && !strings.Contains(strings.ToLower(i.Name), strings.ToLower(*filter.Name)) {
 			continue
 		}
 		out = append(out, i)
@@ -1364,16 +1368,20 @@ func (m *memStore) GetService(_ context.Context, id uuid.UUID) (Service, error) 
 	return s, nil
 }
 
-func (m *memStore) ListServices(_ context.Context, namespaceID *uuid.UUID, limit int, _ string) ([]Service, string, error) {
+func (m *memStore) ListServices(_ context.Context, filter ServiceListFilter, page ListPage) ([]Service, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]Service, 0, len(m.servicesByID))
 	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, s := range m.servicesByID {
-		if namespaceID != nil && s.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && s.NamespaceId != *filter.NamespaceID {
+			continue
+		}
+		if filter.Name != nil && *filter.Name != "" && !strings.Contains(strings.ToLower(s.Name), strings.ToLower(*filter.Name)) {
 			continue
 		}
 		out = append(out, s)

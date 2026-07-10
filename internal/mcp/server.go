@@ -67,10 +67,10 @@ type Store interface {
 	GetPod(ctx context.Context, id uuid.UUID) (api.Pod, error)
 
 	// Services
-	ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Service, string, error)
+	ListServices(ctx context.Context, filter api.ServiceListFilter, page api.ListPage) ([]api.Service, string, error)
 
 	// Ingresses
-	ListIngresses(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Ingress, string, error)
+	ListIngresses(ctx context.Context, filter api.IngressListFilter, page api.ListPage) ([]api.Ingress, string, error)
 
 	// PersistentVolumes
 	ListPersistentVolumes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolume, string, error)

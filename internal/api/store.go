@@ -361,6 +361,12 @@ type WorkloadStore interface {
 	DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error)
 }
 
+// ServiceListFilter is the predicate set accepted by ListServices.
+type ServiceListFilter struct {
+	NamespaceID *uuid.UUID
+	Name        *string
+}
+
 // ServiceStore covers service CRUD, upsert, and reconcile.
 type ServiceStore interface {
 	// CreateService inserts a new service.
@@ -369,8 +375,10 @@ type ServiceStore interface {
 	// GetService fetches a service by id.
 	GetService(ctx context.Context, id uuid.UUID) (Service, error)
 
-	// ListServices returns up to limit services, optionally filtered by namespace.
-	ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) (items []Service, nextCursor string, err error)
+	// ListServices returns a cursor-paginated page of services, optionally
+	// filtered by namespace and/or name. See ServiceListFilter for the
+	// accepted predicates.
+	ListServices(ctx context.Context, filter ServiceListFilter, page ListPage) (items []Service, nextCursor string, err error)
 
 	// UpdateService applies merge-patch.
 	UpdateService(ctx context.Context, id uuid.UUID, in ServiceUpdate) (Service, error)
@@ -388,6 +396,12 @@ type ServiceStore interface {
 	DeleteServicesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 }
 
+// IngressListFilter is the predicate set accepted by ListIngresses.
+type IngressListFilter struct {
+	NamespaceID *uuid.UUID
+	Name        *string
+}
+
 // IngressStore covers ingress CRUD, upsert, and reconcile.
 type IngressStore interface {
 	// CreateIngress inserts a new ingress.
@@ -396,8 +410,10 @@ type IngressStore interface {
 	// GetIngress fetches an ingress by id.
 	GetIngress(ctx context.Context, id uuid.UUID) (Ingress, error)
 
-	// ListIngresses returns up to limit ingresses, optionally filtered by namespace.
-	ListIngresses(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) (items []Ingress, nextCursor string, err error)
+	// ListIngresses returns a cursor-paginated page of ingresses, optionally
+	// filtered by namespace and/or name. See IngressListFilter for the
+	// accepted predicates.
+	ListIngresses(ctx context.Context, filter IngressListFilter, page ListPage) (items []Ingress, nextCursor string, err error)
 
 	// UpdateIngress applies merge-patch.
 	UpdateIngress(ctx context.Context, id uuid.UUID, in IngressUpdate) (Ingress, error)

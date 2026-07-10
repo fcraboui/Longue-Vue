@@ -182,10 +182,13 @@ func (f *fakeStore) GetPod(_ context.Context, id uuid.UUID) (api.Pod, error) {
 
 // --- Services ----
 
-func (f *fakeStore) ListServices(_ context.Context, namespaceID *uuid.UUID, _ int, _ string) ([]api.Service, string, error) {
+func (f *fakeStore) ListServices(_ context.Context, filter api.ServiceListFilter, _ api.ListPage) ([]api.Service, string, error) {
 	out := make([]api.Service, 0, len(f.svcs))
 	for _, s := range f.svcs {
-		if namespaceID != nil && s.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && s.NamespaceId != *filter.NamespaceID {
+			continue
+		}
+		if filter.Name != nil && *filter.Name != "" && !strings.Contains(strings.ToLower(s.Name), strings.ToLower(*filter.Name)) {
 			continue
 		}
 		out = append(out, s)
@@ -204,10 +207,13 @@ func (f *fakeStore) GetService(_ context.Context, id uuid.UUID) (api.Service, er
 
 // --- Ingresses ----
 
-func (f *fakeStore) ListIngresses(_ context.Context, namespaceID *uuid.UUID, _ int, _ string) ([]api.Ingress, string, error) {
+func (f *fakeStore) ListIngresses(_ context.Context, filter api.IngressListFilter, _ api.ListPage) ([]api.Ingress, string, error) {
 	out := make([]api.Ingress, 0, len(f.ings))
 	for _, i := range f.ings {
-		if namespaceID != nil && i.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && i.NamespaceId != *filter.NamespaceID {
+			continue
+		}
+		if filter.Name != nil && *filter.Name != "" && !strings.Contains(strings.ToLower(i.Name), strings.ToLower(*filter.Name)) {
 			continue
 		}
 		out = append(out, i)

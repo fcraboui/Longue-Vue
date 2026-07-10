@@ -192,11 +192,11 @@ func (f *fakeStore) ListWorkloads(_ context.Context, filter api.WorkloadListFilt
 	return out, "", nil
 }
 
-func (f *fakeStore) ListServices(_ context.Context, namespaceID *uuid.UUID, _ int, _ string) ([]api.Service, string, error) {
+func (f *fakeStore) ListServices(_ context.Context, filter api.ServiceListFilter, _ api.ListPage) ([]api.Service, string, error) {
 	f.bump("ListServices")
 	out := make([]api.Service, 0, len(f.svcs))
 	for _, s := range f.svcs {
-		if namespaceID != nil && s.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && s.NamespaceId != *filter.NamespaceID {
 			continue
 		}
 		out = append(out, s)
@@ -204,11 +204,11 @@ func (f *fakeStore) ListServices(_ context.Context, namespaceID *uuid.UUID, _ in
 	return out, "", nil
 }
 
-func (f *fakeStore) ListIngresses(_ context.Context, namespaceID *uuid.UUID, _ int, _ string) ([]api.Ingress, string, error) {
+func (f *fakeStore) ListIngresses(_ context.Context, filter api.IngressListFilter, _ api.ListPage) ([]api.Ingress, string, error) {
 	f.bump("ListIngresses")
 	out := make([]api.Ingress, 0, len(f.ings))
 	for _, ig := range f.ings {
-		if namespaceID != nil && ig.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && ig.NamespaceId != *filter.NamespaceID {
 			continue
 		}
 		out = append(out, ig)

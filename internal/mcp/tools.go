@@ -642,7 +642,7 @@ func (s *Server) handleListServices(ctx context.Context, request mcp.CallToolReq
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Service, string, error) {
-		return s.store.ListServices(ctx, nsID, maxPageSize, cursor)
+		return s.store.ListServices(ctx, api.ServiceListFilter{NamespaceID: nsID}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list services: %w", err)
@@ -668,7 +668,7 @@ func (s *Server) handleListIngresses(ctx context.Context, request mcp.CallToolRe
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Ingress, string, error) {
-		return s.store.ListIngresses(ctx, nsID, maxPageSize, cursor)
+		return s.store.ListIngresses(ctx, api.IngressListFilter{NamespaceID: nsID}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list ingresses: %w", err)

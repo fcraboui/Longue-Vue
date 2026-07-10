@@ -950,20 +950,37 @@ func (s *Server) DeleteWorkload(ctx context.Context, req DeleteWorkloadRequestOb
 
 // ── Services ─────────────────────────────────────────────────────────
 
-// ListServices returns a paged list of services, optionally filtered by namespace_id.
+// ListServices returns a paged list of services, optionally filtered by namespace_id and/or name.
+//
+//nolint:gocyclo // parameter extraction and error mapping; complexity is not branching
 func (s *Server) ListServices(ctx context.Context, req ListServicesRequestObject) (ListServicesResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := ServiceListFilter{NamespaceID: req.Params.NamespaceId}
+	if req.Params.Name != nil {
+		n := *req.Params.Name
+		filter.Name = &n
 	}
 
-	items, next, err := s.store.ListServices(ctx, req.Params.NamespaceId, limit, cursor)
+	items, next, err := s.store.ListServices(ctx, filter, page)
 	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListServices400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
+		return nil, storeErr("listServices", err)
 	}
 
 	for i := range items {
@@ -1077,20 +1094,37 @@ func (s *Server) DeleteService(ctx context.Context, req DeleteServiceRequestObje
 
 // ── Ingresses ────────────────────────────────────────────────────────
 
-// ListIngresses returns a paged list of ingresses, optionally filtered by namespace_id.
+// ListIngresses returns a paged list of ingresses, optionally filtered by namespace_id and/or name.
+//
+//nolint:gocyclo // parameter extraction and error mapping; complexity is not branching
 func (s *Server) ListIngresses(ctx context.Context, req ListIngressesRequestObject) (ListIngressesResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := IngressListFilter{NamespaceID: req.Params.NamespaceId}
+	if req.Params.Name != nil {
+		n := *req.Params.Name
+		filter.Name = &n
 	}
 
-	items, next, err := s.store.ListIngresses(ctx, req.Params.NamespaceId, limit, cursor)
+	items, next, err := s.store.ListIngresses(ctx, filter, page)
 	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListIngresses400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
+		return nil, storeErr("listIngresses", err)
 	}
 
 	for i := range items {
