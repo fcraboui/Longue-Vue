@@ -271,6 +271,48 @@ func decodeCursor(c string) (time.Time, uuid.UUID, error) {
 	return ts, id, nil
 }
 
+// listCursor is the tagged, versioned pagination cursor (ADR-0039).
+// It replaces the positional "<RFC3339Nano>|<uuid>" format: it names
+// the sort column and direction it was minted under, so a cursor
+// replayed with different sort parameters is rejected instead of
+// silently mis-paginating. Val is nil while paginating inside the
+// NULLS LAST region of a nullable sort column.
+type listCursor struct {
+	V   int       `json:"v"`
+	Col string    `json:"col"`
+	Val *string   `json:"val"`
+	ID  uuid.UUID `json:"id"`
+	Dir string    `json:"dir"`
+}
+
+// encodeListCursor mints the opaque cursor for the row whose sort-column
+// value is val (already serialized: lowercased text, or RFC3339Nano time).
+func encodeListCursor(col string, val *string, id uuid.UUID, dir string) string {
+	raw, _ := json.Marshal(listCursor{V: 1, Col: col, Val: val, ID: id, Dir: dir})
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// decodeListCursor validates shape, version, and that the cursor was
+// minted under the same resolved (col, dir) as the current request.
+// All failures map to api.ErrInvalidCursor so handlers can return 400.
+func decodeListCursor(cursor, wantCol, wantDir string) (*string, uuid.UUID, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return nil, uuid.Nil, fmt.Errorf("%w: %v", api.ErrInvalidCursor, err)
+	}
+	var c listCursor
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return nil, uuid.Nil, fmt.Errorf("%w: %v", api.ErrInvalidCursor, err)
+	}
+	if c.V != 1 || c.ID == uuid.Nil {
+		return nil, uuid.Nil, api.ErrInvalidCursor
+	}
+	if c.Col != wantCol || c.Dir != wantDir {
+		return nil, uuid.Nil, fmt.Errorf("%w: cursor sort mismatch", api.ErrInvalidCursor)
+	}
+	return c.Val, c.ID, nil
+}
+
 // isUniqueViolation reports whether err is a PostgreSQL unique-constraint
 // violation (SQLSTATE 23505). Insert/update paths use it to map the error
 // to api.ErrConflict with an entity-specific message.

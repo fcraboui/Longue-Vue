@@ -23,7 +23,31 @@ var (
 	// handler-level CountActiveAdmins + UPDATE pair would otherwise leave
 	// open under concurrent admin-degrading requests (audit finding H1).
 	ErrLastAdmin = errors.New("last admin")
+	// ErrInvalidCursor is returned by List* methods when a pagination
+	// cursor is malformed, or was minted under different sort/order
+	// parameters than the current request. Handlers translate it into
+	// a 400 problem+json.
+	ErrInvalidCursor = errors.New("invalid cursor")
+	// ErrInvalidSort is returned by List* methods when sort/order are
+	// not in the entity's allowlist. Handlers translate it into a 400
+	// problem+json.
+	ErrInvalidSort = errors.New("invalid sort")
 )
+
+// ListPage carries the uniform pagination + sort controls shared by
+// every paginated List* method (ADR-0039). The zero value means: first
+// page, default page size, the entity's historical default order.
+type ListPage struct {
+	Limit  int
+	Cursor string
+	// Sort is the API sort key ("" = entity default order). Keys are
+	// validated against a per-entity allowlist in the store layer;
+	// unknown keys yield ErrInvalidSort.
+	Sort string
+	// Order is "asc" or "desc". Empty means: desc for the default
+	// sort (preserving historical order), asc when Sort is set.
+	Order string
+}
 
 // PodListFilter collects the optional filters accepted by ListPods. Nil
 // fields are ignored; all present fields are AND-combined. Stored as a
