@@ -48,3 +48,6 @@ ui/debug-*.mjs
 
 # Isolated worktrees for subagent-driven development
 /.worktrees/
+
+# superpowers SDD scratch (progress ledger, briefs, reports)
+.superpowers/
