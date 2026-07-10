@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
@@ -32,7 +31,7 @@ func seedNodesForSort(t *testing.T, pg *PG, names []string) uuid.UUID {
 	return *c.Id
 }
 
-func TestListNodesSortByNamePagesWithTies(t *testing.T) {
+func TestListNodesSortByName(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 	// Use distinct names; cursor pagination across page boundaries is
@@ -72,6 +71,48 @@ func TestListNodesSortByNamePagesWithTies(t *testing.T) {
 	}
 	if items[0].Name != "gamma" {
 		t.Errorf("desc first = %s, want gamma", items[0].Name)
+	}
+}
+
+func TestListNodesSortTieBreakAcrossPages(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	seedNodesForSort(t, pg, []string{"n1", "n2", "n3", "n4", "n5"})
+	// Two zone groups force the id tiebreaker across page boundaries.
+	if _, err := pg.pool.Exec(ctx,
+		`UPDATE nodes SET zone = CASE WHEN name IN ('n1','n2') THEN 'zone-a' ELSE 'zone-b' END`); err != nil {
+		t.Fatalf("set zones: %v", err)
+	}
+
+	seen := map[string]bool{}
+	var zones []string
+	page := api.ListPage{Limit: 2, Sort: "zone"}
+	for {
+		items, next, err := pg.ListNodes(ctx, api.NodeListFilter{}, page)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for i := range items {
+			n := &items[i]
+			if seen[n.Id.String()] {
+				t.Fatalf("node %s duplicated across pages (tiebreaker broken)", n.Id)
+			}
+			seen[n.Id.String()] = true
+			zones = append(zones, *n.Zone)
+		}
+		if next == "" {
+			break
+		}
+		page.Cursor = next
+	}
+	if len(zones) != 5 {
+		t.Fatalf("total=%d want 5 (row skipped at tied page boundary)", len(zones))
+	}
+	want := []string{"zone-a", "zone-a", "zone-b", "zone-b", "zone-b"}
+	for i := range want {
+		if zones[i] != want[i] {
+			t.Fatalf("zone order = %v, want %v", zones, want)
+		}
 	}
 }
 
@@ -125,7 +166,6 @@ func TestListNodesRejectsBadSortAndMismatchedCursor(t *testing.T) {
 	if _, _, err := pg.ListNodes(ctx, api.NodeListFilter{}, api.ListPage{Cursor: legacy}); !errors.Is(err, api.ErrInvalidCursor) {
 		t.Errorf("legacy cursor: %v, want ErrInvalidCursor", err)
 	}
-	_ = strconv.Itoa // keep imports honest if you drop a case
 }
 
 func TestListNodesDefaultOrderUnchanged(t *testing.T) {

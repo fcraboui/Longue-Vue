@@ -362,7 +362,9 @@ func (s sortSpec) resolve(page api.ListPage) (key string, col sortColumn, dir st
 	if key == "" {
 		key = s.defaultKey
 		// order= is documented as ignored when sort= is absent — the
-		// historical implicit order (DESC) always applies.
+		// historical implicit order (DESC) always applies. This also
+		// deliberately skips order validation: ?order=garbage without
+		// sort= is ignored, not a 400.
 		dir = dirDesc
 	} else if dir == "" {
 		dir = dirAsc
