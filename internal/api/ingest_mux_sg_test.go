@@ -91,7 +91,7 @@ func TestIngest_VMUpsert_PersistsSGs(t *testing.T) {
 	}
 
 	// Assert: one SG with the expected ProviderSGID.
-	sgs, _, err := store.ListSecurityGroupsByAccount(t.Context(), accID, 100, "")
+	sgs, _, err := store.ListSecurityGroupsByAccount(t.Context(), accID, SecurityGroupListFilter{}, ListPage{Limit: 100})
 	if err != nil {
 		t.Fatalf("ListSecurityGroupsByAccount: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestIngest_VMUpsert_PreCanonical_SkipsSGs(t *testing.T) {
 	}
 
 	// SG table must be empty — pre-canonical payload must be skipped.
-	sgs, _, err := store.ListSecurityGroupsByAccount(t.Context(), accID, 100, "")
+	sgs, _, err := store.ListSecurityGroupsByAccount(t.Context(), accID, SecurityGroupListFilter{}, ListPage{Limit: 100})
 	if err != nil {
 		t.Fatalf("ListSecurityGroupsByAccount: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestSweepSecurityGroups_RemovesUnseen(t *testing.T) {
 		t.Fatalf("status: %d %s", rr.Code, rr.Body.String())
 	}
 
-	sgs, _, err := store.ListSecurityGroupsByAccount(t.Context(), accID, 100, "")
+	sgs, _, err := store.ListSecurityGroupsByAccount(t.Context(), accID, SecurityGroupListFilter{}, ListPage{Limit: 100})
 	if err != nil {
 		t.Fatalf("ListSecurityGroupsByAccount: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestSweepSecurityGroups_KeepsSeen(t *testing.T) {
 		t.Fatalf("status: %d %s", rr.Code, rr.Body.String())
 	}
 
-	sgs, _, err := store.ListSecurityGroupsByAccount(t.Context(), accID, 100, "")
+	sgs, _, err := store.ListSecurityGroupsByAccount(t.Context(), accID, SecurityGroupListFilter{}, ListPage{Limit: 100})
 	if err != nil {
 		t.Fatalf("ListSecurityGroupsByAccount: %v", err)
 	}

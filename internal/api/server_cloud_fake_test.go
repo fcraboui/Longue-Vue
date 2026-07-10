@@ -1092,17 +1092,34 @@ func (m *memStore) ReplaceSecurityGroupRules(_ context.Context, sgID uuid.UUID, 
 	return nil
 }
 
-func (m *memStore) ListSecurityGroupsByAccount(_ context.Context, accountID uuid.UUID, limit int, _ string) ([]SecurityGroupRow, string, error) {
+var fakeSGSortKeys = map[string]bool{
+	"": true, "name": true, "vpc_id": true, "reconcile_seen_at": true,
+}
+
+func (m *memStore) ListSecurityGroupsByAccount(
+	_ context.Context,
+	accountID uuid.UUID,
+	filter SecurityGroupListFilter,
+	page ListPage,
+) ([]SecurityGroupRow, string, error) {
+	if !fakeSGSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	sgFake.mu.Lock()
 	defer sgFake.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]SecurityGroupRow, 0)
 	for _, sg := range sgFake.sgs {
-		if sg.CloudAccountID == accountID {
-			out = append(out, sg)
+		if sg.CloudAccountID != accountID {
+			continue
 		}
+		if filter.Name != nil && !strings.Contains(strings.ToLower(sg.Name), strings.ToLower(*filter.Name)) {
+			continue
+		}
+		out = append(out, sg)
 	}
 	if len(out) > limit {
 		out = out[:limit]
@@ -1152,15 +1169,22 @@ func resetNPFake() {
 	npFake.rules = make(map[uuid.UUID][]NetworkPolicyRuleRow)
 }
 
+var fakeNetpolSortKeys = map[string]bool{
+	"": true, "name": true, "reconcile_seen_at": true,
+}
+
 func (m *memStore) ListNetworkPoliciesByCluster(
 	_ context.Context,
 	clusterID uuid.UUID,
-	namespaceID *uuid.UUID,
-	limit int,
-	_ string,
+	filter NetworkPolicyListFilter,
+	page ListPage,
 ) ([]NetworkPolicyRow, string, error) {
+	if !fakeNetpolSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	npFake.mu.Lock()
 	defer npFake.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
@@ -1169,7 +1193,10 @@ func (m *memStore) ListNetworkPoliciesByCluster(
 		if np.ClusterID != clusterID {
 			continue
 		}
-		if namespaceID != nil && np.NamespaceID != *namespaceID {
+		if filter.NamespaceID != nil && np.NamespaceID != *filter.NamespaceID {
+			continue
+		}
+		if filter.Name != nil && !strings.Contains(strings.ToLower(np.Name), strings.ToLower(*filter.Name)) {
 			continue
 		}
 		out = append(out, np)

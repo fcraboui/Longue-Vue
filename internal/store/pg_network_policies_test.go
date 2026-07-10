@@ -140,7 +140,7 @@ func TestSweepNetworkPoliciesByNamespace_DeletesUnseen(t *testing.T) {
 	}
 
 	// List all policies to verify "gone" was deleted.
-	all, _, err := pg.ListNetworkPoliciesByCluster(ctx, *cluster.Id, ns.Id, 50, "")
+	all, _, err := pg.ListNetworkPoliciesByCluster(ctx, *cluster.Id, api.NetworkPolicyListFilter{NamespaceID: ns.Id}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestListNetworkPoliciesByCluster_PaginatesByLimit(t *testing.T) {
 	totalFetched := 0
 
 	// Page 1: expect 2 items + a cursor.
-	page1, next1, err := pg.ListNetworkPoliciesByCluster(ctx, *cluster.Id, ns.Id, 2, "")
+	page1, next1, err := pg.ListNetworkPoliciesByCluster(ctx, *cluster.Id, api.NetworkPolicyListFilter{NamespaceID: ns.Id}, api.ListPage{Limit: 2})
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
@@ -202,7 +202,9 @@ func TestListNetworkPoliciesByCluster_PaginatesByLimit(t *testing.T) {
 	cursor = next1
 
 	// Page 2: expect 2 items + a cursor.
-	page2, next2, err := pg.ListNetworkPoliciesByCluster(ctx, *cluster.Id, ns.Id, 2, cursor)
+	page2, next2, err := pg.ListNetworkPoliciesByCluster(
+		ctx, *cluster.Id, api.NetworkPolicyListFilter{NamespaceID: ns.Id}, api.ListPage{Limit: 2, Cursor: cursor},
+	)
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}
@@ -222,7 +224,9 @@ func TestListNetworkPoliciesByCluster_PaginatesByLimit(t *testing.T) {
 	cursor = next2
 
 	// Page 3: expect 1 item + empty cursor (last page).
-	page3, next3, err := pg.ListNetworkPoliciesByCluster(ctx, *cluster.Id, ns.Id, 2, cursor)
+	page3, next3, err := pg.ListNetworkPoliciesByCluster(
+		ctx, *cluster.Id, api.NetworkPolicyListFilter{NamespaceID: ns.Id}, api.ListPage{Limit: 2, Cursor: cursor},
+	)
 	if err != nil {
 		t.Fatalf("page3: %v", err)
 	}
@@ -336,5 +340,127 @@ func TestUpsertNetworkPolicy_ReplacesRulesIdempotently(t *testing.T) {
 	}
 	if rules[0].Direction != netpolTestDirEgress {
 		t.Errorf("rule direction: got %q, want egress", rules[0].Direction)
+	}
+}
+
+// TestListNetworkPoliciesByCluster_SortByName verifies that sort=name asc
+// returns rows in ascending lexicographic order.
+func TestListNetworkPoliciesByCluster_SortByName(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	clusterID, namespaceID := seedClusterAndNamespace(t, pg)
+
+	names := []string{"zebra-pol", "alpha-pol", "mango-pol"}
+	for i, n := range names {
+		if _, err := pg.UpsertNetworkPolicy(ctx, NetworkPolicy{
+			ClusterID:   clusterID,
+			NamespaceID: namespaceID,
+			Name:        n,
+			PodSelector: json.RawMessage(`{}`),
+			PolicyTypes: []string{testStorePolicyIngress},
+			SpecRaw:     json.RawMessage(`{}`),
+		}, nil); err != nil {
+			t.Fatalf("upsert %s (%d): %v", n, i, err)
+		}
+	}
+
+	items, _, err := pg.ListNetworkPoliciesByCluster(
+		ctx, clusterID, api.NetworkPolicyListFilter{}, api.ListPage{Limit: 10, Sort: "name", Order: "asc"},
+	)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("want 3 items, got %d", len(items))
+	}
+	if items[0].Name != "alpha-pol" || items[1].Name != "mango-pol" || items[2].Name != "zebra-pol" {
+		t.Errorf("unexpected order: %q %q %q", items[0].Name, items[1].Name, items[2].Name)
+	}
+}
+
+// TestListNetworkPoliciesByCluster_NameFilter verifies the name= glob/substring filter.
+func TestListNetworkPoliciesByCluster_NameFilter(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	clusterID, namespaceID := seedClusterAndNamespace(t, pg)
+
+	for i, n := range []string{"allow-ingress", "deny-egress", "allow-egress"} {
+		if _, err := pg.UpsertNetworkPolicy(ctx, NetworkPolicy{
+			ClusterID:   clusterID,
+			NamespaceID: namespaceID,
+			Name:        n,
+			PodSelector: json.RawMessage(`{}`),
+			PolicyTypes: []string{testStorePolicyIngress},
+			SpecRaw:     json.RawMessage(`{}`),
+		}, nil); err != nil {
+			t.Fatalf("upsert %d: %v", i, err)
+		}
+	}
+
+	// Substring: "allow" matches allow-ingress and allow-egress.
+	name := "allow"
+	items, _, err := pg.ListNetworkPoliciesByCluster(ctx, clusterID, api.NetworkPolicyListFilter{Name: &name}, api.ListPage{Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("want 2 items for name=%q, got %d: %+v", name, len(items), items)
+	}
+
+	// Glob: "deny*" matches deny-egress only.
+	glob := "deny*"
+	items2, _, err := pg.ListNetworkPoliciesByCluster(ctx, clusterID, api.NetworkPolicyListFilter{Name: &glob}, api.ListPage{Limit: 10})
+	if err != nil {
+		t.Fatalf("list glob: %v", err)
+	}
+	if len(items2) != 1 || items2[0].Name != "deny-egress" {
+		t.Fatalf("want 1 item 'deny-egress', got %d: %+v", len(items2), items2)
+	}
+}
+
+// TestListNetworkPoliciesByCluster_MismatchedCursor verifies that a cursor
+// minted under a different sort key is rejected with ErrInvalidCursor.
+func TestListNetworkPoliciesByCluster_MismatchedCursor(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	clusterID, namespaceID := seedClusterAndNamespace(t, pg)
+
+	for i := range 3 {
+		if _, err := pg.UpsertNetworkPolicy(ctx, NetworkPolicy{
+			ClusterID:   clusterID,
+			NamespaceID: namespaceID,
+			Name:        fmt.Sprintf("pol-%d", i),
+			PodSelector: json.RawMessage(`{}`),
+			PolicyTypes: []string{testStorePolicyIngress},
+			SpecRaw:     json.RawMessage(`{}`),
+		}, nil); err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+	}
+
+	// Mint a cursor with sort=name.
+	_, cursor, err := pg.ListNetworkPoliciesByCluster(
+		ctx, clusterID,
+		api.NetworkPolicyListFilter{NamespaceID: &namespaceID},
+		api.ListPage{Limit: 1, Sort: "name", Order: "asc"},
+	)
+	if err != nil {
+		t.Fatalf("page1 (sort=name): %v", err)
+	}
+	if cursor == "" {
+		t.Fatal("expected a cursor from page1")
+	}
+
+	// Use that cursor with sort=reconcile_seen_at → should fail.
+	_, _, err = pg.ListNetworkPoliciesByCluster(
+		ctx, clusterID,
+		api.NetworkPolicyListFilter{NamespaceID: &namespaceID},
+		api.ListPage{Limit: 1, Cursor: cursor},
+	)
+	if !errors.Is(err, api.ErrInvalidCursor) {
+		t.Fatalf("want ErrInvalidCursor, got %v", err)
 	}
 }

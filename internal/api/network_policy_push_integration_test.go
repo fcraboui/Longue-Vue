@@ -196,7 +196,7 @@ func (f *fakeNetpolSource) ListPersistentVolumeClaims(_ context.Context) ([]coll
 // filter — no raw-pool access required.
 func countNetpolsForNS(t *testing.T, pg *store.PG, clusterID, nsID uuid.UUID) int {
 	t.Helper()
-	items, _, err := pg.ListNetworkPoliciesByCluster(context.Background(), clusterID, &nsID, 500, "")
+	items, _, err := pg.ListNetworkPoliciesByCluster(context.Background(), clusterID, api.NetworkPolicyListFilter{NamespaceID: &nsID}, api.ListPage{Limit: 500})
 	if err != nil {
 		t.Fatalf("list network policies: %v", err)
 	}

@@ -170,3 +170,19 @@ func TestGetNetworkPolicy_NotFound(t *testing.T) {
 		t.Fatalf("want 404, got %d body=%q", rr.Code, rr.Body.String())
 	}
 }
+
+// TestListNetworkPolicies_BadSort_Returns400 verifies that an unknown sort key
+// causes the handler to return 400.
+func TestListNetworkPolicies_BadSort_Returns400(t *testing.T) {
+	resetNPFake()
+	store := newMemStore()
+	h := buildNetworkPolicyMux(t, store, readCaller())
+
+	clusterID := uuid.New()
+	rr := doReq(t, h, http.MethodGet,
+		fmt.Sprintf("/v1/network-policies?cluster_id=%s&sort=bogus_key", clusterID),
+		nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for bad sort key, got %d body=%q", rr.Code, rr.Body.String())
+	}
+}

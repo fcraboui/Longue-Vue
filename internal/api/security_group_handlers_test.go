@@ -152,5 +152,28 @@ func TestGetSecurityGroup_NotFound(t *testing.T) {
 	}
 }
 
+// TestListSecurityGroups_BadSort_Returns400 verifies that an unknown sort key
+// causes the handler to return 400 (ErrInvalidSort from store → writeListError).
+func TestListSecurityGroups_BadSort_Returns400(t *testing.T) {
+	resetSGFake()
+	store := newMemStore()
+	h := buildSecurityGroupMux(t, store, readCaller())
+
+	accountID := uuid.New()
+	_, err := store.UpsertSecurityGroup(t.Context(), SecurityGroupRow{
+		CloudAccountID: accountID, ProviderSGID: "sg-bs-1", Name: "sg-one",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := doReq(t, h, http.MethodGet,
+		fmt.Sprintf("/v1/security-groups?cloud_account_id=%s&sort=bogus_key", accountID),
+		nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for bad sort key, got %d body=%q", rr.Code, rr.Body.String())
+	}
+}
+
 // intPtr is a local helper returning a pointer to an int for SG rule ports.
 func intPtr(v int) *int { return &v }

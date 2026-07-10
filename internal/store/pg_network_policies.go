@@ -243,69 +243,95 @@ func (p *PG) ListNetworkPoliciesForWorkload(
 	return out, nil
 }
 
+// networkPolicySortSpec is the sort=<key> allowlist for GET /v1/network-policies.
+var networkPolicySortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:            {expr: "LOWER(name)", kind: sortText},
+		sortKeyReconcileSeenAt: {expr: "reconcile_seen_at", kind: sortTime},
+	},
+	defaultKey: sortKeyReconcileSeenAt,
+}
+
+// npWithSeenAt wraps a NetworkPolicyRow with the scanned reconcile_seen_at
+// timestamp needed for cursor minting when sort=reconcile_seen_at.
+type npWithSeenAt struct {
+	np     api.NetworkPolicyRow
+	seenAt time.Time
+}
+
+// networkPolicySortVal extracts the serialised sort value for cursor minting.
+func networkPolicySortVal(r *npWithSeenAt, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&r.np.Name)
+	default: // reconcile_seen_at
+		return sortValTime(&r.seenAt)
+	}
+}
+
 // ListNetworkPoliciesByCluster returns a page + next_cursor. Optional
-// namespaceID filter (nil = all namespaces). Cursor format identical to
-// ListApplications in pg_applications.go — REUSE encodeCursor/decodeCursor.
-// Order: reconcile_seen_at DESC, id DESC. Satisfies api.Store.
+// namespaceID filter is in filter.NamespaceID (nil = all namespaces).
+// Satisfies api.Store.
 //
-//nolint:gocyclo // pagination + optional filter + cursor decoding; matches existing list patterns in this package
+//nolint:gocyclo // pagination + optional filters + cursor logic; matches existing list patterns in this package
 func (p *PG) ListNetworkPoliciesByCluster(
 	ctx context.Context,
 	clusterID uuid.UUID,
-	namespaceID *uuid.UUID,
-	limit int,
-	cursor string,
+	filter api.NetworkPolicyListFilter,
+	page api.ListPage,
 ) ([]api.NetworkPolicyRow, string, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 500 {
-		limit = 500
+	limit := clampLimit(page.Limit, 500)
+	key, col, dir, err := networkPolicySortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
 
-	conds := make([]string, 0, 3)
+	sb := strings.Builder{}
+	sb.WriteString(`SELECT `)
+	sb.WriteString(npSelect)
+	// Always project reconcile_seen_at for cursor minting.
+	sb.WriteString(`, reconcile_seen_at FROM network_policies`)
+
+	conds := make([]string, 0, 4)
 	args := make([]any, 0, 5)
 
 	args = append(args, clusterID)
 	conds = append(conds, fmt.Sprintf("cluster_id = $%d", len(args)))
 
-	args = append(args, namespaceID)
+	args = append(args, filter.NamespaceID)
 	conds = append(conds, fmt.Sprintf("($%d::uuid IS NULL OR namespace_id = $%d)", len(args), len(args)))
 
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
-		if err != nil {
-			return nil, "", err
-		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(reconcile_seen_at, id) < ($%d, $%d)", tsIdx, idIdx))
+	if filter.Name != nil {
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE $%d ESCAPE '\\'", len(args)))
 	}
 
-	where := "WHERE " + strings.Join(conds, " AND ")
-	args = append(args, limit+1)
-	// Include reconcile_seen_at in the projection so we can encode the cursor
-	// from the last returned row without a second round-trip.
-	q := fmt.Sprintf(
-		`SELECT `+npSelect+`, reconcile_seen_at FROM network_policies %s ORDER BY reconcile_seen_at DESC, id DESC LIMIT $%d`,
-		where, len(args),
-	)
+	if page.Cursor != "" {
+		val, cid, curErr := decodeListCursor(page.Cursor, key, dir)
+		if curErr != nil {
+			return nil, "", curErr
+		}
+		if curErr := keysetCond(col, "id", dir, val, cid, &conds, &args); curErr != nil {
+			return nil, "", curErr
+		}
+	}
 
-	rows, err := p.pool.Query(ctx, q, args...)
+	if len(conds) > 0 {
+		sb.WriteString(" WHERE ")
+		sb.WriteString(strings.Join(conds, " AND "))
+	}
+	args = append(args, limit+1)
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "id", dir), len(args))
+
+	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
 		return nil, "", fmt.Errorf("query network_policies by cluster: %w", err)
 	}
 	defer rows.Close()
 
-	type npWithTS struct {
-		np     api.NetworkPolicyRow
-		seenAt time.Time
-	}
-	raw := make([]npWithTS, 0, limit+1)
+	raw := make([]npWithSeenAt, 0, limit+1)
 	for rows.Next() {
-		var r npWithTS
+		var r npWithSeenAt
 		if err := rows.Scan(
 			&r.np.ID, &r.np.ClusterID, &r.np.NamespaceID, &r.np.Name,
 			&r.np.PodSelector, &r.np.PolicyTypes, &r.np.SpecRaw,
@@ -321,8 +347,8 @@ func (p *PG) ListNetworkPoliciesByCluster(
 
 	var next string
 	if len(raw) > limit {
-		last := raw[limit-1]
-		next = encodeCursor(last.seenAt, last.np.ID)
+		last := &raw[limit-1]
+		next = encodeListCursor(key, networkPolicySortVal(last, key), last.np.ID, dir)
 		raw = raw[:limit]
 	}
 	items := make([]api.NetworkPolicyRow, len(raw))

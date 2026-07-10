@@ -164,59 +164,97 @@ func (p *PG) SweepSecurityGroupsByAccount(ctx context.Context, accountID uuid.UU
 	return nil
 }
 
-// ListSecurityGroupsByAccount returns a page + next_cursor, ordered by
-// (reconcile_seen_at DESC, id DESC). Cursor format identical to
-// ListNetworkPoliciesByCluster — REUSE encodeCursor/decodeCursor.
-//
-//nolint:gocyclo // pagination + cursor decoding; matches existing list patterns in this package
-func (p *PG) ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, limit int, cursor string) ([]api.SecurityGroupRow, string, error) {
-	if limit <= 0 {
-		limit = 50
+// securityGroupSortSpec is the sort=<key> allowlist for GET /v1/security-groups.
+var securityGroupSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:            {expr: "LOWER(name)", kind: sortText},
+		sortKeyVPCID:           {expr: "LOWER(COALESCE(vpc_id,''))", kind: sortText, nullable: true},
+		sortKeyReconcileSeenAt: {expr: "reconcile_seen_at", kind: sortTime},
+	},
+	defaultKey: sortKeyReconcileSeenAt,
+}
+
+// sgWithSeenAt wraps a SecurityGroupRow with the scanned reconcile_seen_at
+// timestamp needed for cursor minting when sort=reconcile_seen_at.
+type sgWithSeenAt struct {
+	sg     api.SecurityGroupRow
+	seenAt time.Time
+}
+
+// securityGroupSortVal extracts the serialised sort value for cursor minting.
+func securityGroupSortVal(r *sgWithSeenAt, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&r.sg.Name)
+	case sortKeyVPCID:
+		if r.sg.VPCID == "" {
+			return nil
+		}
+		return sortValText(&r.sg.VPCID)
+	default: // reconcile_seen_at
+		return sortValTime(&r.seenAt)
 	}
-	if limit > 200 {
-		limit = 200
+}
+
+// ListSecurityGroupsByAccount returns a page + next_cursor filtered and
+// sorted per filter/page.
+//
+//nolint:gocyclo // pagination + optional filters + cursor logic; matches other list patterns
+func (p *PG) ListSecurityGroupsByAccount(
+	ctx context.Context,
+	accountID uuid.UUID,
+	filter api.SecurityGroupListFilter,
+	page api.ListPage,
+) ([]api.SecurityGroupRow, string, error) {
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := securityGroupSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
 
-	conds := make([]string, 0, 2)
+	sb := strings.Builder{}
+	sb.WriteString(`SELECT `)
+	sb.WriteString(sgSelect)
+	// Always project reconcile_seen_at for cursor minting.
+	sb.WriteString(`, reconcile_seen_at FROM security_groups`)
+
 	args := make([]any, 0, 4)
+	conds := make([]string, 0, 3)
 
 	args = append(args, accountID)
 	conds = append(conds, fmt.Sprintf("cloud_account_id = $%d", len(args)))
 
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
-		if err != nil {
-			return nil, "", err
-		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(reconcile_seen_at, id) < ($%d, $%d)", tsIdx, idIdx))
+	if filter.Name != nil {
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE $%d ESCAPE '\\'", len(args)))
 	}
 
-	where := "WHERE " + strings.Join(conds, " AND ")
-	args = append(args, limit+1)
-	// Include reconcile_seen_at in the projection so we can encode the cursor
-	// from the last returned row without a second round-trip.
-	q := fmt.Sprintf(
-		`SELECT `+sgSelect+`, reconcile_seen_at FROM security_groups %s ORDER BY reconcile_seen_at DESC, id DESC LIMIT $%d`,
-		where, len(args),
-	)
+	if page.Cursor != "" {
+		val, cid, curErr := decodeListCursor(page.Cursor, key, dir)
+		if curErr != nil {
+			return nil, "", curErr
+		}
+		if curErr := keysetCond(col, "id", dir, val, cid, &conds, &args); curErr != nil {
+			return nil, "", curErr
+		}
+	}
 
-	rows, err := p.pool.Query(ctx, q, args...)
+	if len(conds) > 0 {
+		sb.WriteString(" WHERE ")
+		sb.WriteString(strings.Join(conds, " AND "))
+	}
+	args = append(args, limit+1)
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "id", dir), len(args))
+
+	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
 		return nil, "", fmt.Errorf("query security_groups by account: %w", err)
 	}
 	defer rows.Close()
 
-	type sgWithTS struct {
-		sg     api.SecurityGroupRow
-		seenAt time.Time
-	}
-	raw := make([]sgWithTS, 0, limit+1)
+	raw := make([]sgWithSeenAt, 0, limit+1)
 	for rows.Next() {
-		var r sgWithTS
+		var r sgWithSeenAt
 		if err := rows.Scan(
 			&r.sg.ID, &r.sg.CloudAccountID, &r.sg.ProviderSGID,
 			&r.sg.Name, &r.sg.VPCID, &r.sg.Tags,
@@ -232,8 +270,8 @@ func (p *PG) ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUI
 
 	var next string
 	if len(raw) > limit {
-		last := raw[limit-1]
-		next = encodeCursor(last.seenAt, last.sg.ID)
+		last := &raw[limit-1]
+		next = encodeListCursor(key, securityGroupSortVal(last, key), last.sg.ID, dir)
 		raw = raw[:limit]
 	}
 	items := make([]api.SecurityGroupRow, len(raw))

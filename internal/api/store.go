@@ -960,8 +960,13 @@ type SecurityGroupStore interface {
 	ReplaceSecurityGroupRules(ctx context.Context, sgID uuid.UUID, rules []SecurityGroupRuleRow) error
 
 	// ListSecurityGroupsByAccount returns a page of security groups for
-	// the given account, ordered by (reconcile_seen_at DESC, id DESC).
-	ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, limit int, cursor string) ([]SecurityGroupRow, string, error)
+	// the given account, filtered and sorted per filter/page.
+	ListSecurityGroupsByAccount(
+		ctx context.Context,
+		accountID uuid.UUID,
+		filter SecurityGroupListFilter,
+		page ListPage,
+	) ([]SecurityGroupRow, string, error)
 
 	// ListSecurityGroupRules returns all rules for a single security
 	// group, in stable insertion order.
@@ -998,14 +1003,13 @@ type SecurityGroupStore interface {
 // (flow-matrix P1, ADR-0038).
 type NetworkPolicyStore interface {
 	// ListNetworkPoliciesByCluster returns a page of network policies for
-	// the given cluster, optionally filtered by namespace. Cursor-based
-	// pagination ordered by (reconcile_seen_at DESC, id DESC).
+	// the given cluster, filtered and sorted per filter/page. The optional
+	// namespace filter moved from positional arg into filter.NamespaceID.
 	ListNetworkPoliciesByCluster(
 		ctx context.Context,
 		clusterID uuid.UUID,
-		namespaceID *uuid.UUID,
-		limit int,
-		cursor string,
+		filter NetworkPolicyListFilter,
+		page ListPage,
 	) ([]NetworkPolicyRow, string, error)
 
 	// GetNetworkPolicy fetches a network policy by stable UUID.

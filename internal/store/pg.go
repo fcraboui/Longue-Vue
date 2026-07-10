@@ -32,9 +32,6 @@ import (
 	"github.com/sthalbert/longue-vue/migrations"
 )
 
-// errCursorFormatInvalid is returned when a pagination cursor cannot be decoded.
-var errCursorFormatInvalid = errors.New("cursor format invalid")
-
 // change type constants for time-travel history capture.
 const (
 	changeTypeCreate     = "create"
@@ -246,29 +243,13 @@ func nullableString(s sql.NullString) *string {
 	return &s.String
 }
 
+// encodeCursor mints the legacy positional cursor ("<RFC3339Nano>|<uuid>")
+// still used by pods, nodes, namespaces, services, PVs, auth, and audit
+// sort tests as a "legacy cursor rejection" fixture. Production code uses
+// encodeListCursor exclusively.
 func encodeCursor(t time.Time, id uuid.UUID) string {
 	raw := t.UTC().Format(time.RFC3339Nano) + "|" + id.String()
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
-}
-
-func decodeCursor(c string) (time.Time, uuid.UUID, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(c)
-	if err != nil {
-		return time.Time{}, uuid.Nil, fmt.Errorf("decode cursor: %w", err)
-	}
-	parts := strings.SplitN(string(raw), "|", 2)
-	if len(parts) != 2 {
-		return time.Time{}, uuid.Nil, errCursorFormatInvalid
-	}
-	ts, err := time.Parse(time.RFC3339Nano, parts[0])
-	if err != nil {
-		return time.Time{}, uuid.Nil, fmt.Errorf("cursor timestamp: %w", err)
-	}
-	id, err := uuid.Parse(parts[1])
-	if err != nil {
-		return time.Time{}, uuid.Nil, fmt.Errorf("cursor id: %w", err)
-	}
-	return ts, id, nil
 }
 
 // listCursor is the tagged, versioned pagination cursor (ADR-0042).

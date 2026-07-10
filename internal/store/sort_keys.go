@@ -40,4 +40,10 @@ const (
 	// Application / ApplicationBlock sort keys.
 	sortKeyOwner       = "owner"
 	sortKeyCriticality = "criticality"
+
+	// Security group sort keys.
+	sortKeyVPCID = "vpc_id"
+
+	// Shared reconcile sort key (security groups, network policies).
+	sortKeyReconcileSeenAt = "reconcile_seen_at"
 )

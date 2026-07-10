@@ -327,6 +327,20 @@ type CloudAccountListFilter struct {
 	Name *string
 }
 
+// SecurityGroupListFilter collects optional filters for ListSecurityGroupsByAccount.
+type SecurityGroupListFilter struct {
+	// Name is a case-insensitive substring / anchored-glob match on name.
+	Name *string
+}
+
+// NetworkPolicyListFilter collects optional filters for ListNetworkPoliciesByCluster.
+type NetworkPolicyListFilter struct {
+	// NamespaceID narrows the result to policies in this namespace (nil = all).
+	NamespaceID *uuid.UUID
+	// Name is a case-insensitive substring / anchored-glob match on name.
+	Name *string
+}
+
 // VMApplicationDistinct is one row of the distinct-applications response.
 // `Versions` is the sorted, deduplicated list of versions seen for the
 // product across every non-terminated VM. Drives the cascading

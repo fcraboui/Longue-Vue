@@ -568,6 +568,8 @@ paths:
                 properties:
                   items:       { type: array, items: { $ref: "#/components/schemas/NetworkPolicy" } }
                   next_cursor: { type: string }
+        "400":
+          $ref: '#/components/responses/BadRequest'
 
     post:
       tags: [network-policies]
@@ -2909,6 +2911,8 @@ paths:
                 properties:
                   items:       { type: array, items: { $ref: "#/components/schemas/SecurityGroup" } }
                   next_cursor: { type: string }
+        "400":
+          $ref: '#/components/responses/BadRequest'
 
   /v1/security-groups/{id}:
     get:

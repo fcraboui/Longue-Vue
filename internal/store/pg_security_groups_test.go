@@ -163,7 +163,7 @@ func TestSweepSecurityGroupsByAccount_DeletesUnseen(t *testing.T) {
 	}
 
 	// Verify only 1 SG remains for the account.
-	remaining, _, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, 50, "")
+	remaining, _, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, api.SecurityGroupListFilter{}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestListSecurityGroupsByAccount_PaginatesByLimit(t *testing.T) {
 	totalFetched := 0
 
 	// Page 1: expect 2 items + a cursor.
-	page1, next1, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, 2, "")
+	page1, next1, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, api.SecurityGroupListFilter{}, api.ListPage{Limit: 2})
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestListSecurityGroupsByAccount_PaginatesByLimit(t *testing.T) {
 	cursor = next1
 
 	// Page 2: expect 2 items + a cursor.
-	page2, next2, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, 2, cursor)
+	page2, next2, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, api.SecurityGroupListFilter{}, api.ListPage{Limit: 2, Cursor: cursor})
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestListSecurityGroupsByAccount_PaginatesByLimit(t *testing.T) {
 	cursor = next2
 
 	// Page 3: expect 1 item + empty cursor (last page).
-	page3, next3, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, 2, cursor)
+	page3, next3, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, api.SecurityGroupListFilter{}, api.ListPage{Limit: 2, Cursor: cursor})
 	if err != nil {
 		t.Fatalf("page3: %v", err)
 	}
@@ -261,5 +261,126 @@ func TestListSecurityGroupsByAccount_PaginatesByLimit(t *testing.T) {
 
 	if totalFetched != 5 {
 		t.Fatalf("total fetched=%d, want 5", totalFetched)
+	}
+}
+
+// TestListSecurityGroupsByAccount_SortByName verifies that sort=name asc returns
+// rows in ascending lexicographic order.
+func TestListSecurityGroupsByAccount_SortByName(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	acc, err := pg.UpsertCloudAccount(ctx, api.CloudAccountUpsert{
+		Provider: testStoreSGProvider, Name: "sg-sort-name-acc",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud account: %v", err)
+	}
+
+	names := []string{"zebra-sg", "alpha-sg", "mango-sg"}
+	for i, n := range names {
+		if _, err := pg.UpsertSecurityGroup(ctx, SecurityGroup{
+			CloudAccountID: acc.ID,
+			ProviderSGID:   fmt.Sprintf("sg-sort-%d", i),
+			Name:           n,
+			Tags:           json.RawMessage(`{}`),
+		}); err != nil {
+			t.Fatalf("upsert %s: %v", n, err)
+		}
+	}
+
+	items, _, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, api.SecurityGroupListFilter{}, api.ListPage{Limit: 10, Sort: "name", Order: "asc"})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("want 3 items, got %d", len(items))
+	}
+	// Expect alpha, mango, zebra
+	if items[0].Name != "alpha-sg" || items[1].Name != "mango-sg" || items[2].Name != "zebra-sg" {
+		t.Errorf("unexpected order: %q %q %q", items[0].Name, items[1].Name, items[2].Name)
+	}
+}
+
+// TestListSecurityGroupsByAccount_NameFilter verifies the name= glob/substring filter.
+func TestListSecurityGroupsByAccount_NameFilter(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	acc, err := pg.UpsertCloudAccount(ctx, api.CloudAccountUpsert{
+		Provider: testStoreSGProvider, Name: "sg-name-filter-acc",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud account: %v", err)
+	}
+
+	for i, n := range []string{"frontend-sg", "backend-sg", "cache-sg"} {
+		if _, err := pg.UpsertSecurityGroup(ctx, SecurityGroup{
+			CloudAccountID: acc.ID,
+			ProviderSGID:   fmt.Sprintf("sg-nf-%d", i),
+			Name:           n,
+			Tags:           json.RawMessage(`{}`),
+		}); err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+	}
+
+	// Substring match: "end" matches frontend and backend.
+	name := "end"
+	items, _, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, api.SecurityGroupListFilter{Name: &name}, api.ListPage{Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("want 2 items for name=%q, got %d: %+v", name, len(items), items)
+	}
+
+	// Glob match: "front*" matches frontend-sg only.
+	glob := "front*"
+	items2, _, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, api.SecurityGroupListFilter{Name: &glob}, api.ListPage{Limit: 10})
+	if err != nil {
+		t.Fatalf("list glob: %v", err)
+	}
+	if len(items2) != 1 || items2[0].Name != "frontend-sg" {
+		t.Fatalf("want 1 item 'frontend-sg', got %d: %+v", len(items2), items2)
+	}
+}
+
+// TestListSecurityGroupsByAccount_MismatchedCursor verifies that a cursor
+// minted under a different sort key is rejected with ErrInvalidCursor.
+func TestListSecurityGroupsByAccount_MismatchedCursor(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	acc, err := pg.UpsertCloudAccount(ctx, api.CloudAccountUpsert{
+		Provider: testStoreSGProvider, Name: "sg-cursor-mismatch-acc",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud account: %v", err)
+	}
+	for i := range 3 {
+		if _, err := pg.UpsertSecurityGroup(ctx, SecurityGroup{
+			CloudAccountID: acc.ID,
+			ProviderSGID:   fmt.Sprintf("sg-cm-%d", i),
+			Name:           fmt.Sprintf("sg-%d", i),
+			Tags:           json.RawMessage(`{}`),
+		}); err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+	}
+
+	// Mint a cursor with sort=name.
+	_, cursor, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, api.SecurityGroupListFilter{}, api.ListPage{Limit: 1, Sort: "name", Order: "asc"})
+	if err != nil {
+		t.Fatalf("page1 (sort=name): %v", err)
+	}
+	if cursor == "" {
+		t.Fatal("expected a cursor from page1")
+	}
+
+	// Use that cursor with sort=reconcile_seen_at → should fail.
+	_, _, err = pg.ListSecurityGroupsByAccount(ctx, acc.ID, api.SecurityGroupListFilter{}, api.ListPage{Limit: 1, Cursor: cursor})
+	if !errors.Is(err, api.ErrInvalidCursor) {
+		t.Fatalf("want ErrInvalidCursor, got %v", err)
 	}
 }
