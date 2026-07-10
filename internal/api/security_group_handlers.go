@@ -17,7 +17,10 @@ import (
 	"github.com/sthalbert/longue-vue/internal/auth"
 )
 
-const sgListNameMaxLen = 100
+const (
+	sgListNameMaxLen  = 100
+	sgListVPCIDMaxLen = 255
+)
 
 // HandleListSecurityGroups — read scope. GET /v1/security-groups.
 //
@@ -48,6 +51,13 @@ func HandleListSecurityGroups(store Store) http.HandlerFunc {
 				return
 			}
 			filter.Name = &v
+		}
+		if v := q.Get("vpc_id"); v != "" {
+			if len(v) > sgListVPCIDMaxLen {
+				writeProblem(w, http.StatusBadRequest, "Bad Request", "vpc_id too long")
+				return
+			}
+			filter.VpcID = &v
 		}
 
 		page := parseListPage(r)

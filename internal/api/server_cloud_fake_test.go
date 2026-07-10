@@ -1119,6 +1119,9 @@ func (m *memStore) ListSecurityGroupsByAccount(
 		if filter.Name != nil && !strings.Contains(strings.ToLower(sg.Name), strings.ToLower(*filter.Name)) {
 			continue
 		}
+		if filter.VpcID != nil && sg.VPCID != *filter.VpcID {
+			continue
+		}
 		out = append(out, sg)
 	}
 	if len(out) > limit {

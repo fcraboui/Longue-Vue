@@ -168,7 +168,7 @@ func (p *PG) SweepSecurityGroupsByAccount(ctx context.Context, accountID uuid.UU
 var securityGroupSortSpec = sortSpec{
 	columns: map[string]sortColumn{
 		sortKeyName:            {expr: "LOWER(name)", kind: sortText},
-		sortKeyVPCID:           {expr: "LOWER(COALESCE(vpc_id,''))", kind: sortText, nullable: true},
+		sortKeyVPCID:           {expr: "LOWER(vpc_id)", kind: sortText, nullable: true},
 		sortKeyReconcileSeenAt: {expr: "reconcile_seen_at", kind: sortTime},
 	},
 	defaultKey: sortKeyReconcileSeenAt,
@@ -187,6 +187,9 @@ func securityGroupSortVal(r *sgWithSeenAt, key string) *string {
 	case sortKeyName:
 		return sortValText(&r.sg.Name)
 	case sortKeyVPCID:
+		// vpc_id is projected through COALESCE(vpc_id,'') — an empty string
+		// here means the column is NULL (provider VPC ids are never empty).
+		// Mint nil so the cursor resumes inside the NULLS LAST region.
 		if r.sg.VPCID == "" {
 			return nil
 		}
@@ -227,6 +230,11 @@ func (p *PG) ListSecurityGroupsByAccount(
 	if filter.Name != nil {
 		args = append(args, namePattern(*filter.Name))
 		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE $%d ESCAPE '\\'", len(args)))
+	}
+
+	if filter.VpcID != nil {
+		args = append(args, *filter.VpcID)
+		conds = append(conds, fmt.Sprintf("vpc_id = $%d", len(args)))
 	}
 
 	if page.Cursor != "" {

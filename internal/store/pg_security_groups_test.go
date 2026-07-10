@@ -346,6 +346,141 @@ func TestListSecurityGroupsByAccount_NameFilter(t *testing.T) {
 	}
 }
 
+// TestListSecurityGroupsByAccount_VpcIDNullBoundary verifies that sorting by
+// vpc_id paginates correctly across the NULL boundary.  Two SGs have a real
+// vpc_id and two have NULL; walking with Limit=1 must return all four rows
+// exactly once.
+//
+//nolint:gocyclo // multi-page boundary walk; complexity is inherent to the test
+func TestListSecurityGroupsByAccount_VpcIDNullBoundary(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	acc, err := pg.UpsertCloudAccount(ctx, api.CloudAccountUpsert{
+		Provider: testStoreSGProvider, Name: "sg-vpc-null-acc",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud account: %v", err)
+	}
+
+	// Two SGs with a real vpc_id, two with NULL (empty string → NULLIF → NULL).
+	seeds := []struct {
+		provID string
+		name   string
+		vpcID  string
+	}{
+		{"sg-vn-1", "alpha", "vpc-a"},
+		{"sg-vn-2", "beta", "vpc-b"},
+		{"sg-vn-3", "gamma", ""},
+		{"sg-vn-4", "delta", ""},
+	}
+	for _, s := range seeds {
+		if _, err := pg.UpsertSecurityGroup(ctx, SecurityGroup{
+			CloudAccountID: acc.ID,
+			ProviderSGID:   s.provID,
+			Name:           s.name,
+			VPCID:          s.vpcID,
+			Tags:           json.RawMessage(`{}`),
+		}); err != nil {
+			t.Fatalf("upsert %s: %v", s.provID, err)
+		}
+	}
+
+	// Null the vpc_id for the two seeds that had an empty string but may have
+	// been stored as '' rather than NULL by UpsertSecurityGroup (which uses
+	// NULLIF($4,'')).  In practice they are already NULL; this is a safety net.
+	_, err = pg.pool.Exec(ctx,
+		`UPDATE security_groups SET vpc_id = NULL WHERE name IN ('gamma','delta') AND cloud_account_id = $1`,
+		acc.ID,
+	)
+	if err != nil {
+		t.Fatalf("null vpc_id: %v", err)
+	}
+
+	seen := make(map[uuid.UUID]bool)
+	var cursor string
+	pages := 0
+
+	for {
+		page := api.ListPage{Limit: 1, Sort: "vpc_id", Order: "asc", Cursor: cursor}
+		items, next, listErr := pg.ListSecurityGroupsByAccount(ctx, acc.ID, api.SecurityGroupListFilter{}, page)
+		if listErr != nil {
+			t.Fatalf("list page %d (cursor=%q): %v", pages+1, cursor, listErr)
+		}
+		if len(items) == 0 {
+			// Exhausted: the last real page should have set cursor to "" already.
+			break
+		}
+		pages++
+		if pages > 4 {
+			t.Fatalf("more than 4 pages returned for 4 rows; pagination loop did not terminate")
+		}
+		if len(items) != 1 {
+			t.Fatalf("want 1 item per page, got %d (cursor=%q)", len(items), cursor)
+		}
+		id := items[0].ID
+		if seen[id] {
+			t.Fatalf("duplicate row %s on page %d (cursor=%q)", id, pages, cursor)
+		}
+		seen[id] = true
+		cursor = next
+		if next == "" {
+			break
+		}
+	}
+
+	if len(seen) != 4 {
+		t.Fatalf("want 4 distinct rows, got %d after %d pages", len(seen), pages)
+	}
+}
+
+// TestListSecurityGroupsByAccount_VpcIDFilter verifies that the vpc_id= exact
+// filter returns only matching rows.
+func TestListSecurityGroupsByAccount_VpcIDFilter(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	acc, err := pg.UpsertCloudAccount(ctx, api.CloudAccountUpsert{
+		Provider: testStoreSGProvider, Name: "sg-vpc-filter-acc",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud account: %v", err)
+	}
+
+	for i, s := range []struct {
+		name  string
+		vpcID string
+	}{
+		{"sg-vf-1", "vpc-target"},
+		{"sg-vf-2", "vpc-target"},
+		{"sg-vf-3", "vpc-other"},
+	} {
+		if _, err := pg.UpsertSecurityGroup(ctx, SecurityGroup{
+			CloudAccountID: acc.ID,
+			ProviderSGID:   fmt.Sprintf("sg-vf-%d", i),
+			Name:           s.name,
+			VPCID:          s.vpcID,
+			Tags:           json.RawMessage(`{}`),
+		}); err != nil {
+			t.Fatalf("upsert %s: %v", s.name, err)
+		}
+	}
+
+	vpcID := "vpc-target"
+	items, _, err := pg.ListSecurityGroupsByAccount(ctx, acc.ID, api.SecurityGroupListFilter{VpcID: &vpcID}, api.ListPage{Limit: 10})
+	if err != nil {
+		t.Fatalf("list with vpc_id filter: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("want 2 items for vpc_id=%q, got %d: %+v", vpcID, len(items), items)
+	}
+	for _, sg := range items {
+		if sg.VPCID != "vpc-target" {
+			t.Errorf("unexpected vpc_id %q", sg.VPCID)
+		}
+	}
+}
+
 // TestListSecurityGroupsByAccount_MismatchedCursor verifies that a cursor
 // minted under a different sort key is rejected with ErrInvalidCursor.
 func TestListSecurityGroupsByAccount_MismatchedCursor(t *testing.T) {

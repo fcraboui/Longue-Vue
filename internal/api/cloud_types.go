@@ -331,6 +331,8 @@ type CloudAccountListFilter struct {
 type SecurityGroupListFilter struct {
 	// Name is a case-insensitive substring / anchored-glob match on name.
 	Name *string
+	// VpcID is an exact-match filter on the vpc_id column (nil = no filter).
+	VpcID *string
 }
 
 // NetworkPolicyListFilter collects optional filters for ListNetworkPoliciesByCluster.

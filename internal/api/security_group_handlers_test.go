@@ -152,6 +152,48 @@ func TestGetSecurityGroup_NotFound(t *testing.T) {
 	}
 }
 
+// TestListSecurityGroups_VpcIDFilter verifies that the vpc_id= query param
+// is passed through to the store and only matching rows are returned.
+func TestListSecurityGroups_VpcIDFilter(t *testing.T) {
+	resetSGFake()
+	store := newMemStore()
+
+	accountID := uuid.New()
+	_, err := store.UpsertSecurityGroup(t.Context(), SecurityGroupRow{
+		CloudAccountID: accountID, ProviderSGID: "sg-vf-1", Name: "web-sg", VPCID: "vpc-target",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.UpsertSecurityGroup(t.Context(), SecurityGroupRow{
+		CloudAccountID: accountID, ProviderSGID: "sg-vf-2", Name: "db-sg", VPCID: "vpc-other",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := buildSecurityGroupMux(t, store, readCaller())
+
+	rr := doReq(t, h, http.MethodGet,
+		fmt.Sprintf("/v1/security-groups?cloud_account_id=%s&vpc_id=vpc-target", accountID),
+		nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Items []SecurityGroupRow `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("want 1 SG for vpc_id=vpc-target, got %d: %+v", len(resp.Items), resp.Items)
+	}
+	if resp.Items[0].VPCID != "vpc-target" {
+		t.Errorf("unexpected vpc_id %q", resp.Items[0].VPCID)
+	}
+}
+
 // TestListSecurityGroups_BadSort_Returns400 verifies that an unknown sort key
 // causes the handler to return 400 (ErrInvalidSort from store → writeListError).
 func TestListSecurityGroups_BadSort_Returns400(t *testing.T) {
