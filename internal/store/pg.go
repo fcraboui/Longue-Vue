@@ -313,6 +313,145 @@ func decodeListCursor(cursor, wantCol, wantDir string) (*string, uuid.UUID, erro
 	return c.Val, c.ID, nil
 }
 
+// sortKind tells the pagination helpers how to serialize/parse a sort
+// column's cursor value.
+type sortKind int
+
+const (
+	sortTime sortKind = iota
+	sortText
+)
+
+// sortColumn describes one sortable column of a paginated list query.
+// expr is a trusted SQL expression (a package constant — never derived
+// from user input). nullable columns sort NULLS LAST and get a
+// null-aware keyset predicate.
+type sortColumn struct {
+	expr     string
+	kind     sortKind
+	nullable bool
+}
+
+// sortSpec is a per-entity allowlist of sortable columns. defaultKey
+// names the column used when the request carries no sort parameter,
+// preserving the entity's historical implicit order.
+type sortSpec struct {
+	columns    map[string]sortColumn
+	defaultKey string
+}
+
+// resolve validates page.Sort/page.Order against the allowlist.
+// "" Sort → (defaultKey, "desc"): unsorted requests keep the
+// historical order. "" Order with an explicit Sort → "asc".
+func (s sortSpec) resolve(page api.ListPage) (string, sortColumn, string, error) {
+	key := page.Sort
+	dir := page.Order
+	if key == "" {
+		key = s.defaultKey
+		if dir == "" {
+			dir = "desc"
+		}
+	} else if dir == "" {
+		dir = "asc"
+	}
+	if dir != "asc" && dir != "desc" {
+		return "", sortColumn{}, "", fmt.Errorf("%w: order %q", api.ErrInvalidSort, page.Order)
+	}
+	col, ok := s.columns[key]
+	if !ok {
+		return "", sortColumn{}, "", fmt.Errorf("%w: sort key %q", api.ErrInvalidSort, page.Sort)
+	}
+	return key, col, dir, nil
+}
+
+// orderBy renders the ORDER BY clause for a resolved sort. idExpr is
+// the entity's id column (tiebreaker), e.g. "n.id".
+func orderBy(col sortColumn, idExpr, dir string) string {
+	d := strings.ToUpper(dir)
+	if col.nullable {
+		return fmt.Sprintf("ORDER BY %s %s NULLS LAST, %s %s", col.expr, d, idExpr, d)
+	}
+	return fmt.Sprintf("ORDER BY %s %s, %s %s", col.expr, d, idExpr, d)
+}
+
+// keysetCond appends the after-cursor predicate to conds/args. val is
+// the cursor's serialized sort value (nil = the cursor row sat in the
+// NULLS LAST region). Placeholders are numbered $len(args) after each
+// append, matching the package-wide convention.
+func keysetCond(col sortColumn, idExpr, dir string, val *string, id uuid.UUID, conds *[]string, args *[]any) error {
+	op := ">"
+	if dir == "desc" {
+		op = "<"
+	}
+	if val == nil {
+		if !col.nullable {
+			return fmt.Errorf("%w: null value for non-nullable sort column", api.ErrInvalidCursor)
+		}
+		*args = append(*args, id)
+		*conds = append(*conds, fmt.Sprintf("(%s IS NULL AND %s %s $%d)", col.expr, idExpr, op, len(*args)))
+		return nil
+	}
+	var arg any
+	switch col.kind {
+	case sortTime:
+		ts, err := time.Parse(time.RFC3339Nano, *val)
+		if err != nil {
+			return fmt.Errorf("%w: cursor timestamp: %v", api.ErrInvalidCursor, err)
+		}
+		arg = ts
+	case sortText:
+		arg = *val
+	}
+	*args = append(*args, arg)
+	vIdx := len(*args)
+	*args = append(*args, id)
+	idIdx := len(*args)
+	if col.nullable {
+		// NULLS LAST: rows after the cursor are strictly beyond the
+		// value, tied-on-value with a later id, or inside the NULL tail.
+		*conds = append(*conds, fmt.Sprintf(
+			"(%s %s $%d OR (%s = $%d AND %s %s $%d) OR %s IS NULL)",
+			col.expr, op, vIdx, col.expr, vIdx, idExpr, op, idIdx, col.expr,
+		))
+		return nil
+	}
+	*conds = append(*conds, fmt.Sprintf("(%s, %s) %s ($%d, $%d)", col.expr, idExpr, op, vIdx, idIdx))
+	return nil
+}
+
+// clampLimit applies the package-wide limit defaults (default 50,
+// entity-specific hard cap).
+func clampLimit(limit, maxLimit int) int {
+	if limit <= 0 {
+		return 50
+	}
+	if limit > maxLimit {
+		return maxLimit
+	}
+	return limit
+}
+
+// sortValText / sortValTime serialize an item's sort-column field for
+// cursor minting. Text values are lowercased to match the LOWER(...)
+// sort expressions (Go and Postgres agree on lowercasing for UTF-8
+// locales; a mismatch would only shift a page boundary, not corrupt
+// results).
+func sortValText(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	v := strings.ToLower(*s)
+	return &v
+}
+
+func sortValTime(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	v := t.UTC().Format(time.RFC3339Nano)
+	return &v
+}
+
 // isUniqueViolation reports whether err is a PostgreSQL unique-constraint
 // violation (SQLSTATE 23505). Insert/update paths use it to map the error
 // to api.ErrConflict with an entity-specific message.
