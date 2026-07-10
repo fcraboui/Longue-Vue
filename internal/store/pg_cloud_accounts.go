@@ -97,32 +97,79 @@ func (p *PG) GetCloudAccountByNameAny(ctx context.Context, name string) (api.Clo
 	return acct, nil
 }
 
-// ListCloudAccounts returns paged accounts (created_at DESC, id DESC).
-func (p *PG) ListCloudAccounts(ctx context.Context, limit int, cursor string) ([]api.CloudAccount, string, error) {
-	if limit <= 0 {
-		limit = 50
+// cloudAccountSortSpec is the sort=<key> allowlist for GET /v1/admin/cloud-accounts.
+var cloudAccountSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:       {expr: "LOWER(name)", kind: sortText},
+		sortKeyProvider:   {expr: "LOWER(provider)", kind: sortText},
+		sortKeyRegion:     {expr: "LOWER(region)", kind: sortText},
+		sortKeyStatus:     {expr: "LOWER(status)", kind: sortText},
+		sortKeyLastSeenAt: {expr: "last_seen_at", kind: sortTime, nullable: true},
+		sortKeyCreatedAt:  {expr: "created_at", kind: sortTime},
+		sortKeyUpdatedAt:  {expr: "updated_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+// cloudAccountSortVal extracts the serialized sort value for cursor minting.
+func cloudAccountSortVal(a *api.CloudAccount, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&a.Name)
+	case sortKeyProvider:
+		return sortValText(&a.Provider)
+	case sortKeyRegion:
+		return sortValText(&a.Region)
+	case sortKeyStatus:
+		return sortValText(&a.Status)
+	case sortKeyLastSeenAt:
+		return sortValTime(a.LastSeenAt)
+	case sortKeyUpdatedAt:
+		return sortValTime(&a.UpdatedAt)
+	default: // created_at
+		return sortValTime(&a.CreatedAt)
 	}
-	if limit > 200 {
-		limit = 200
+}
+
+// ListCloudAccounts returns a cursor-paginated page of cloud accounts,
+// optionally filtered by CloudAccountListFilter.
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filter
+func (p *PG) ListCloudAccounts(ctx context.Context, filter api.CloudAccountListFilter, page api.ListPage) ([]api.CloudAccount, string, error) {
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := cloudAccountSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
+
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT `)
 	sb.WriteString(cloudAccountColumns)
 	sb.WriteString(` FROM cloud_accounts`)
 	args := make([]any, 0, 3)
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
-		if err != nil {
-			return nil, "", err
+	conds := make([]string, 0, 2)
+
+	if filter.Name != nil {
+		// Uniform name= semantics (spec 2026-07-10): ci substring, or
+		// anchored glob when the term contains `*`.
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE $%d ESCAPE '\\'", len(args)))
+	}
+	if page.Cursor != "" {
+		val, cid, curErr := decodeListCursor(page.Cursor, key, dir)
+		if curErr != nil {
+			return nil, "", curErr
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		fmt.Fprintf(&sb, " WHERE (created_at, id) < ($%d, $%d)", tsIdx, idIdx)
+		if curErr := keysetCond(col, "id", dir, val, cid, &conds, &args); curErr != nil {
+			return nil, "", curErr
+		}
+	}
+	if len(conds) > 0 {
+		sb.WriteString(" WHERE ")
+		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -144,8 +191,8 @@ func (p *PG) ListCloudAccounts(ctx context.Context, limit int, cursor string) ([
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		next = encodeCursor(last.CreatedAt, last.ID)
+		last := &items[limit-1]
+		next = encodeListCursor(key, cloudAccountSortVal(last, key), last.ID, dir)
 		items = items[:limit]
 	}
 	return items, next, nil

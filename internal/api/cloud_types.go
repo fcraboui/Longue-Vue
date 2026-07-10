@@ -320,6 +320,13 @@ type VirtualMachineListFilter struct {
 	ApplicationNameSubstring *string
 }
 
+// CloudAccountListFilter is the filter for ListCloudAccounts. Name is a
+// case-insensitive substring / anchored-glob match on the account name
+// (uniform name= semantics, spec 2026-07-10).
+type CloudAccountListFilter struct {
+	Name *string
+}
+
 // VMApplicationDistinct is one row of the distinct-applications response.
 // `Versions` is the sorted, deduplicated list of versions seen for the
 // product across every non-terminated VM. Drives the cascading

@@ -80,12 +80,12 @@ const nodeFromJoined = `FROM nodes n
 // strings) are deliberately absent (spec decision #3).
 var nodeSortSpec = sortSpec{
 	columns: map[string]sortColumn{
-		sortKeyName:      {expr: "LOWER(n.name)", kind: sortText},
-		"role":           {expr: "LOWER(n.role)", kind: sortText, nullable: true},
-		"zone":           {expr: "LOWER(n.zone)", kind: sortText, nullable: true},
-		"instance_type":  {expr: "LOWER(n.instance_type)", kind: sortText, nullable: true},
-		sortKeyCreatedAt: {expr: "n.created_at", kind: sortTime},
-		sortKeyUpdatedAt: {expr: "n.updated_at", kind: sortTime},
+		sortKeyName:         {expr: "LOWER(n.name)", kind: sortText},
+		sortKeyRole:         {expr: "LOWER(n.role)", kind: sortText, nullable: true},
+		sortKeyZone:         {expr: "LOWER(n.zone)", kind: sortText, nullable: true},
+		sortKeyInstanceType: {expr: "LOWER(n.instance_type)", kind: sortText, nullable: true},
+		sortKeyCreatedAt:    {expr: "n.created_at", kind: sortTime},
+		sortKeyUpdatedAt:    {expr: "n.updated_at", kind: sortTime},
 	},
 	defaultKey: sortKeyCreatedAt,
 }
@@ -95,11 +95,11 @@ func nodeSortVal(n *api.Node, key string) *string {
 	switch key {
 	case sortKeyName:
 		return sortValText(&n.Name)
-	case "role":
+	case sortKeyRole:
 		return sortValText(n.Role)
-	case "zone":
+	case sortKeyZone:
 		return sortValText(n.Zone)
-	case "instance_type":
+	case sortKeyInstanceType:
 		return sortValText(n.InstanceType)
 	case sortKeyUpdatedAt:
 		return sortValTime(n.UpdatedAt)

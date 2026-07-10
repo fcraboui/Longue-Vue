@@ -8,6 +8,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -81,4 +82,29 @@ func parseLimit(raw string, def int) int {
 		return def
 	}
 	return n
+}
+
+// parseListPage extracts the uniform limit/cursor/sort/order controls
+// for hand-written list handlers. Validation of sort/order happens in
+// the store (allowlist) — unknown values surface as ErrInvalidSort.
+func parseListPage(r *http.Request, defLimit int) ListPage {
+	q := r.URL.Query()
+	return ListPage{
+		Limit:  parseLimit(q.Get("limit"), defLimit),
+		Cursor: q.Get("cursor"),
+		Sort:   q.Get("sort"),
+		Order:  q.Get("order"),
+	}
+}
+
+// writeListError maps List* store errors: invalid cursor/sort → 400
+// problem+json; anything else → logged 500 (matches the existing
+// hand-written handler behavior).
+func writeListError(w http.ResponseWriter, op string, err error) {
+	if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+		writeProblem(w, http.StatusBadRequest, "Bad Request", err.Error())
+		return
+	}
+	slog.Error(op, slog.Any("error", err))
+	writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 }

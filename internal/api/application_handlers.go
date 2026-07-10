@@ -465,7 +465,7 @@ func (e eolAppStore) ApplicationVMMembers(ctx context.Context, appID uuid.UUID) 
 	filter := VirtualMachineListFilter{ApplicationID: &appID}
 	cursor := ""
 	for {
-		items, next, err := e.s.ListVirtualMachines(ctx, filter, eolMemberPageLimit, cursor)
+		items, next, err := e.s.ListVirtualMachines(ctx, filter, ListPage{Limit: eolMemberPageLimit, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("list vm members: %w", err)
 		}

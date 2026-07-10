@@ -102,7 +102,7 @@ func (s *fakeStore) UpdateNode(_ context.Context, id uuid.UUID, in api.NodeUpdat
 }
 
 //nolint:gocritic // hugeParam: signature matches api.Store interface
-func (s *fakeStore) ListVirtualMachines(_ context.Context, _ api.VirtualMachineListFilter, _ int, _ string) ([]api.VirtualMachine, string, error) {
+func (s *fakeStore) ListVirtualMachines(_ context.Context, _ api.VirtualMachineListFilter, _ api.ListPage) ([]api.VirtualMachine, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cp := make([]api.VirtualMachine, len(s.vms))

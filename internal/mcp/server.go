@@ -83,11 +83,11 @@ type Store interface {
 	) ([]api.PersistentVolumeClaim, string, error)
 
 	// CloudAccounts (ADR-0015)
-	ListCloudAccounts(ctx context.Context, limit int, cursor string) ([]api.CloudAccount, string, error)
+	ListCloudAccounts(ctx context.Context, filter api.CloudAccountListFilter, page api.ListPage) ([]api.CloudAccount, string, error)
 	GetCloudAccount(ctx context.Context, id uuid.UUID) (api.CloudAccount, error)
 
 	// VirtualMachines (ADR-0015 / ADR-0019)
-	ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, limit int, cursor string) ([]api.VirtualMachine, string, error)
+	ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, page api.ListPage) ([]api.VirtualMachine, string, error)
 	GetVirtualMachine(ctx context.Context, id uuid.UUID) (api.VirtualMachine, error)
 	ListDistinctVMApplications(ctx context.Context) ([]api.VMApplicationDistinct, error)
 

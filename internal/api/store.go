@@ -742,8 +742,9 @@ type CloudAccountStore interface {
 	// supported provider. Returns ErrNotFound when no row matches.
 	GetCloudAccountByNameAny(ctx context.Context, name string) (CloudAccount, error)
 
-	// ListCloudAccounts returns up to limit accounts after the given opaque cursor.
-	ListCloudAccounts(ctx context.Context, limit int, cursor string) (items []CloudAccount, nextCursor string, err error)
+	// ListCloudAccounts returns a cursor-paginated page of cloud accounts,
+	// optionally filtered by CloudAccountListFilter.
+	ListCloudAccounts(ctx context.Context, filter CloudAccountListFilter, page ListPage) (items []CloudAccount, nextCursor string, err error)
 
 	// UpdateCloudAccount applies merge-patch on curated metadata + name.
 	// Status transitions to/from `disabled` and `pending_credentials` are
@@ -803,8 +804,7 @@ type VirtualMachineStore interface {
 	ListVirtualMachines(
 		ctx context.Context,
 		filter VirtualMachineListFilter,
-		limit int,
-		cursor string,
+		page ListPage,
 	) (items []VirtualMachine, nextCursor string, err error)
 
 	// UpdateVirtualMachine applies merge-patch on curated-only fields.

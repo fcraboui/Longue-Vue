@@ -282,7 +282,7 @@ func (f *fakeStore) GetPersistentVolumeClaim(_ context.Context, id uuid.UUID) (a
 
 // --- CloudAccounts ----
 
-func (f *fakeStore) ListCloudAccounts(_ context.Context, _ int, _ string) ([]api.CloudAccount, string, error) {
+func (f *fakeStore) ListCloudAccounts(_ context.Context, _ api.CloudAccountListFilter, _ api.ListPage) ([]api.CloudAccount, string, error) {
 	if err := f.errOn["ListCloudAccounts"]; err != nil {
 		return nil, "", err
 	}
@@ -310,8 +310,7 @@ func (f *fakeStore) GetCloudAccount(_ context.Context, id uuid.UUID) (api.CloudA
 func (f *fakeStore) ListVirtualMachines(
 	_ context.Context,
 	filter api.VirtualMachineListFilter,
-	_ int,
-	_ string,
+	_ api.ListPage,
 ) ([]api.VirtualMachine, string, error) {
 	f.lastVMFilter = filter
 	if err := f.errOn["ListVirtualMachines"]; err != nil {

@@ -838,7 +838,7 @@ func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRe
 	}
 
 	vms, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.VirtualMachine, string, error) {
-		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{}, maxPageSize, cursor)
+		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list virtual machines for eol: %w", err)
@@ -923,7 +923,7 @@ func (s *Server) handleSearchImages(ctx context.Context, request mcp.CallToolReq
 	}
 
 	vms, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.VirtualMachine, string, error) {
-		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{Image: &query}, maxPageSize, cursor)
+		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{Image: &query}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search virtual machines by image: %w", err)
@@ -950,7 +950,7 @@ func (s *Server) handleListCloudAccounts(ctx context.Context, request mcp.CallTo
 	defer func() { metrics.ObserveMCPToolCall("list_cloud_accounts", time.Since(start)) }()
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.CloudAccount, string, error) {
-		return s.store.ListCloudAccounts(ctx, maxPageSize, cursor)
+		return s.store.ListCloudAccounts(ctx, api.CloudAccountListFilter{}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list cloud accounts: %w", err)
@@ -1065,7 +1065,7 @@ func (s *Server) handleListVirtualMachines(ctx context.Context, request mcp.Call
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.VirtualMachine, string, error) {
-		return s.store.ListVirtualMachines(ctx, filter, maxPageSize, cursor)
+		return s.store.ListVirtualMachines(ctx, filter, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list virtual machines: %w", err)

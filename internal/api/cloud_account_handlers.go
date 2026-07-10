@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -118,17 +117,18 @@ func HandleListCloudAccounts(store Store) http.HandlerFunc {
 		if !requireAdmin(w, r) {
 			return
 		}
-		limit := 50
-		if v := r.URL.Query().Get("limit"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				limit = n
+		var filter CloudAccountListFilter
+		if v := r.URL.Query().Get("name"); v != "" {
+			if len(v) > 100 {
+				writeProblem(w, http.StatusBadRequest, "Bad Request", "name too long")
+				return
 			}
+			filter.Name = &v
 		}
-		cursor := r.URL.Query().Get("cursor")
-		items, next, err := store.ListCloudAccounts(r.Context(), limit, cursor)
+		page := parseListPage(r, 50)
+		items, next, err := store.ListCloudAccounts(r.Context(), filter, page)
 		if err != nil {
-			slog.Error("list cloud accounts", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			writeListError(w, "list cloud accounts", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{

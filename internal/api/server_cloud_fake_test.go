@@ -112,14 +112,28 @@ func (m *memStore) GetCloudAccountByNameAny(_ context.Context, name string) (Clo
 	return CloudAccount{}, ErrNotFound
 }
 
-func (m *memStore) ListCloudAccounts(_ context.Context, limit int, _ string) ([]CloudAccount, string, error) {
+var fakeCloudAccountSortKeys = map[string]bool{
+	"": true, "name": true, "provider": true, "region": true, "status": true,
+	"last_seen_at": true, "created_at": true, "updated_at": true,
+}
+
+func (m *memStore) ListCloudAccounts(_ context.Context, filter CloudAccountListFilter, page ListPage) ([]CloudAccount, string, error) {
+	if !fakeCloudAccountSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]CloudAccount, 0, len(cloudFake.accounts))
 	for _, a := range cloudFake.accounts { //nolint:gocritic // rangeValCopy: test fake; copy is intentional to avoid mutation
+		if filter.Name != nil && *filter.Name != "" {
+			if !strings.Contains(strings.ToLower(a.Name), strings.ToLower(*filter.Name)) {
+				continue
+			}
+		}
 		out = append(out, a)
 	}
 	if len(out) > limit {
@@ -470,10 +484,20 @@ func vmApplicationMatches(vm VirtualMachine, want, wantVersion *string) bool {
 	return false
 }
 
+var fakeVMSortKeys = map[string]bool{
+	"": true, "name": true, "role": true, "region": true, "zone": true,
+	"instance_type": true, "image_name": true, "power_state": true,
+	"last_seen_at": true, "created_at": true, "updated_at": true,
+}
+
 //nolint:gocritic // hugeParam: signature matches Store interface
-func (m *memStore) ListVirtualMachines(_ context.Context, filter VirtualMachineListFilter, limit int, _ string) ([]VirtualMachine, string, error) {
+func (m *memStore) ListVirtualMachines(_ context.Context, filter VirtualMachineListFilter, page ListPage) ([]VirtualMachine, string, error) {
+	if !fakeVMSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}

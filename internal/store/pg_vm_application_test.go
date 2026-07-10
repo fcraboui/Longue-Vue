@@ -103,7 +103,7 @@ func TestPGVMApplicationLinkage(t *testing.T) {
 	items, _, err := pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
 		CloudAccountID: &acct.ID,
 		ApplicationID:  &billing.ID,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by application_id: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestPGVMApplicationLinkage(t *testing.T) {
 	items, _, err = pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
 		CloudAccountID:  &acct.ID,
 		ApplicationName: &billingName,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by application_name: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestPGVMApplicationLinkage(t *testing.T) {
 	items, _, err = pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
 		CloudAccountID:  &acct.ID,
 		ApplicationName: &mixedCase,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by application_name (mixed case): %v", err)
 	}
@@ -143,7 +143,7 @@ func TestPGVMApplicationLinkage(t *testing.T) {
 		CloudAccountID:  &acct.ID,
 		ApplicationID:   &billing.ID,
 		ApplicationName: &otherName,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list with id+name: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestPGVMApplicationLinkage(t *testing.T) {
 	items, _, err = pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
 		CloudAccountID: &acct.ID,
 		Unlinked:       &yes,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list unlinked: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestPGVMApplicationLinkage(t *testing.T) {
 	items, _, err = pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
 		CloudAccountID:  &acct.ID,
 		ApplicationName: &bogus,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list bogus app name: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestPGVMApplicationNameSubstring(t *testing.T) {
 	vault := "vault"
 	items, _, err := pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
 		ApplicationNameSubstring: &vault,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by substring 'vault': %v", err)
 	}
@@ -338,7 +338,7 @@ func TestPGVMApplicationNameSubstring(t *testing.T) {
 	vaultUpper := "VaUlT"
 	items, _, err = pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
 		ApplicationNameSubstring: &vaultUpper,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by substring 'VaUlT': %v", err)
 	}
@@ -350,7 +350,7 @@ func TestPGVMApplicationNameSubstring(t *testing.T) {
 	miss := appLinkageNoSuchApp
 	items, _, err = pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
 		ApplicationNameSubstring: &miss,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list miss: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestPGVMApplicationNameSubstring(t *testing.T) {
 	underscore := "vault_"
 	items, _, err = pg.ListVirtualMachines(ctx, api.VirtualMachineListFilter{
 		ApplicationNameSubstring: &underscore,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list 'vault_': %v", err)
 	}

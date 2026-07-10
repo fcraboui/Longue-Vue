@@ -23,8 +23,8 @@ type ExtractStore interface {
 	ListNamespaces(ctx context.Context, filter NamespaceListFilter, page ListPage) ([]Namespace, string, error)
 	ListWorkloads(ctx context.Context, filter WorkloadListFilter, page ListPage) ([]Workload, string, error)
 	ListPods(ctx context.Context, filter PodListFilter, page ListPage) ([]Pod, string, error)
-	ListVirtualMachines(ctx context.Context, filter VirtualMachineListFilter, limit int, cursor string) ([]VirtualMachine, string, error)
-	ListCloudAccounts(ctx context.Context, limit int, cursor string) ([]CloudAccount, string, error)
+	ListVirtualMachines(ctx context.Context, filter VirtualMachineListFilter, page ListPage) ([]VirtualMachine, string, error)
+	ListCloudAccounts(ctx context.Context, filter CloudAccountListFilter, page ListPage) ([]CloudAccount, string, error)
 
 	// Container-version enrichment surface (used to attach EOL status to
 	// workload images for the EOL extract).
@@ -308,7 +308,7 @@ func collectAllVMs(
 	var out []VirtualMachine
 	cursor := ""
 	for {
-		items, next, err := store.ListVirtualMachines(ctx, filter, extractPageSize, cursor)
+		items, next, err := store.ListVirtualMachines(ctx, filter, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("listVirtualMachines: %w", err)
 		}
@@ -669,7 +669,7 @@ func collectAllCloudAccounts(ctx context.Context, store ExtractStore) ([]CloudAc
 	var out []CloudAccount
 	cursor := ""
 	for {
-		items, next, err := store.ListCloudAccounts(ctx, extractPageSize, cursor)
+		items, next, err := store.ListCloudAccounts(ctx, CloudAccountListFilter{}, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("collectAllCloudAccounts: %w", err)
 		}

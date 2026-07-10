@@ -26,7 +26,7 @@ type EnricherStore interface {
 	ListNodes(ctx context.Context, filter api.NodeListFilter, page api.ListPage) ([]api.Node, string, error)
 	GetNode(ctx context.Context, id uuid.UUID) (api.Node, error)
 	UpdateNode(ctx context.Context, id uuid.UUID, in api.NodeUpdate) (api.Node, error)
-	ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, limit int, cursor string) ([]api.VirtualMachine, string, error)
+	ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, page api.ListPage) ([]api.VirtualMachine, string, error)
 	GetVirtualMachine(ctx context.Context, id uuid.UUID) (api.VirtualMachine, error)
 	UpdateVirtualMachine(ctx context.Context, id uuid.UUID, in api.VirtualMachinePatch) (api.VirtualMachine, error)
 }
@@ -117,7 +117,7 @@ func (e *Enricher) enrich(ctx context.Context) {
 func (e *Enricher) enrichVirtualMachines(ctx context.Context) {
 	cursor := ""
 	for {
-		vms, next, err := e.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{}, 100, cursor)
+		vms, next, err := e.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{}, api.ListPage{Limit: 100, Cursor: cursor})
 		if err != nil {
 			slog.Error("eol enricher: list virtual machines", slog.Any("error", err))
 			metrics.ObserveEOLError("_all_", "vm", "list")

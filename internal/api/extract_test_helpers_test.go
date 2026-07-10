@@ -246,8 +246,7 @@ func (s *extractStubStore) ListPods(_ context.Context, f api.PodListFilter, _ ap
 func (s *extractStubStore) ListVirtualMachines(
 	_ context.Context,
 	f api.VirtualMachineListFilter,
-	_ int,
-	_ string,
+	_ api.ListPage,
 ) ([]api.VirtualMachine, string, error) {
 	candidates := s.vms
 	if f.Image != nil {
@@ -286,7 +285,7 @@ func (s *extractStubStore) ListVirtualMachines(
 	return candidates, "", nil
 }
 
-func (s *extractStubStore) ListCloudAccounts(_ context.Context, _ int, _ string) ([]api.CloudAccount, string, error) {
+func (s *extractStubStore) ListCloudAccounts(_ context.Context, _ api.CloudAccountListFilter, _ api.ListPage) ([]api.CloudAccount, string, error) {
 	return s.accounts, "", nil
 }
 
