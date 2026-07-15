@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent } from '@testing-library/react';
 import {
   Clusters,
   Ingresses,
@@ -51,6 +51,26 @@ describe('Clusters list', () => {
     await waitFor(() =>
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument(),
     );
+  });
+
+  it('Name column header is sortable and clicking it sends sort=name&order=asc', async () => {
+    const captured: string[] = [];
+    server.use(
+      http.get('/v1/clusters', ({ request }) => {
+        captured.push(new URL(request.url).search);
+        return HttpResponse.json({ items: [fixtureCluster], next_cursor: null });
+      }),
+    );
+    renderWithRouter(<Clusters />, { initialPath: '/clusters' });
+    await waitFor(() => expect(screen.getByText(fixtureCluster.display_name!)).toBeInTheDocument());
+    const nameHeader = screen.getByRole('columnheader', { name: /^Name/ });
+    expect(nameHeader.className).toContain('sortable');
+    fireEvent.click(nameHeader);
+    await waitFor(() => {
+      const last = captured.at(-1) ?? '';
+      expect(last).toContain('sort=name');
+      expect(last).toContain('order=asc');
+    });
   });
 });
 

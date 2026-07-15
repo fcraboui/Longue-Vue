@@ -8,72 +8,51 @@ import * as api from '../api';
 import { useResource, usePagedList } from '../hooks';
 import { Dash, IdLink, LayerPill, LoadBalancerAddresses, Empty, NamespaceLink, Paginator } from '../components';
 import { useEntityTable } from '../components/column_filters';
+import { EntityListPage } from '../components/EntityListPage';
 import {
   ClusterIcon, NodeIcon, NamespaceIcon, WorkloadIcon, PodIcon,
   ServiceIcon, IngressIcon, VolumeIcon,
 } from '../icons';
 
 export function Clusters() {
-  const list = usePagedList<api.Cluster>(
-    (cursor, limit) => api.listClusters({ cursor, limit }),
-    [],
-  );
-  const tableRef = useEntityTable('lists.clusters');
   return (
-    <>
-      <h2><ClusterIcon size={20} /> Clusters</h2>
-      <Paginator
-        pageSize={list.pageSize}
-        hasPrev={list.hasPrev}
-        hasNext={list.hasNext}
-        onPrev={list.prev}
-        onNext={list.next}
-        onPageSize={list.setPageSize}
-      />
-      {list.loading ? (
-        <p className="loading">Loading…</p>
-      ) : list.error ? (
-        <div className="error">Failed to load: {list.error}</div>
-      ) : list.items.length === 0 ? (
-        <Empty message="No clusters yet. Connect a collector to start populating your inventory." />
-      ) : (
-        <div className="table-wrap">
-          <table className="entities" ref={tableRef}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Environment</th>
-                <th>Provider</th>
-                <th>Region</th>
-                <th>K8s version</th>
-                <th>Layer</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    <Link to={`/clusters/${c.id}`}>
-                      <strong>{c.display_name || c.name}</strong>
-                    </Link>
-                    {c.display_name && (
-                      <div className="muted" style={{ fontSize: '0.8rem' }}>
-                        {c.name}
-                      </div>
-                    )}
-                  </td>
-                  <td>{c.environment || <Dash />}</td>
-                  <td>{c.provider || <Dash />}</td>
-                  <td>{c.region || <Dash />}</td>
-                  <td>{c.kubernetes_version ? <code>{c.kubernetes_version}</code> : <Dash />}</td>
-                  <td><LayerPill layer={c.layer} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
+    <EntityListPage<api.Cluster>
+      title="Clusters"
+      icon={<ClusterIcon size={20} />}
+      storageKey="lists.clusters"
+      emptyMessage="No clusters yet. Connect a collector to start populating your inventory."
+      fetchPage={(params, cursor, limit) => api.listClusters({ ...params, cursor, limit })}
+      rowKey={(c) => c.id}
+      columns={[
+        {
+          key: 'name',
+          label: 'Name',
+          sortKey: 'name',
+          render: (c) => (
+            <>
+              <Link to={`/clusters/${c.id}`}>
+                <strong>{c.display_name || c.name}</strong>
+              </Link>
+              {c.display_name && (
+                <div className="muted" style={{ fontSize: '0.8rem' }}>
+                  {c.name}
+                </div>
+              )}
+            </>
+          ),
+        },
+        { key: 'environment', label: 'Environment', sortKey: 'environment', render: (c) => c.environment || <Dash /> },
+        { key: 'provider', label: 'Provider', sortKey: 'provider', render: (c) => c.provider || <Dash /> },
+        { key: 'region', label: 'Region', sortKey: 'region', render: (c) => c.region || <Dash /> },
+        {
+          key: 'k8s_version',
+          label: 'K8s version',
+          sortKey: 'kubernetes_version',
+          render: (c) => (c.kubernetes_version ? <code>{c.kubernetes_version}</code> : <Dash />),
+        },
+        { key: 'layer', label: 'Layer', render: (c) => <LayerPill layer={c.layer} /> },
+      ]}
+    />
   );
 }
 
