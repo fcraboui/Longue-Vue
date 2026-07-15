@@ -6,6 +6,39 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.10.0](https://github.com/sthalbert/Longue-Vue/compare/v1.9.0...v1.10.0) (2026-07-15)
+
+
+### Features
+
+* **api,store:** sortable audit list; document real 500 limit clamp ([4953a77](https://github.com/sthalbert/Longue-Vue/commit/4953a7778462182083c743d3e8aac1f03c5189cc))
+* **api,store:** uniform name/sort/order on clusters; retire exact-match name short-circuit ([6de118f](https://github.com/sthalbert/Longue-Vue/commit/6de118f4bc0966e2cdbaac0e95640fb7ffb1afb1))
+* **api,store:** uniform name/sort/order on namespaces list ([23f3ebd](https://github.com/sthalbert/Longue-Vue/commit/23f3ebd05b9f7550a44913b73105af810f508c85))
+* **api,store:** uniform name/sort/order on nodes list (pilot entity) ([b8bc784](https://github.com/sthalbert/Longue-Vue/commit/b8bc7843e5ef78de63f0f94c474f8171b74ae2de))
+* **api,store:** uniform name/sort/order on pods+workloads; escape image substring filters ([0323766](https://github.com/sthalbert/Longue-Vue/commit/0323766679eeeb460249bc21396056567869ec45))
+* **api,store:** uniform name/sort/order on PV and PVC lists ([12542a6](https://github.com/sthalbert/Longue-Vue/commit/12542a6ef87cc56384c6bd1b5a61529817373957))
+* **api,store:** uniform name/sort/order on security-group and network-policy lists ([b6f55bc](https://github.com/sthalbert/Longue-Vue/commit/b6f55bc3e0242dd07a843dcf919d5d77ce6a2ace))
+* **api,store:** uniform name/sort/order on services and ingresses lists ([047c6e7](https://github.com/sthalbert/Longue-Vue/commit/047c6e7b2a78c8914b05efb138a7a348fe7dccc0))
+* **api,store:** uniform name/sort/order on users and API tokens lists ([a1892e4](https://github.com/sthalbert/Longue-Vue/commit/a1892e466ea2a0af92f96536e380b4f4ac4875d1))
+* **api,store:** uniform name/sort/order on VM and cloud-account lists ([d3461e6](https://github.com/sthalbert/Longue-Vue/commit/d3461e69774de5bc31c108e4000465644075c48d))
+* **api,store:** uniform sort on applications+blocks; block display_name filter; members kind filter ([a5cf508](https://github.com/sthalbert/Longue-Vue/commit/a5cf508fa8c15b6ea15131ef5421bf07cee4c3c4))
+* **api:** shared name/sort/order OpenAPI parameters on list endpoints ([8c4638c](https://github.com/sthalbert/Longue-Vue/commit/8c4638c84c83c001b4dc5ac336168413e1be50e2))
+* **migrations:** composite indexes for list sort keyset pagination ([0f4c3e4](https://github.com/sthalbert/Longue-Vue/commit/0f4c3e4d8a7ad74e37000c2d8577f3f28f74a7cf))
+* **store:** add namePattern helper for uniform name search ([81eed12](https://github.com/sthalbert/Longue-Vue/commit/81eed12b7059e88adf32361313c29b7000e27e24))
+* **store:** sort allowlists, keyset predicate and ORDER BY builders ([12a91a1](https://github.com/sthalbert/Longue-Vue/commit/12a91a1ed1df3f78749975ae1f904ca892a2b361))
+* **store:** tagged sort-aware list cursor codec + ListPage/sentinels ([57eba6d](https://github.com/sthalbert/Longue-Vue/commit/57eba6d8105fe4858ac914ac93c835e4e2330532))
+* uniform name search & per-column sort on all list endpoints (phase 1) ([60c20c9](https://github.com/sthalbert/Longue-Vue/commit/60c20c98db6a2aee4e7e891601aaf0cb11c530c5))
+
+
+### Bug Fixes
+
+* **api:** malformed application-members cursor returns 400, not 500 ([67b28c0](https://github.com/sthalbert/Longue-Vue/commit/67b28c0660b28016070034e7e3ebd107901ed4c8))
+* **migrations:** renumber list-sort indexes to 00058 (00057 taken on main) ([bcc9607](https://github.com/sthalbert/Longue-Vue/commit/bcc96073d4f32325eb14221eca1d4770dfcd0f59))
+* **store:** escape LIKE metacharacters in image-origin-mappings q filter ([76581c5](https://github.com/sthalbert/Longue-Vue/commit/76581c512d3e82c0d07ad5bc3f8ace76c53295ec))
+* **store:** ignore order= without sort=; pin keyset error paths and sortVal helpers ([dba1fa0](https://github.com/sthalbert/Longue-Vue/commit/dba1fa02886e528ae8a80bbd4fad4103a762b610))
+* **store:** sessions cursor minted from returned row, not peek row; uniform sort/name ([38c3339](https://github.com/sthalbert/Longue-Vue/commit/38c3339f5446120742cdcddb2625a3acb4e2faf8))
+* **store:** vpc_id sort survives NULL page boundaries; restore vpc_id filter on SG list ([bdee638](https://github.com/sthalbert/Longue-Vue/commit/bdee63894a7b65c6c397951fae23820345dc8490))
+
 ## [1.9.0](https://github.com/sthalbert/Longue-Vue/compare/v1.8.0...v1.9.0) (2026-06-27)
 
 
