@@ -7,6 +7,7 @@ import { useEntityTable } from '../components/column_filters';
 import { EolIcon } from '../icons';
 import { ExtractButton } from '../components/ExtractButton';
 import { TruncationBanner } from '../components/TruncationBanner';
+import { SortHeader } from '../components/SortHeader';
 
 // --- EOL annotation parsing -----------------------------------------------
 
@@ -189,7 +190,7 @@ function countStatuses(rows: EolRow[]): StatusCounts {
   return counts;
 }
 
-// --- Sortable column header -----------------------------------------------
+// --- Sort logic ----------------------------------------------------------
 
 type SortKey = 'status' | 'product' | 'entity' | 'cluster' | 'application' | 'eolDate';
 
@@ -218,26 +219,6 @@ function compareRows(a: EolRow, b: EolRow, key: SortKey, asc: boolean): number {
   return asc ? cmp : -cmp;
 }
 
-function SortHeader({
-  label,
-  sortKey,
-  currentKey,
-  asc,
-  onClick,
-}: {
-  label: string;
-  sortKey: SortKey;
-  currentKey: SortKey;
-  asc: boolean;
-  onClick: (key: SortKey) => void;
-}) {
-  const arrow = currentKey === sortKey ? (asc ? ' \u25b2' : ' \u25bc') : '';
-  return (
-    <th className="sortable" onClick={() => onClick(sortKey)}>
-      {label}{arrow}
-    </th>
-  );
-}
 
 // --- Page component -------------------------------------------------------
 
@@ -257,11 +238,12 @@ export default function EolDashboard() {
   const [sortAsc, setSortAsc] = useState(true);
   const [truncated, setTruncated] = useState(false);
 
-  const handleSort = (key: SortKey) => {
-    if (key === sortKey) {
+  const handleSort = (key: string) => {
+    const k = key as SortKey;
+    if (k === sortKey) {
       setSortAsc(!sortAsc);
     } else {
-      setSortKey(key);
+      setSortKey(k);
       setSortAsc(true);
     }
   };
@@ -353,7 +335,7 @@ function EolTable({
   sortKey: SortKey;
   sortAsc: boolean;
   onCardClick: (status: EolStatus) => void;
-  onSort: (key: SortKey) => void;
+  onSort: (key: string) => void;
 }) {
   const allRows = useMemo(
     () => buildRows(clusters, nodes, vms, appNameById),
@@ -450,15 +432,15 @@ function EolTable({
       <table className="entities eol-table" ref={tableRef}>
         <thead>
           <tr>
-            <SortHeader label="Status" sortKey="status" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
-            <SortHeader label="Product" sortKey="product" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
+            <SortHeader label="Status" sortKey="status" activeKey={sortKey} asc={sortAsc} onToggle={onSort} />
+            <SortHeader label="Product" sortKey="product" activeKey={sortKey} asc={sortAsc} onToggle={onSort} />
             <th>Version</th>
             <th>Patch</th>
-            <SortHeader label="Entity" sortKey="entity" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
-            <SortHeader label="Application" sortKey="application" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
-            <SortHeader label="Cluster" sortKey="cluster" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
+            <SortHeader label="Entity" sortKey="entity" activeKey={sortKey} asc={sortAsc} onToggle={onSort} />
+            <SortHeader label="Application" sortKey="application" activeKey={sortKey} asc={sortAsc} onToggle={onSort} />
+            <SortHeader label="Cluster" sortKey="cluster" activeKey={sortKey} asc={sortAsc} onToggle={onSort} />
             <th>Latest Available</th>
-            <SortHeader label="EOL Date" sortKey="eolDate" currentKey={sortKey} asc={sortAsc} onClick={onSort} />
+            <SortHeader label="EOL Date" sortKey="eolDate" activeKey={sortKey} asc={sortAsc} onToggle={onSort} />
             <th>Checked</th>
           </tr>
         </thead>
