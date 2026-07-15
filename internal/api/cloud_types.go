@@ -320,6 +320,29 @@ type VirtualMachineListFilter struct {
 	ApplicationNameSubstring *string
 }
 
+// CloudAccountListFilter is the filter for ListCloudAccounts. Name is a
+// case-insensitive substring / anchored-glob match on the account name
+// (uniform name= semantics, spec 2026-07-10).
+type CloudAccountListFilter struct {
+	Name *string
+}
+
+// SecurityGroupListFilter collects optional filters for ListSecurityGroupsByAccount.
+type SecurityGroupListFilter struct {
+	// Name is a case-insensitive substring / anchored-glob match on name.
+	Name *string
+	// VpcID is an exact-match filter on the vpc_id column (nil = no filter).
+	VpcID *string
+}
+
+// NetworkPolicyListFilter collects optional filters for ListNetworkPoliciesByCluster.
+type NetworkPolicyListFilter struct {
+	// NamespaceID narrows the result to policies in this namespace (nil = all).
+	NamespaceID *uuid.UUID
+	// Name is a case-insensitive substring / anchored-glob match on name.
+	Name *string
+}
+
 // VMApplicationDistinct is one row of the distinct-applications response.
 // `Versions` is the sorted, deduplicated list of versions seen for the
 // product across every non-terminated VM. Drives the cascading

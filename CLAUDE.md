@@ -42,7 +42,7 @@ Guidance for Claude Code working in this repo. For deep design rationale, read `
 ## Key conventions
 
 - **Errors**: RFC 7807 `application/problem+json`. Store sentinels: `ErrNotFound`, `ErrConflict`, `ErrLastAdmin`.
-- **Pagination**: cursor-based on list endpoints.
+- **Pagination**: cursor-based on list endpoints; uniform `name=` (ci substring / `*`-glob), `sort=` (per-entity allowlist) + `order=` since ADR-0042. Cursors are tagged base64-JSON, bound to their sort params; mismatched replay → 400.
 - **Updates**: merge-patch via PATCH; collector tick writes only its own fields, leaving curated metadata alone.
 - **JSONB**: heterogeneous specs (workload `spec`, `containers`, `conditions`, `taints`, `load_balancer`, `applications`, `annotations`).
 - **FK chain**: `clusters` → `namespaces`/`nodes`/`persistent_volumes` → `pods`/`workloads`/`services`/`ingresses`/`pvcs`, all `ON DELETE CASCADE`. `pods.workload_id` and `pvcs.bound_volume_id` are `ON DELETE SET NULL`.

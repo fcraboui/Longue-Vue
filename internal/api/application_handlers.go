@@ -207,27 +207,25 @@ func filterErrMessage(err error) string {
 }
 
 // HandleListApplications — read scope. GET /v1/applications. Filter
-// params: name (substring), application_block_id (UUID), application_block_name,
-// criticality, has_dict (bool), dict_min (int 0..4), plus cursor + limit.
+// params: name (substring / anchored glob), application_block_id (UUID),
+// application_block_name, criticality, has_dict (bool), dict_min (int
+// 0..4), plus the uniform cursor + limit + sort + order controls.
 func HandleListApplications(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
-		q := r.URL.Query()
-		limit := parseLimit(q.Get("limit"), 50)
-		cursor := q.Get("cursor")
+		page := parseListPage(r)
 
-		filter, err := parseApplicationListFilter(q)
+		filter, err := parseApplicationListFilter(r.URL.Query())
 		if err != nil {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", filterErrMessage(err))
 			return
 		}
 
-		items, next, err := store.ListApplications(r.Context(), filter, limit, cursor)
+		items, next, err := store.ListApplications(r.Context(), filter, page)
 		if err != nil {
-			slog.Error("list applications", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			writeListError(w, "list applications", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -360,7 +358,9 @@ func HandleDeleteApplication(store Store) http.HandlerFunc {
 
 // HandleListApplicationMembers — read scope. GET /v1/applications/{id}/members.
 // Returns the three-source walk (workloads + VMs + VM-app JSONB entries)
-// in stable order. Pagination is opaque-cursor (mirrors ListApplications).
+// in stable order, optionally narrowed to a single source via kind=
+// (workload | virtual_machine | vm_application). Pagination keeps the
+// bespoke members cursor (offset walk across the sources).
 func HandleListApplicationMembers(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
@@ -374,10 +374,19 @@ func HandleListApplicationMembers(store Store) http.HandlerFunc {
 		limit := parseLimit(q.Get("limit"), 100)
 		cursor := q.Get("cursor")
 
-		members, next, err := store.ListApplicationMembers(r.Context(), id, limit, cursor)
+		kind := q.Get("kind")
+		switch kind {
+		case "", string(ApplicationMemberKindWorkload),
+			string(ApplicationMemberKindVirtualMachine),
+			string(ApplicationMemberKindVMApplication):
+		default:
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid kind")
+			return
+		}
+
+		members, next, err := store.ListApplicationMembers(r.Context(), id, kind, limit, cursor)
 		if err != nil {
-			slog.Error("list application members", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", err.Error())
+			writeListError(w, "list application members", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -443,7 +452,7 @@ func (e eolAppStore) ApplicationWorkloadMembers(ctx context.Context, appID uuid.
 	filter := WorkloadListFilter{ApplicationID: &appID}
 	cursor := ""
 	for {
-		items, next, err := e.s.ListWorkloads(ctx, filter, eolMemberPageLimit, cursor)
+		items, next, err := e.s.ListWorkloads(ctx, filter, ListPage{Limit: eolMemberPageLimit, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("list workload members: %w", err)
 		}
@@ -465,7 +474,7 @@ func (e eolAppStore) ApplicationVMMembers(ctx context.Context, appID uuid.UUID) 
 	filter := VirtualMachineListFilter{ApplicationID: &appID}
 	cursor := ""
 	for {
-		items, next, err := e.s.ListVirtualMachines(ctx, filter, eolMemberPageLimit, cursor)
+		items, next, err := e.s.ListVirtualMachines(ctx, filter, ListPage{Limit: eolMemberPageLimit, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("list vm members: %w", err)
 		}

@@ -199,52 +199,88 @@ func (p *PG) GetClusterByName(ctx context.Context, name string) (api.Cluster, er
 	return c, nil
 }
 
-// ListClusters returns up to limit clusters in (created_at DESC, id DESC) order,
-// starting after the opaque cursor if non-empty.
+// clusterSortSpec is the sort=<key> allowlist for GET /v1/clusters.
+var clusterSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:              {expr: "LOWER(name)", kind: sortText},
+		sortKeyEnvironment:       {expr: "LOWER(environment)", kind: sortText, nullable: true},
+		sortKeyProvider:          {expr: "LOWER(provider)", kind: sortText, nullable: true},
+		sortKeyRegion:            {expr: "LOWER(region)", kind: sortText, nullable: true},
+		sortKeyKubernetesVersion: {expr: "LOWER(kubernetes_version)", kind: sortText, nullable: true},
+		sortKeyCreatedAt:         {expr: "created_at", kind: sortTime},
+		sortKeyUpdatedAt:         {expr: "updated_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+func clusterSortVal(c *api.Cluster, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&c.Name)
+	case sortKeyEnvironment:
+		return sortValText(c.Environment)
+	case sortKeyProvider:
+		return sortValText(c.Provider)
+	case sortKeyRegion:
+		return sortValText(c.Region)
+	case sortKeyKubernetesVersion:
+		return sortValText(c.KubernetesVersion)
+	case sortKeyUpdatedAt:
+		return sortValTime(c.UpdatedAt)
+	default:
+		return sortValTime(c.CreatedAt)
+	}
+}
+
+// ListClusters returns up to page.Limit clusters. Default order is the
+// historical (created_at DESC, id DESC); sort/order/name follow the
+// uniform list contract (ADR-0042).
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
-func (p *PG) ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) ([]api.Cluster, string, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
+func (p *PG) ListClusters(ctx context.Context, filter api.ClusterListFilter, page api.ListPage) ([]api.Cluster, string, error) {
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := clusterSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
 
-	var (
-		rows pgx.Rows
-		err  error
-	)
-	if cursor == "" {
-		const q = `
-			SELECT id, name, display_name, environment, provider, region,
-			       kubernetes_version, api_endpoint, labels,
-			       owner, criticality, notes, runbook_url, annotations,
-			       created_at, updated_at
-			FROM clusters
-			WHERE ($1 OR terminated_at IS NULL)
-			ORDER BY created_at DESC, id DESC
-			LIMIT $2
-		`
-		rows, err = p.pool.Query(ctx, q, includeTerminated, limit+1)
-	} else {
-		ts, id, cerr := decodeCursor(cursor)
-		if cerr != nil {
-			return nil, "", cerr
-		}
-		const q = `
-			SELECT id, name, display_name, environment, provider, region,
-			       kubernetes_version, api_endpoint, labels,
-			       owner, criticality, notes, runbook_url, annotations,
-			       created_at, updated_at
-			FROM clusters
-			WHERE (created_at, id) < ($1, $2)
-			  AND ($3 OR terminated_at IS NULL)
-			ORDER BY created_at DESC, id DESC
-			LIMIT $4
-		`
-		rows, err = p.pool.Query(ctx, q, ts, id, includeTerminated, limit+1)
+	sb := strings.Builder{}
+	sb.WriteString(`SELECT id, name, display_name, environment, provider, region,
+	       kubernetes_version, api_endpoint, labels,
+	       owner, criticality, notes, runbook_url, annotations,
+	       created_at, updated_at
+	FROM clusters`)
+	args := make([]any, 0, 5)
+	conds := make([]string, 0, 3)
+
+	if !filter.IncludeTerminated {
+		conds = append(conds, "terminated_at IS NULL")
 	}
+	if filter.Name != nil && *filter.Name != "" {
+		args = append(args, namePattern(*filter.Name))
+		idx := len(args)
+		conds = append(conds, fmt.Sprintf(
+			"(LOWER(name) LIKE $%d ESCAPE '\\' OR LOWER(COALESCE(display_name,'')) LIKE $%d ESCAPE '\\')",
+			idx, idx,
+		))
+	}
+	if page.Cursor != "" {
+		val, cid, err := decodeListCursor(page.Cursor, key, dir)
+		if err != nil {
+			return nil, "", err
+		}
+		if err := keysetCond(col, "id", dir, val, cid, &conds, &args); err != nil {
+			return nil, "", err
+		}
+	}
+	if len(conds) > 0 {
+		sb.WriteString(" WHERE ")
+		sb.WriteString(strings.Join(conds, " AND "))
+	}
+	args = append(args, limit+1)
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "id", dir), len(args))
+
+	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
 		return nil, "", fmt.Errorf("query clusters: %w", err)
 	}
@@ -264,9 +300,9 @@ func (p *PG) ListClusters(ctx context.Context, limit int, cursor string, include
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		if last.CreatedAt != nil && last.Id != nil {
-			next = encodeCursor(*last.CreatedAt, *last.Id)
+		last := &items[limit-1]
+		if last.Id != nil {
+			next = encodeListCursor(key, clusterSortVal(last, key), *last.Id, dir)
 		}
 		items = items[:limit]
 	}

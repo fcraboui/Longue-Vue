@@ -335,17 +335,10 @@ func HandleListVirtualMachines(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", problem)
 			return
 		}
-		limit := 50
-		if v := r.URL.Query().Get("limit"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				limit = n
-			}
-		}
-		cursor := r.URL.Query().Get("cursor")
-		items, next, err := store.ListVirtualMachines(r.Context(), filter, limit, cursor)
+		page := parseListPage(r)
+		items, next, err := store.ListVirtualMachines(r.Context(), filter, page)
 		if err != nil {
-			slog.Error("list virtual machines", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			writeListError(w, "list virtual machines", err)
 			return
 		}
 		// ADR-0029 §6: project the read-only inherited DICT. Bulk-fetches

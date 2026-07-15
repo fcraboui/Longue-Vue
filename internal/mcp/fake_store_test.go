@@ -62,7 +62,7 @@ func (f *fakeStore) GetSettings(_ context.Context) (api.Settings, error) {
 
 // --- Clusters ----
 
-func (f *fakeStore) ListClusters(_ context.Context, _ int, _ string, _ bool) ([]api.Cluster, string, error) {
+func (f *fakeStore) ListClusters(_ context.Context, _ api.ClusterListFilter, _ api.ListPage) ([]api.Cluster, string, error) {
 	if err := f.errOn["ListClusters"]; err != nil {
 		return nil, "", err
 	}
@@ -88,13 +88,13 @@ func (f *fakeStore) GetCluster(_ context.Context, id uuid.UUID) (api.Cluster, er
 
 // --- Nodes ----
 
-func (f *fakeStore) ListNodes(_ context.Context, clusterID *uuid.UUID, _ int, _ string, _ bool) ([]api.Node, string, error) {
+func (f *fakeStore) ListNodes(_ context.Context, filter api.NodeListFilter, _ api.ListPage) ([]api.Node, string, error) {
 	if err := f.errOn["ListNodes"]; err != nil {
 		return nil, "", err
 	}
 	out := make([]api.Node, 0, len(f.nodes))
 	for _, n := range f.nodes {
-		if clusterID != nil && n.ClusterId != *clusterID {
+		if filter.ClusterID != nil && n.ClusterId != *filter.ClusterID {
 			continue
 		}
 		out = append(out, n)
@@ -113,10 +113,10 @@ func (f *fakeStore) GetNode(_ context.Context, id uuid.UUID) (api.Node, error) {
 
 // --- Namespaces ----
 
-func (f *fakeStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, _ int, _ string, _ bool) ([]api.Namespace, string, error) {
+func (f *fakeStore) ListNamespaces(_ context.Context, filter api.NamespaceListFilter, _ api.ListPage) ([]api.Namespace, string, error) {
 	out := make([]api.Namespace, 0, len(f.nss))
 	for _, n := range f.nss {
-		if clusterID != nil && n.ClusterId != *clusterID {
+		if filter.ClusterID != nil && n.ClusterId != *filter.ClusterID {
 			continue
 		}
 		out = append(out, n)
@@ -135,7 +135,7 @@ func (f *fakeStore) GetNamespace(_ context.Context, id uuid.UUID) (api.Namespace
 
 // --- Workloads ----
 
-func (f *fakeStore) ListWorkloads(_ context.Context, filter api.WorkloadListFilter, _ int, _ string) ([]api.Workload, string, error) {
+func (f *fakeStore) ListWorkloads(_ context.Context, filter api.WorkloadListFilter, _ api.ListPage) ([]api.Workload, string, error) {
 	if err := f.errOn["ListWorkloads"]; err != nil {
 		return nil, "", err
 	}
@@ -160,7 +160,7 @@ func (f *fakeStore) GetWorkload(_ context.Context, id uuid.UUID) (api.Workload, 
 
 // --- Pods ----
 
-func (f *fakeStore) ListPods(_ context.Context, filter api.PodListFilter, _ int, _ string) ([]api.Pod, string, error) {
+func (f *fakeStore) ListPods(_ context.Context, filter api.PodListFilter, _ api.ListPage) ([]api.Pod, string, error) {
 	out := make([]api.Pod, 0, len(f.pods))
 	for _, p := range f.pods {
 		if filter.NamespaceID != nil && p.NamespaceId != *filter.NamespaceID {
@@ -182,10 +182,13 @@ func (f *fakeStore) GetPod(_ context.Context, id uuid.UUID) (api.Pod, error) {
 
 // --- Services ----
 
-func (f *fakeStore) ListServices(_ context.Context, namespaceID *uuid.UUID, _ int, _ string) ([]api.Service, string, error) {
+func (f *fakeStore) ListServices(_ context.Context, filter api.ServiceListFilter, _ api.ListPage) ([]api.Service, string, error) {
 	out := make([]api.Service, 0, len(f.svcs))
 	for _, s := range f.svcs {
-		if namespaceID != nil && s.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && s.NamespaceId != *filter.NamespaceID {
+			continue
+		}
+		if filter.Name != nil && *filter.Name != "" && !strings.Contains(strings.ToLower(s.Name), strings.ToLower(*filter.Name)) {
 			continue
 		}
 		out = append(out, s)
@@ -204,10 +207,13 @@ func (f *fakeStore) GetService(_ context.Context, id uuid.UUID) (api.Service, er
 
 // --- Ingresses ----
 
-func (f *fakeStore) ListIngresses(_ context.Context, namespaceID *uuid.UUID, _ int, _ string) ([]api.Ingress, string, error) {
+func (f *fakeStore) ListIngresses(_ context.Context, filter api.IngressListFilter, _ api.ListPage) ([]api.Ingress, string, error) {
 	out := make([]api.Ingress, 0, len(f.ings))
 	for _, i := range f.ings {
-		if namespaceID != nil && i.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && i.NamespaceId != *filter.NamespaceID {
+			continue
+		}
+		if filter.Name != nil && *filter.Name != "" && !strings.Contains(strings.ToLower(i.Name), strings.ToLower(*filter.Name)) {
 			continue
 		}
 		out = append(out, i)
@@ -226,10 +232,14 @@ func (f *fakeStore) GetIngress(_ context.Context, id uuid.UUID) (api.Ingress, er
 
 // --- PVs / PVCs ----
 
-func (f *fakeStore) ListPersistentVolumes(_ context.Context, clusterID *uuid.UUID, _ int, _ string) ([]api.PersistentVolume, string, error) {
+func (f *fakeStore) ListPersistentVolumes(
+	_ context.Context,
+	filter api.PersistentVolumeListFilter,
+	_ api.ListPage,
+) ([]api.PersistentVolume, string, error) {
 	out := make([]api.PersistentVolume, 0, len(f.pvs))
 	for _, pv := range f.pvs {
-		if clusterID != nil && pv.ClusterId != *clusterID {
+		if filter.ClusterID != nil && pv.ClusterId != *filter.ClusterID {
 			continue
 		}
 		out = append(out, pv)
@@ -248,13 +258,12 @@ func (f *fakeStore) GetPersistentVolume(_ context.Context, id uuid.UUID) (api.Pe
 
 func (f *fakeStore) ListPersistentVolumeClaims(
 	_ context.Context,
-	namespaceID *uuid.UUID,
-	_ int,
-	_ string,
+	filter api.PersistentVolumeClaimListFilter,
+	_ api.ListPage,
 ) ([]api.PersistentVolumeClaim, string, error) {
 	out := make([]api.PersistentVolumeClaim, 0, len(f.pvcs))
 	for _, pvc := range f.pvcs {
-		if namespaceID != nil && pvc.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && pvc.NamespaceId != *filter.NamespaceID {
 			continue
 		}
 		out = append(out, pvc)
@@ -273,7 +282,7 @@ func (f *fakeStore) GetPersistentVolumeClaim(_ context.Context, id uuid.UUID) (a
 
 // --- CloudAccounts ----
 
-func (f *fakeStore) ListCloudAccounts(_ context.Context, _ int, _ string) ([]api.CloudAccount, string, error) {
+func (f *fakeStore) ListCloudAccounts(_ context.Context, _ api.CloudAccountListFilter, _ api.ListPage) ([]api.CloudAccount, string, error) {
 	if err := f.errOn["ListCloudAccounts"]; err != nil {
 		return nil, "", err
 	}
@@ -301,8 +310,7 @@ func (f *fakeStore) GetCloudAccount(_ context.Context, id uuid.UUID) (api.CloudA
 func (f *fakeStore) ListVirtualMachines(
 	_ context.Context,
 	filter api.VirtualMachineListFilter,
-	_ int,
-	_ string,
+	_ api.ListPage,
 ) ([]api.VirtualMachine, string, error) {
 	f.lastVMFilter = filter
 	if err := f.errOn["ListVirtualMachines"]; err != nil {
@@ -435,8 +443,7 @@ func (f *fakeStore) GetImageVersionsByRepo(_ context.Context, imageRepo string) 
 func (f *fakeStore) ListApplications(
 	_ context.Context,
 	filter api.ApplicationListFilter,
-	_ int,
-	_ string,
+	_ api.ListPage,
 ) ([]api.Application, string, error) {
 	f.lastAppFilter = filter
 	if err := f.errOn["ListApplications"]; err != nil {
@@ -479,8 +486,7 @@ func (f *fakeStore) GetApplicationByName(_ context.Context, name string) (api.Ap
 func (f *fakeStore) ListApplicationBlocks(
 	_ context.Context,
 	filter api.ApplicationBlockListFilter,
-	_ int,
-	_ string,
+	_ api.ListPage,
 ) ([]api.ApplicationBlock, string, error) {
 	if err := f.errOn["ListApplicationBlocks"]; err != nil {
 		return nil, "", err

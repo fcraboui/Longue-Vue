@@ -162,39 +162,68 @@ func (p *PG) GetUserByUsername(ctx context.Context, username string) (api.UserWi
 	return out, nil
 }
 
-// ListUsers returns a cursor-paginated list of users sorted by creation date descending.
+// userSortSpec is the sort=<key> allowlist for GET /v1/admin/users.
+var userSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		"username":      {expr: "LOWER(username)", kind: sortText},
+		"role":          {expr: "LOWER(role)", kind: sortText},
+		"created_at":    {expr: "created_at", kind: sortTime},
+		"last_login_at": {expr: "last_login_at", kind: sortTime, nullable: true},
+	},
+	defaultKey: "created_at",
+}
+
+// userSortVal extracts the serialized sort value for cursor minting.
+func userSortVal(u *api.User, key string) *string {
+	switch key {
+	case "username":
+		return sortValText(&u.Username)
+	case "role":
+		r := string(u.Role)
+		return sortValText(&r)
+	case "last_login_at":
+		return sortValTime(u.LastLoginAt)
+	default: // created_at
+		return sortValTime(u.CreatedAt)
+	}
+}
+
+// ListUsers returns a cursor-paginated page of users, optionally filtered by name (username).
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
-func (p *PG) ListUsers(ctx context.Context, limit int, cursor string) ([]api.User, string, error) {
-	if limit <= 0 {
-		limit = 50
+func (p *PG) ListUsers(ctx context.Context, filter api.UserListFilter, page api.ListPage) ([]api.User, string, error) {
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := userSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
-	if limit > 200 {
-		limit = 200
-	}
+
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT `)
 	sb.WriteString(userColumns)
 	sb.WriteString(` FROM users`)
-	args := make([]any, 0, 3)
-	conds := make([]string, 0, 1)
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
+	args := make([]any, 0, 6)
+	conds := make([]string, 0, 3)
+
+	if filter.Name != nil && *filter.Name != "" {
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf(`LOWER(username) LIKE $%d ESCAPE '\'`, len(args)))
+	}
+	if page.Cursor != "" {
+		val, cid, err := decodeListCursor(page.Cursor, key, dir)
 		if err != nil {
 			return nil, "", err
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		if err := keysetCond(col, "id", dir, val, cid, &conds, &args); err != nil {
+			return nil, "", err
+		}
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -216,9 +245,9 @@ func (p *PG) ListUsers(ctx context.Context, limit int, cursor string) ([]api.Use
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		if last.CreatedAt != nil && last.Id != nil {
-			next = encodeCursor(*last.CreatedAt, *last.Id)
+		last := &items[limit-1]
+		if last.Id != nil {
+			next = encodeListCursor(key, userSortVal(last, key), *last.Id, dir)
 		}
 		items = items[:limit]
 	}
@@ -727,36 +756,71 @@ func (p *PG) DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error 
 	return nil
 }
 
+// sessionSortSpec is the sort=<key> allowlist for GET /v1/admin/sessions.
+var sessionSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyUsername:   {expr: "LOWER(u.username)", kind: sortText},
+		sortKeyCreatedAt:  {expr: "s.created_at", kind: sortTime},
+		sortKeyLastUsedAt: {expr: "s.last_used_at", kind: sortTime},
+		sortKeyExpiresAt:  {expr: "s.expires_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+// sessionSortVal extracts the serialized sort value for cursor minting.
+func sessionSortVal(s *api.Session, key string) *string {
+	switch key {
+	case sortKeyUsername:
+		return sortValText(s.Username)
+	case sortKeyLastUsedAt:
+		v := s.LastUsedAt
+		return sortValTime(&v)
+	case sortKeyExpiresAt:
+		v := s.ExpiresAt
+		return sortValTime(&v)
+	default: // created_at
+		v := s.CreatedAt
+		return sortValTime(&v)
+	}
+}
+
 // ListSessions returns active sessions, surfacing each row's public_id
 // (not the cookie value) as the API-facing `id`. Cookie values never
 // leave the database.
-func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.Session, string, error) {
-	if limit <= 0 {
-		limit = 50
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
+func (p *PG) ListSessions(ctx context.Context, filter api.SessionListFilter, page api.ListPage) ([]api.Session, string, error) {
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := sessionSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
-	if limit > 200 {
-		limit = 200
-	}
+
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT s.public_id, s.user_id, u.username, s.created_at, s.last_used_at,
 	                       s.expires_at, s.user_agent, s.source_ip
 	                FROM sessions s
-	                JOIN users u ON u.id = s.user_id
-	                WHERE s.expires_at > NOW()`)
-	args := make([]any, 0, 3)
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
+	                JOIN users u ON u.id = s.user_id`)
+	args := make([]any, 0, 6)
+	conds := []string{"s.expires_at > NOW()"}
+
+	if filter.Name != nil && *filter.Name != "" {
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf(`LOWER(u.username) LIKE $%d ESCAPE '\'`, len(args)))
+	}
+	if page.Cursor != "" {
+		val, cid, err := decodeListCursor(page.Cursor, key, dir)
 		if err != nil {
 			return nil, "", err
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		fmt.Fprintf(&sb, " AND (s.created_at, s.public_id) < ($%d, $%d)", tsIdx, idIdx)
+		if err := keysetCond(col, "s.public_id", dir, val, cid, &conds, &args); err != nil {
+			return nil, "", err
+		}
 	}
+	sb.WriteString(" WHERE ")
+	sb.WriteString(strings.Join(conds, " AND "))
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY s.created_at DESC, s.public_id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "s.public_id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -765,7 +829,6 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 	defer rows.Close()
 
 	items := make([]api.Session, 0, limit)
-	var lastPublicID uuid.UUID
 	for rows.Next() {
 		var (
 			s         api.Session
@@ -786,7 +849,6 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 		s.UserAgent = userAgent
 		s.SourceIp = sourceIP
 		items = append(items, s)
-		lastPublicID = publicID
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", fmt.Errorf("iterate sessions: %w", err)
@@ -794,8 +856,11 @@ func (p *PG) ListSessions(ctx context.Context, limit int, cursor string) ([]api.
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		next = encodeCursor(last.CreatedAt, lastPublicID)
+		last := &items[limit-1]
+		pid, err := uuid.Parse(last.Id)
+		if err == nil {
+			next = encodeListCursor(key, sessionSortVal(last, key), pid, dir)
+		}
 		items = items[:limit]
 	}
 	return items, next, nil
@@ -885,39 +950,67 @@ func (p *PG) TouchToken(ctx context.Context, id uuid.UUID, now time.Time) error 
 	return nil
 }
 
-// ListAPITokens returns a cursor-paginated list of API tokens sorted by creation date descending.
+// apiTokenSortSpec is the sort=<key> allowlist for GET /v1/admin/tokens.
+var apiTokenSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		"name":         {expr: "LOWER(name)", kind: sortText},
+		"created_at":   {expr: "created_at", kind: sortTime},
+		"expires_at":   {expr: "expires_at", kind: sortTime, nullable: true},
+		"last_used_at": {expr: "last_used_at", kind: sortTime, nullable: true},
+	},
+	defaultKey: "created_at",
+}
+
+// apiTokenSortVal extracts the serialized sort value for cursor minting.
+func apiTokenSortVal(t *api.ApiToken, key string) *string {
+	switch key {
+	case "name":
+		return sortValText(&t.Name)
+	case "expires_at":
+		return sortValTime(t.ExpiresAt)
+	case "last_used_at":
+		return sortValTime(t.LastUsedAt)
+	default: // created_at
+		return sortValTime(t.CreatedAt)
+	}
+}
+
+// ListAPITokens returns a cursor-paginated page of API tokens, optionally filtered by name.
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
-func (p *PG) ListAPITokens(ctx context.Context, limit int, cursor string) ([]api.ApiToken, string, error) {
-	if limit <= 0 {
-		limit = 50
+func (p *PG) ListAPITokens(ctx context.Context, filter api.APITokenListFilter, page api.ListPage) ([]api.ApiToken, string, error) {
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := apiTokenSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
-	if limit > 200 {
-		limit = 200
-	}
+
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT `)
 	sb.WriteString(apiTokenColumns)
 	sb.WriteString(` FROM api_tokens`)
-	args := make([]any, 0, 3)
-	conds := make([]string, 0, 1)
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
+	args := make([]any, 0, 6)
+	conds := make([]string, 0, 3)
+
+	if filter.Name != nil && *filter.Name != "" {
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf(`LOWER(name) LIKE $%d ESCAPE '\'`, len(args)))
+	}
+	if page.Cursor != "" {
+		val, cid, err := decodeListCursor(page.Cursor, key, dir)
 		if err != nil {
 			return nil, "", err
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		if err := keysetCond(col, "id", dir, val, cid, &conds, &args); err != nil {
+			return nil, "", err
+		}
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -939,9 +1032,9 @@ func (p *PG) ListAPITokens(ctx context.Context, limit int, cursor string) ([]api
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		if last.CreatedAt != nil && last.Id != nil {
-			next = encodeCursor(*last.CreatedAt, *last.Id)
+		last := &items[limit-1]
+		if last.Id != nil {
+			next = encodeListCursor(key, apiTokenSortVal(last, key), *last.Id, dir)
 		}
 		items = items[:limit]
 	}

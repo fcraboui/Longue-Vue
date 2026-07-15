@@ -138,7 +138,7 @@ func loadPerimeterRules(ctx context.Context, store Store, clusterID uuid.UUID) (
 
 // loadInternalRules flattens every NetworkPolicy rule for the cluster.
 func loadInternalRules(ctx context.Context, store Store, clusterID uuid.UUID) ([]flowmatrix.NetPolRule, error) {
-	pols, _, err := store.ListNetworkPoliciesByCluster(ctx, clusterID, nil, 500, "")
+	pols, _, err := store.ListNetworkPoliciesByCluster(ctx, clusterID, NetworkPolicyListFilter{}, ListPage{Limit: 500})
 	if err != nil {
 		return nil, fmt.Errorf("list network policies: %w", err)
 	}

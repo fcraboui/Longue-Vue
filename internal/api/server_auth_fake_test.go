@@ -161,18 +161,12 @@ func (m *memStore) GetUserByUsername(_ context.Context, username string) (UserWi
 	return UserWithSecret{User: u, PasswordHash: m.authState.userHashes[id]}, nil
 }
 
-func (m *memStore) ListUsers(_ context.Context, limit int, _ string) ([]User, string, error) {
+func (m *memStore) ListUsers(_ context.Context, _ UserListFilter, _ ListPage) ([]User, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if limit <= 0 {
-		limit = 50
-	}
 	out := make([]User, 0, len(m.authState.users))
 	for _, u := range m.authState.users {
 		out = append(out, u)
-	}
-	if len(out) > limit {
-		out = out[:limit]
 	}
 	return out, "", nil
 }
@@ -481,9 +475,10 @@ func (m *memStore) DeleteSessionsForUser(_ context.Context, userID uuid.UUID) er
 	return nil
 }
 
-func (m *memStore) ListSessions(_ context.Context, limit int, _ string) ([]Session, string, error) {
+func (m *memStore) ListSessions(_ context.Context, _ SessionListFilter, page ListPage) ([]Session, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
@@ -600,18 +595,12 @@ func (m *memStore) TouchToken(_ context.Context, id uuid.UUID, now time.Time) er
 	return nil
 }
 
-func (m *memStore) ListAPITokens(_ context.Context, limit int, _ string) ([]ApiToken, string, error) {
+func (m *memStore) ListAPITokens(_ context.Context, _ APITokenListFilter, _ ListPage) ([]ApiToken, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if limit <= 0 {
-		limit = 50
-	}
 	out := make([]ApiToken, 0, len(m.authState.tokens))
 	for _, t := range m.authState.tokens { //nolint:gocritic // acceptable copy in test code
 		out = append(out, m.tokenToApi(t))
-	}
-	if len(out) > limit {
-		out = out[:limit]
 	}
 	return out, "", nil
 }
@@ -781,12 +770,27 @@ func (m *memStore) UpdateSettings(_ context.Context, patch SettingsPatch) (Setti
 	return m.settings, nil
 }
 
+// fakeAuditSortKeys are the sort keys accepted by the fake memStore.
+// The fake does not actually sort — it just validates the key.
+var fakeAuditSortKeys = map[string]bool{
+	"":               true,
+	"occurred_at":    true,
+	"action":         true,
+	"resource_type":  true,
+	"actor_username": true,
+	"source":         true,
+}
+
 //nolint:gocyclo // multi-filter test fake
 func (m *memStore) ListAuditEvents(
-	_ context.Context, filter AuditEventFilter, limit int, _ string,
+	_ context.Context, filter AuditEventFilter, page ListPage,
 ) ([]AuditEvent, string, error) {
+	if !fakeAuditSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}

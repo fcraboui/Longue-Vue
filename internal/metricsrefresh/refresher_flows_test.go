@@ -49,7 +49,12 @@ func (f *flowFakeStore) ListSecurityGroupRules(context.Context, uuid.UUID) ([]ap
 	return nil, nil
 }
 
-func (f *flowFakeStore) ListNetworkPoliciesByCluster(context.Context, uuid.UUID, *uuid.UUID, int, string) ([]api.NetworkPolicyRow, string, error) {
+func (f *flowFakeStore) ListNetworkPoliciesByCluster(
+	_ context.Context,
+	_ uuid.UUID,
+	_ api.NetworkPolicyListFilter,
+	_ api.ListPage,
+) ([]api.NetworkPolicyRow, string, error) {
 	return nil, "", nil
 }
 

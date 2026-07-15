@@ -115,15 +115,45 @@ func (p *PG) GetPod(ctx context.Context, id uuid.UUID) (api.Pod, error) {
 	return pod, nil
 }
 
-// ListPods returns up to limit pods, optionally filtered by namespace.
+// podSortSpec is the sort=<key> allowlist for GET /v1/pods.
+var podSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:      {expr: "LOWER(p.name)", kind: sortText},
+		sortKeyPhase:     {expr: "LOWER(p.phase)", kind: sortText, nullable: true},
+		"node_name":      {expr: "LOWER(p.node_name)", kind: sortText, nullable: true},
+		"pod_ip":         {expr: "LOWER(p.pod_ip)", kind: sortText, nullable: true},
+		sortKeyCreatedAt: {expr: "p.created_at", kind: sortTime},
+		sortKeyUpdatedAt: {expr: "p.updated_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+// podSortVal extracts the serialized sort value for cursor minting.
+func podSortVal(pod *api.Pod, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&pod.Name)
+	case sortKeyPhase:
+		return sortValText(pod.Phase)
+	case "node_name":
+		return sortValText(pod.NodeName)
+	case "pod_ip":
+		return sortValText(pod.PodIp)
+	case sortKeyUpdatedAt:
+		return sortValTime(pod.UpdatedAt)
+	default: // created_at
+		return sortValTime(pod.CreatedAt)
+	}
+}
+
+// ListPods returns a cursor-paginated page of pods, optionally filtered.
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
-func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, limit int, cursor string) ([]api.Pod, string, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
+func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, page api.ListPage) ([]api.Pod, string, error) {
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := podSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
 
 	sb := strings.Builder{}
@@ -131,8 +161,8 @@ func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, limit int, 
 	sb.WriteString(podSelectColumns)
 	sb.WriteString(` `)
 	sb.WriteString(podFromJoined)
-	args := make([]any, 0, 6)
-	conds := make([]string, 0, 4)
+	args := make([]any, 0, 8)
+	conds := make([]string, 0, 6)
 
 	if filter.NamespaceID != nil {
 		args = append(args, *filter.NamespaceID)
@@ -146,34 +176,34 @@ func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, limit int, 
 		args = append(args, *filter.WorkloadID)
 		conds = append(conds, fmt.Sprintf("p.workload_id = $%d", len(args)))
 	}
+	if filter.Name != nil && *filter.Name != "" {
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf("LOWER(p.name) LIKE $%d ESCAPE '\\'", len(args)))
+	}
 	if filter.ImageSubstring != nil && *filter.ImageSubstring != "" {
-		// Case-insensitive substring match against any container's `image`
-		// string. jsonb_array_elements unpacks the array so we can compare
-		// ->>'image' element-by-element; EXISTS short-circuits on first hit.
-		// The ILIKE pattern is built with %…% wrapping.
-		args = append(args, "%"+*filter.ImageSubstring+"%")
+		// ILIKE handles case-insensitivity; escapeLike + ESCAPE makes
+		// operator-pasted % / _ literal (was unescaped before ADR-0042).
+		args = append(args, "%"+escapeLike(*filter.ImageSubstring)+"%")
 		conds = append(conds, fmt.Sprintf(
-			"EXISTS (SELECT 1 FROM jsonb_array_elements(p.containers) elem WHERE elem->>'image' ILIKE $%d)",
+			"EXISTS (SELECT 1 FROM jsonb_array_elements(p.containers) elem WHERE elem->>'image' ILIKE $%d ESCAPE '\\')",
 			len(args),
 		))
 	}
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
+	if page.Cursor != "" {
+		val, cid, err := decodeListCursor(page.Cursor, key, dir)
 		if err != nil {
 			return nil, "", err
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(p.created_at, p.id) < ($%d, $%d)", tsIdx, idIdx))
+		if err := keysetCond(col, "p.id", dir, val, cid, &conds, &args); err != nil {
+			return nil, "", err
+		}
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY p.created_at DESC, p.id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "p.id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -195,9 +225,9 @@ func (p *PG) ListPods(ctx context.Context, filter api.PodListFilter, limit int, 
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		if last.CreatedAt != nil && last.Id != nil {
-			next = encodeCursor(*last.CreatedAt, *last.Id)
+		last := &items[limit-1]
+		if last.Id != nil {
+			next = encodeListCursor(key, podSortVal(last, key), *last.Id, dir)
 		}
 		items = items[:limit]
 	}

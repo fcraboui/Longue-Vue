@@ -23,14 +23,16 @@ import (
 const (
 	respKeyItems      = "items"
 	respKeyNextCursor = "next_cursor"
+
+	npListNameMaxLen = 100
 )
 
 // HandleListNetworkPolicies — read scope. GET /v1/network-policies.
 //
 // Required query param: cluster_id (UUID). Optional: namespace_id (UUID),
-// limit (int, default 50, max 500), cursor (opaque base64).
+// name (substring/glob, max 100), sort, order, limit, cursor.
 //
-// Errors: 400 on missing/invalid cluster_id; 500 on store failure.
+// Errors: 400 on missing/invalid params or invalid sort/cursor; 500 on store failure.
 func HandleListNetworkPolicies(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
@@ -49,26 +51,27 @@ func HandleListNetworkPolicies(store Store) http.HandlerFunc {
 			return
 		}
 
-		var namespaceID *uuid.UUID
+		var filter NetworkPolicyListFilter
 		if raw := q.Get("namespace_id"); raw != "" {
 			id, parseErr := uuid.Parse(raw)
 			if parseErr != nil {
 				writeProblem(w, http.StatusBadRequest, "Bad Request", "namespace_id must be a valid UUID")
 				return
 			}
-			namespaceID = &id
+			filter.NamespaceID = &id
+		}
+		if v := q.Get("name"); v != "" {
+			if len(v) > npListNameMaxLen {
+				writeProblem(w, http.StatusBadRequest, "Bad Request", "name too long")
+				return
+			}
+			filter.Name = &v
 		}
 
-		limit := parseLimit(q.Get("limit"), 50)
-		if limit > 500 {
-			limit = 500
-		}
-		cursor := q.Get("cursor")
-
-		items, next, err := store.ListNetworkPoliciesByCluster(r.Context(), clusterID, namespaceID, limit, cursor)
+		page := parseListPage(r)
+		items, next, err := store.ListNetworkPoliciesByCluster(r.Context(), clusterID, filter, page)
 		if err != nil {
-			slog.Error("list network policies", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			writeListError(w, "list network policies", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{

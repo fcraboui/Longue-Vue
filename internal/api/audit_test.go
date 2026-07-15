@@ -155,7 +155,7 @@ func TestAuditMiddlewareRecordsWriteWithCaller(t *testing.T) { //nolint:gocyclo 
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status=%d", rr.Code)
 	}
-	evs, _, err := m.ListAuditEvents(context.Background(), AuditEventFilter{}, 10, "")
+	evs, _, err := m.ListAuditEvents(context.Background(), AuditEventFilter{}, ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

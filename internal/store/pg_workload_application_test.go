@@ -92,7 +92,7 @@ func TestPGWorkloadApplicationLinkage(t *testing.T) {
 	items, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID:   ns.Id,
 		ApplicationID: &billing.ID,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by application_id: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestPGWorkloadApplicationLinkage(t *testing.T) {
 	items, _, err = pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID:     ns.Id,
 		ApplicationName: &billingName,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by application_name: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestPGWorkloadApplicationLinkage(t *testing.T) {
 	items, _, err = pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID:     ns.Id,
 		ApplicationName: &mixedCase,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by application_name (mixed case): %v", err)
 	}
@@ -132,7 +132,7 @@ func TestPGWorkloadApplicationLinkage(t *testing.T) {
 		NamespaceID:     ns.Id,
 		ApplicationID:   &billing.ID,
 		ApplicationName: &otherName,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list with id+name: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestPGWorkloadApplicationLinkage(t *testing.T) {
 	items, _, err = pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID: ns.Id,
 		Unlinked:    &yes,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list unlinked: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestPGWorkloadApplicationLinkage(t *testing.T) {
 	items, _, err = pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID:     ns.Id,
 		ApplicationName: &bogus,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list bogus app name: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestPGWorkloadApplicationNameSubstring(t *testing.T) {
 	items, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID:              ns.Id,
 		ApplicationNameSubstring: &plat,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by substring 'platform': %v", err)
 	}
@@ -370,7 +370,7 @@ func TestPGWorkloadApplicationNameSubstring(t *testing.T) {
 	items, _, err = pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID:              ns.Id,
 		ApplicationNameSubstring: &plUpper,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by substring 'PlatForm': %v", err)
 	}
@@ -383,7 +383,7 @@ func TestPGWorkloadApplicationNameSubstring(t *testing.T) {
 	items, _, err = pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID:              ns.Id,
 		ApplicationNameSubstring: &bill,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by substring 'bill': %v", err)
 	}
@@ -396,7 +396,7 @@ func TestPGWorkloadApplicationNameSubstring(t *testing.T) {
 	items, _, err = pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID:              ns.Id,
 		ApplicationNameSubstring: &miss,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by substring %q: %v", miss, err)
 	}
@@ -409,7 +409,7 @@ func TestPGWorkloadApplicationNameSubstring(t *testing.T) {
 	items, _, err = pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID:              ns.Id,
 		ApplicationNameSubstring: &empty,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list with empty substring: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestPGWorkloadApplicationNameSubstring(t *testing.T) {
 	items, _, err = pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID:              ns.Id,
 		ApplicationNameSubstring: &underscore,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by 'log4j_' literal: %v", err)
 	}
@@ -440,7 +440,7 @@ func TestPGWorkloadApplicationNameSubstring(t *testing.T) {
 	items, _, err = pg.ListWorkloads(ctx, api.WorkloadListFilter{
 		NamespaceID:              ns.Id,
 		ApplicationNameSubstring: &percent,
-	}, 50, "")
+	}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by '%%lat%%' literal: %v", err)
 	}

@@ -290,21 +290,63 @@ func (p *PG) GetVirtualMachine(ctx context.Context, id uuid.UUID) (api.VirtualMa
 	return vm, nil
 }
 
+// vmSortSpec is the sort=<key> allowlist for GET /v1/virtual-machines.
+var vmSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:         {expr: "LOWER(name)", kind: sortText},
+		sortKeyRole:         {expr: "LOWER(role)", kind: sortText, nullable: true},
+		sortKeyRegion:       {expr: "LOWER(region)", kind: sortText, nullable: true},
+		sortKeyZone:         {expr: "LOWER(zone)", kind: sortText, nullable: true},
+		sortKeyInstanceType: {expr: "LOWER(instance_type)", kind: sortText, nullable: true},
+		sortKeyImageName:    {expr: "LOWER(image_name)", kind: sortText, nullable: true},
+		sortKeyPowerState:   {expr: "LOWER(power_state)", kind: sortText},
+		sortKeyLastSeenAt:   {expr: "last_seen_at", kind: sortTime},
+		sortKeyCreatedAt:    {expr: "created_at", kind: sortTime},
+		sortKeyUpdatedAt:    {expr: "updated_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+// vmSortVal extracts the serialized sort value for cursor minting.
+func vmSortVal(vm *api.VirtualMachine, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&vm.Name)
+	case sortKeyRole:
+		return sortValText(vm.Role)
+	case sortKeyRegion:
+		return sortValText(vm.Region)
+	case sortKeyZone:
+		return sortValText(vm.Zone)
+	case sortKeyInstanceType:
+		return sortValText(vm.InstanceType)
+	case sortKeyImageName:
+		return sortValText(vm.ImageName)
+	case sortKeyPowerState:
+		return sortValText(&vm.PowerState)
+	case sortKeyLastSeenAt:
+		return sortValTime(&vm.LastSeenAt)
+	case sortKeyUpdatedAt:
+		return sortValTime(&vm.UpdatedAt)
+	default: // created_at
+		return sortValTime(&vm.CreatedAt)
+	}
+}
+
 // ListVirtualMachines returns paged VMs filtered by VirtualMachineListFilter.
 //
-//nolint:gocyclo,gocritic // gocyclo: cursor-paginated query builder with optional filters; gocritic/hugeParam: signature matches api.Store interface
+//nolint:gocognit,gocyclo,gocritic // gocognit/gocyclo: cursor-paginated query builder with optional filters; gocritic/hugeParam: signature matches api.Store interface
 func (p *PG) ListVirtualMachines(
 	ctx context.Context,
 	filter api.VirtualMachineListFilter,
-	limit int,
-	cursor string,
+	page api.ListPage,
 ) ([]api.VirtualMachine, string, error) {
-	if limit <= 0 {
-		limit = 50
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := vmSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
-	if limit > 200 {
-		limit = 200
-	}
+
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT `)
 	sb.WriteString(vmColumns)
@@ -339,13 +381,12 @@ func (p *PG) ListVirtualMachines(
 		conds = append(conds, fmt.Sprintf("power_state = $%d", len(args)))
 	}
 	if filter.Name != nil {
-		// Case-insensitive substring on LOWER(name), index-backed by
-		// virtual_machines_name_lower_idx for prefix queries; falls back
-		// to seq scan for full substring (acceptable for ≤ a few thousand
-		// VMs per typical SecNumCloud deployment). LIKE-escape applied
-		// so operator-pasted `%` / `_` is treated literally.
-		args = append(args, escapeLike(strings.ToLower(*filter.Name)))
-		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE '%%' || $%d || '%%' ESCAPE '\\'", len(args)))
+		// Uniform name= semantics (spec 2026-07-10): ci substring, or
+		// anchored glob when the term contains `*`. Index-backed by
+		// virtual_machines_name_lower_id_idx for prefix globs; seq scan
+		// for substring (acceptable at ≤ a few thousand VMs).
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE $%d ESCAPE '\\'", len(args)))
 	}
 	if filter.Image != nil {
 		// Match across image_id (e.g. "ami-75374985") and image_name
@@ -403,23 +444,21 @@ func (p *PG) ListVirtualMachines(
 			len(args),
 		))
 	}
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
-		if err != nil {
-			return nil, "", err
+	if page.Cursor != "" {
+		val, cid, curErr := decodeListCursor(page.Cursor, key, dir)
+		if curErr != nil {
+			return nil, "", curErr
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(created_at, id) < ($%d, $%d)", tsIdx, idIdx))
+		if curErr := keysetCond(col, "id", dir, val, cid, &conds, &args); curErr != nil {
+			return nil, "", curErr
+		}
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -441,8 +480,8 @@ func (p *PG) ListVirtualMachines(
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		next = encodeCursor(last.CreatedAt, last.ID)
+		last := &items[limit-1]
+		next = encodeListCursor(key, vmSortVal(last, key), last.ID, dir)
 		items = items[:limit]
 	}
 	return items, next, nil

@@ -32,9 +32,6 @@ import (
 	"github.com/sthalbert/longue-vue/migrations"
 )
 
-// errCursorFormatInvalid is returned when a pagination cursor cannot be decoded.
-var errCursorFormatInvalid = errors.New("cursor format invalid")
-
 // change type constants for time-travel history capture.
 const (
 	changeTypeCreate     = "create"
@@ -246,29 +243,209 @@ func nullableString(s sql.NullString) *string {
 	return &s.String
 }
 
+// encodeCursor mints the legacy positional cursor ("<RFC3339Nano>|<uuid>")
+// still used by pods, nodes, namespaces, services, PVs, auth, and audit
+// sort tests as a "legacy cursor rejection" fixture. Production code uses
+// encodeListCursor exclusively.
 func encodeCursor(t time.Time, id uuid.UUID) string {
 	raw := t.UTC().Format(time.RFC3339Nano) + "|" + id.String()
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
-func decodeCursor(c string) (time.Time, uuid.UUID, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(c)
+// listCursor is the tagged, versioned pagination cursor (ADR-0042).
+// It replaces the positional "<RFC3339Nano>|<uuid>" format: it names
+// the sort column and direction it was minted under, so a cursor
+// replayed with different sort parameters is rejected instead of
+// silently mis-paginating. Val is nil while paginating inside the
+// NULLS LAST region of a nullable sort column.
+type listCursor struct {
+	V   int       `json:"v"`
+	Col string    `json:"col"`
+	Val *string   `json:"val"`
+	ID  uuid.UUID `json:"id"`
+	Dir string    `json:"dir"`
+}
+
+// encodeListCursor mints the opaque cursor for the row whose sort-column
+// value is val (already serialized: lowercased text, or RFC3339Nano time).
+func encodeListCursor(col string, val *string, id uuid.UUID, dir string) string {
+	raw, err := json.Marshal(listCursor{V: 1, Col: col, Val: val, ID: id, Dir: dir})
 	if err != nil {
-		return time.Time{}, uuid.Nil, fmt.Errorf("decode cursor: %w", err)
+		// Unreachable: every listCursor field marshals without error
+		// (uuid.UUID's MarshalText never fails). An empty cursor merely
+		// ends pagination early rather than corrupting a page.
+		return ""
 	}
-	parts := strings.SplitN(string(raw), "|", 2)
-	if len(parts) != 2 {
-		return time.Time{}, uuid.Nil, errCursorFormatInvalid
-	}
-	ts, err := time.Parse(time.RFC3339Nano, parts[0])
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// decodeListCursor validates shape, version, and that the cursor was
+// minted under the same resolved (col, dir) as the current request.
+// All failures map to api.ErrInvalidCursor so handlers can return 400.
+func decodeListCursor(cursor, wantCol, wantDir string) (*string, uuid.UUID, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return time.Time{}, uuid.Nil, fmt.Errorf("cursor timestamp: %w", err)
+		return nil, uuid.Nil, fmt.Errorf("%w: %v", api.ErrInvalidCursor, err)
 	}
-	id, err := uuid.Parse(parts[1])
-	if err != nil {
-		return time.Time{}, uuid.Nil, fmt.Errorf("cursor id: %w", err)
+	var c listCursor
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return nil, uuid.Nil, fmt.Errorf("%w: %v", api.ErrInvalidCursor, err)
 	}
-	return ts, id, nil
+	if c.V != 1 || c.ID == uuid.Nil {
+		return nil, uuid.Nil, api.ErrInvalidCursor
+	}
+	if c.Col != wantCol || c.Dir != wantDir {
+		return nil, uuid.Nil, fmt.Errorf("%w: cursor sort mismatch", api.ErrInvalidCursor)
+	}
+	return c.Val, c.ID, nil
+}
+
+// sortKind tells the pagination helpers how to serialize/parse a sort
+// column's cursor value.
+type sortKind int
+
+const (
+	sortTime sortKind = iota
+	sortText
+)
+
+// dirAsc / dirDesc are the two order= directions accepted by list
+// endpoints and recorded in cursors.
+const (
+	dirAsc  = "asc"
+	dirDesc = "desc"
+)
+
+// sortColumn describes one sortable column of a paginated list query.
+// expr is a trusted SQL expression (a package constant — never derived
+// from user input). nullable columns sort NULLS LAST and get a
+// null-aware keyset predicate.
+type sortColumn struct {
+	expr     string
+	kind     sortKind
+	nullable bool
+}
+
+// sortSpec is a per-entity allowlist of sortable columns. defaultKey
+// names the column used when the request carries no sort parameter,
+// preserving the entity's historical implicit order.
+type sortSpec struct {
+	columns    map[string]sortColumn
+	defaultKey string
+}
+
+// resolve validates page.Sort/page.Order against the allowlist.
+// "" Sort → (defaultKey, "desc"): unsorted requests keep the
+// historical order. "" Order with an explicit Sort → "asc".
+func (s sortSpec) resolve(page api.ListPage) (key string, col sortColumn, dir string, err error) {
+	key = page.Sort
+	dir = page.Order
+	if key == "" {
+		key = s.defaultKey
+		// order= is documented as ignored when sort= is absent — the
+		// historical implicit order (DESC) always applies. This also
+		// deliberately skips order validation: ?order=garbage without
+		// sort= is ignored, not a 400.
+		dir = dirDesc
+	} else if dir == "" {
+		dir = dirAsc
+	}
+	if dir != dirAsc && dir != dirDesc {
+		return "", sortColumn{}, "", fmt.Errorf("%w: order %q", api.ErrInvalidSort, page.Order)
+	}
+	col, ok := s.columns[key]
+	if !ok {
+		return "", sortColumn{}, "", fmt.Errorf("%w: sort key %q", api.ErrInvalidSort, page.Sort)
+	}
+	return key, col, dir, nil
+}
+
+// orderBy renders the ORDER BY clause for a resolved sort. idExpr is
+// the entity's id column (tiebreaker), e.g. "n.id".
+func orderBy(col sortColumn, idExpr, dir string) string {
+	d := strings.ToUpper(dir)
+	if col.nullable {
+		return fmt.Sprintf("ORDER BY %s %s NULLS LAST, %s %s", col.expr, d, idExpr, d)
+	}
+	return fmt.Sprintf("ORDER BY %s %s, %s %s", col.expr, d, idExpr, d)
+}
+
+// keysetCond appends the after-cursor predicate to conds/args. val is
+// the cursor's serialized sort value (nil = the cursor row sat in the
+// NULLS LAST region). Placeholders are numbered $len(args) after each
+// append, matching the package-wide convention.
+func keysetCond(col sortColumn, idExpr, dir string, val *string, id uuid.UUID, conds *[]string, args *[]any) error {
+	op := ">"
+	if dir == dirDesc {
+		op = "<"
+	}
+	if val == nil {
+		if !col.nullable {
+			return fmt.Errorf("%w: null value for non-nullable sort column", api.ErrInvalidCursor)
+		}
+		*args = append(*args, id)
+		*conds = append(*conds, fmt.Sprintf("(%s IS NULL AND %s %s $%d)", col.expr, idExpr, op, len(*args)))
+		return nil
+	}
+	var arg any
+	switch col.kind {
+	case sortTime:
+		ts, err := time.Parse(time.RFC3339Nano, *val)
+		if err != nil {
+			return fmt.Errorf("%w: cursor timestamp: %v", api.ErrInvalidCursor, err)
+		}
+		arg = ts
+	case sortText:
+		arg = *val
+	}
+	*args = append(*args, arg)
+	vIdx := len(*args)
+	*args = append(*args, id)
+	idIdx := len(*args)
+	if col.nullable {
+		// NULLS LAST: rows after the cursor are strictly beyond the
+		// value, tied-on-value with a later id, or inside the NULL tail.
+		*conds = append(*conds, fmt.Sprintf(
+			"(%s %s $%d OR (%s = $%d AND %s %s $%d) OR %s IS NULL)",
+			col.expr, op, vIdx, col.expr, vIdx, idExpr, op, idIdx, col.expr,
+		))
+		return nil
+	}
+	*conds = append(*conds, fmt.Sprintf("(%s, %s) %s ($%d, $%d)", col.expr, idExpr, op, vIdx, idIdx))
+	return nil
+}
+
+// clampLimit applies the package-wide limit defaults (default 50,
+// entity-specific hard cap).
+func clampLimit(limit, maxLimit int) int {
+	if limit <= 0 {
+		return 50
+	}
+	if limit > maxLimit {
+		return maxLimit
+	}
+	return limit
+}
+
+// sortValText / sortValTime serialize an item's sort-column field for
+// cursor minting. Text values are lowercased to match the LOWER(...)
+// sort expressions (Go and Postgres agree on lowercasing for UTF-8
+// locales; a mismatch would only shift a page boundary, not corrupt
+// results).
+func sortValText(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	v := strings.ToLower(*s)
+	return &v
+}
+
+func sortValTime(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	v := t.UTC().Format(time.RFC3339Nano)
+	return &v
 }
 
 // isUniqueViolation reports whether err is a PostgreSQL unique-constraint
@@ -287,4 +464,18 @@ func escapeLike(s string) string {
 	s = strings.ReplaceAll(s, `%`, `\%`)
 	s = strings.ReplaceAll(s, `_`, `\_`)
 	return s
+}
+
+// namePattern builds the LIKE pattern for the uniform `name=` filter
+// (spec 2026-07-10). The term is lowercased and LIKE-escaped; each `*`
+// then becomes a `%` wildcard. A term without `*` is wrapped in `%…%`
+// (substring semantics); a term with `*` is used as an anchored glob
+// (`du*` = starts-with, `*du` = ends-with). The surrounding SQL must
+// compare against LOWER(col) and carry `ESCAPE '\'`.
+func namePattern(term string) string {
+	escaped := escapeLike(strings.ToLower(term))
+	if !strings.Contains(term, "*") {
+		return "%" + escaped + "%"
+	}
+	return strings.ReplaceAll(escaped, "*", "%")
 }

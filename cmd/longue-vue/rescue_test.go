@@ -135,7 +135,7 @@ func TestAdminRescue_AllAdminsLockedTriggersUnlock(t *testing.T) {
 		t.Errorf("rescue password did not take effect: %v", err)
 	}
 	// Audit event written.
-	events, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, 100, "")
+	events, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, api.ListPage{Limit: 100})
 	if err != nil {
 		t.Fatalf("list audit: %v", err)
 	}

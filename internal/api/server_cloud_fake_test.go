@@ -112,14 +112,28 @@ func (m *memStore) GetCloudAccountByNameAny(_ context.Context, name string) (Clo
 	return CloudAccount{}, ErrNotFound
 }
 
-func (m *memStore) ListCloudAccounts(_ context.Context, limit int, _ string) ([]CloudAccount, string, error) {
+var fakeCloudAccountSortKeys = map[string]bool{
+	"": true, "name": true, "provider": true, "region": true, "status": true,
+	"last_seen_at": true, "created_at": true, "updated_at": true,
+}
+
+func (m *memStore) ListCloudAccounts(_ context.Context, filter CloudAccountListFilter, page ListPage) ([]CloudAccount, string, error) {
+	if !fakeCloudAccountSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]CloudAccount, 0, len(cloudFake.accounts))
 	for _, a := range cloudFake.accounts { //nolint:gocritic // rangeValCopy: test fake; copy is intentional to avoid mutation
+		if filter.Name != nil && *filter.Name != "" {
+			if !strings.Contains(strings.ToLower(a.Name), strings.ToLower(*filter.Name)) {
+				continue
+			}
+		}
 		out = append(out, a)
 	}
 	if len(out) > limit {
@@ -470,10 +484,20 @@ func vmApplicationMatches(vm VirtualMachine, want, wantVersion *string) bool {
 	return false
 }
 
+var fakeVMSortKeys = map[string]bool{
+	"": true, "name": true, "role": true, "region": true, "zone": true,
+	"instance_type": true, "image_name": true, "power_state": true,
+	"last_seen_at": true, "created_at": true, "updated_at": true,
+}
+
 //nolint:gocritic // hugeParam: signature matches Store interface
-func (m *memStore) ListVirtualMachines(_ context.Context, filter VirtualMachineListFilter, limit int, _ string) ([]VirtualMachine, string, error) {
+func (m *memStore) ListVirtualMachines(_ context.Context, filter VirtualMachineListFilter, page ListPage) ([]VirtualMachine, string, error) {
+	if !fakeVMSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	cloudFake.mu.Lock()
 	defer cloudFake.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
@@ -1068,17 +1092,37 @@ func (m *memStore) ReplaceSecurityGroupRules(_ context.Context, sgID uuid.UUID, 
 	return nil
 }
 
-func (m *memStore) ListSecurityGroupsByAccount(_ context.Context, accountID uuid.UUID, limit int, _ string) ([]SecurityGroupRow, string, error) {
+var fakeSGSortKeys = map[string]bool{
+	"": true, "name": true, "vpc_id": true, "reconcile_seen_at": true,
+}
+
+func (m *memStore) ListSecurityGroupsByAccount(
+	_ context.Context,
+	accountID uuid.UUID,
+	filter SecurityGroupListFilter,
+	page ListPage,
+) ([]SecurityGroupRow, string, error) {
+	if !fakeSGSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	sgFake.mu.Lock()
 	defer sgFake.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]SecurityGroupRow, 0)
 	for _, sg := range sgFake.sgs {
-		if sg.CloudAccountID == accountID {
-			out = append(out, sg)
+		if sg.CloudAccountID != accountID {
+			continue
 		}
+		if filter.Name != nil && !strings.Contains(strings.ToLower(sg.Name), strings.ToLower(*filter.Name)) {
+			continue
+		}
+		if filter.VpcID != nil && sg.VPCID != *filter.VpcID {
+			continue
+		}
+		out = append(out, sg)
 	}
 	if len(out) > limit {
 		out = out[:limit]
@@ -1128,15 +1172,22 @@ func resetNPFake() {
 	npFake.rules = make(map[uuid.UUID][]NetworkPolicyRuleRow)
 }
 
+var fakeNetpolSortKeys = map[string]bool{
+	"": true, "name": true, "reconcile_seen_at": true,
+}
+
 func (m *memStore) ListNetworkPoliciesByCluster(
 	_ context.Context,
 	clusterID uuid.UUID,
-	namespaceID *uuid.UUID,
-	limit int,
-	_ string,
+	filter NetworkPolicyListFilter,
+	page ListPage,
 ) ([]NetworkPolicyRow, string, error) {
+	if !fakeNetpolSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	npFake.mu.Lock()
 	defer npFake.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
@@ -1145,7 +1196,10 @@ func (m *memStore) ListNetworkPoliciesByCluster(
 		if np.ClusterID != clusterID {
 			continue
 		}
-		if namespaceID != nil && np.NamespaceID != *namespaceID {
+		if filter.NamespaceID != nil && np.NamespaceID != *filter.NamespaceID {
+			continue
+		}
+		if filter.Name != nil && !strings.Contains(strings.ToLower(np.Name), strings.ToLower(*filter.Name)) {
 			continue
 		}
 		out = append(out, np)

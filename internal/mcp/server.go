@@ -47,43 +47,47 @@ type Store interface {
 	GetSettings(ctx context.Context) (api.Settings, error)
 
 	// Clusters
-	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) ([]api.Cluster, string, error)
+	ListClusters(ctx context.Context, filter api.ClusterListFilter, page api.ListPage) ([]api.Cluster, string, error)
 	GetCluster(ctx context.Context, id uuid.UUID) (api.Cluster, error)
 
 	// Nodes
-	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Node, string, error)
+	ListNodes(ctx context.Context, filter api.NodeListFilter, page api.ListPage) ([]api.Node, string, error)
 	GetNode(ctx context.Context, id uuid.UUID) (api.Node, error)
 
 	// Namespaces
-	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]api.Namespace, string, error)
+	ListNamespaces(ctx context.Context, filter api.NamespaceListFilter, page api.ListPage) ([]api.Namespace, string, error)
 	GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, error)
 
 	// Workloads
-	ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, limit int, cursor string) ([]api.Workload, string, error)
+	ListWorkloads(ctx context.Context, filter api.WorkloadListFilter, page api.ListPage) ([]api.Workload, string, error)
 	GetWorkload(ctx context.Context, id uuid.UUID) (api.Workload, error)
 
 	// Pods
-	ListPods(ctx context.Context, filter api.PodListFilter, limit int, cursor string) ([]api.Pod, string, error)
+	ListPods(ctx context.Context, filter api.PodListFilter, page api.ListPage) ([]api.Pod, string, error)
 	GetPod(ctx context.Context, id uuid.UUID) (api.Pod, error)
 
 	// Services
-	ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Service, string, error)
+	ListServices(ctx context.Context, filter api.ServiceListFilter, page api.ListPage) ([]api.Service, string, error)
 
 	// Ingresses
-	ListIngresses(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Ingress, string, error)
+	ListIngresses(ctx context.Context, filter api.IngressListFilter, page api.ListPage) ([]api.Ingress, string, error)
 
 	// PersistentVolumes
-	ListPersistentVolumes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolume, string, error)
+	ListPersistentVolumes(ctx context.Context, filter api.PersistentVolumeListFilter, page api.ListPage) ([]api.PersistentVolume, string, error)
 
 	// PersistentVolumeClaims
-	ListPersistentVolumeClaims(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.PersistentVolumeClaim, string, error)
+	ListPersistentVolumeClaims(
+		ctx context.Context,
+		filter api.PersistentVolumeClaimListFilter,
+		page api.ListPage,
+	) ([]api.PersistentVolumeClaim, string, error)
 
 	// CloudAccounts (ADR-0015)
-	ListCloudAccounts(ctx context.Context, limit int, cursor string) ([]api.CloudAccount, string, error)
+	ListCloudAccounts(ctx context.Context, filter api.CloudAccountListFilter, page api.ListPage) ([]api.CloudAccount, string, error)
 	GetCloudAccount(ctx context.Context, id uuid.UUID) (api.CloudAccount, error)
 
 	// VirtualMachines (ADR-0015 / ADR-0019)
-	ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, limit int, cursor string) ([]api.VirtualMachine, string, error)
+	ListVirtualMachines(ctx context.Context, filter api.VirtualMachineListFilter, page api.ListPage) ([]api.VirtualMachine, string, error)
 	GetVirtualMachine(ctx context.Context, id uuid.UUID) (api.VirtualMachine, error)
 	ListDistinctVMApplications(ctx context.Context) ([]api.VMApplicationDistinct, error)
 
@@ -92,14 +96,13 @@ type Store interface {
 	GetImageVersionsByRepo(ctx context.Context, imageRepo string) ([]api.ImageVersionRow, error)
 
 	// Applications + ApplicationBlocks (ADR-0029). All read-only.
-	ListApplications(ctx context.Context, filter api.ApplicationListFilter, limit int, cursor string) ([]api.Application, string, error)
+	ListApplications(ctx context.Context, filter api.ApplicationListFilter, page api.ListPage) ([]api.Application, string, error)
 	GetApplication(ctx context.Context, id uuid.UUID) (api.Application, error)
 	GetApplicationByName(ctx context.Context, name string) (api.Application, error)
 	ListApplicationBlocks(
 		ctx context.Context,
 		filter api.ApplicationBlockListFilter,
-		limit int,
-		cursor string,
+		page api.ListPage,
 	) ([]api.ApplicationBlock, string, error)
 }
 

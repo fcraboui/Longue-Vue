@@ -178,19 +178,19 @@ func newExtractStubStore() *extractStubStore {
 	}
 }
 
-func (s *extractStubStore) ListClusters(_ context.Context, _ int, _ string, _ bool) ([]api.Cluster, string, error) {
+func (s *extractStubStore) ListClusters(_ context.Context, _ api.ClusterListFilter, _ api.ListPage) ([]api.Cluster, string, error) {
 	return s.clusters, "", nil
 }
 
-func (s *extractStubStore) ListNodes(_ context.Context, _ *uuid.UUID, _ int, _ string, _ bool) ([]api.Node, string, error) {
+func (s *extractStubStore) ListNodes(_ context.Context, _ api.NodeListFilter, _ api.ListPage) ([]api.Node, string, error) {
 	return s.nodes, "", nil
 }
 
-func (s *extractStubStore) ListNamespaces(_ context.Context, _ *uuid.UUID, _ int, _ string, _ bool) ([]api.Namespace, string, error) {
+func (s *extractStubStore) ListNamespaces(_ context.Context, _ api.NamespaceListFilter, _ api.ListPage) ([]api.Namespace, string, error) {
 	return s.namespaces, "", nil
 }
 
-func (s *extractStubStore) ListWorkloads(_ context.Context, f api.WorkloadListFilter, _ int, _ string) ([]api.Workload, string, error) {
+func (s *extractStubStore) ListWorkloads(_ context.Context, f api.WorkloadListFilter, _ api.ListPage) ([]api.Workload, string, error) {
 	// Compose the two filters honoured here (ImageSubstring +
 	// ADR-0029 ApplicationNameSubstring) as AND, matching production.
 	candidates := s.workloads
@@ -222,7 +222,7 @@ func (s *extractStubStore) ListWorkloads(_ context.Context, f api.WorkloadListFi
 	return candidates, "", nil
 }
 
-func (s *extractStubStore) ListPods(_ context.Context, f api.PodListFilter, _ int, _ string) ([]api.Pod, string, error) {
+func (s *extractStubStore) ListPods(_ context.Context, f api.PodListFilter, _ api.ListPage) ([]api.Pod, string, error) {
 	if f.ImageSubstring != nil {
 		out := make([]api.Pod, 0)
 		for _, p := range s.pods {
@@ -246,8 +246,7 @@ func (s *extractStubStore) ListPods(_ context.Context, f api.PodListFilter, _ in
 func (s *extractStubStore) ListVirtualMachines(
 	_ context.Context,
 	f api.VirtualMachineListFilter,
-	_ int,
-	_ string,
+	_ api.ListPage,
 ) ([]api.VirtualMachine, string, error) {
 	candidates := s.vms
 	if f.Image != nil {
@@ -286,7 +285,7 @@ func (s *extractStubStore) ListVirtualMachines(
 	return candidates, "", nil
 }
 
-func (s *extractStubStore) ListCloudAccounts(_ context.Context, _ int, _ string) ([]api.CloudAccount, string, error) {
+func (s *extractStubStore) ListCloudAccounts(_ context.Context, _ api.CloudAccountListFilter, _ api.ListPage) ([]api.CloudAccount, string, error) {
 	return s.accounts, "", nil
 }
 

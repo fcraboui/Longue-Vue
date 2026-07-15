@@ -185,7 +185,7 @@ func TestPGNodeCRUD(t *testing.T) {
 		t.Errorf("architecture=%v", updated.Architecture)
 	}
 
-	items, _, err := pg.ListNodes(ctx, cluster.Id, 10, "", false)
+	items, _, err := pg.ListNodes(ctx, api.NodeListFilter{ClusterID: cluster.Id}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list filtered: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestPGNodeCRUD(t *testing.T) {
 	}
 
 	other := uuid.New()
-	items, _, err = pg.ListNodes(ctx, &other, 10, "", false)
+	items, _, err = pg.ListNodes(ctx, api.NodeListFilter{ClusterID: &other}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list foreign cluster: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestPGNamespaceCRUD(t *testing.T) {
 		t.Errorf("phase=%v", updated.Phase)
 	}
 
-	items, _, err := pg.ListNamespaces(ctx, cluster.Id, 10, "", false)
+	items, _, err := pg.ListNamespaces(ctx, api.NamespaceListFilter{ClusterID: cluster.Id}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -492,7 +492,7 @@ func TestPGListNodes_ExcludesTerminatedByDefault(t *testing.T) {
 	}
 
 	cid := *cluster.Id
-	items, _, err := pg.ListNodes(ctx, &cid, 50, "", false)
+	items, _, err := pg.ListNodes(ctx, api.NodeListFilter{ClusterID: &cid}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +500,7 @@ func TestPGListNodes_ExcludesTerminatedByDefault(t *testing.T) {
 		t.Fatalf("default len=%d, want 2", len(items))
 	}
 
-	items, _, err = pg.ListNodes(ctx, &cid, 50, "", true)
+	items, _, err = pg.ListNodes(ctx, api.NodeListFilter{ClusterID: &cid, IncludeTerminated: true}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -883,7 +883,7 @@ func TestPGPodCRUD(t *testing.T) {
 		t.Errorf("phase=%v", updated.Phase)
 	}
 
-	items, _, err := pg.ListPods(ctx, api.PodListFilter{NamespaceID: ns.Id}, 10, "")
+	items, _, err := pg.ListPods(ctx, api.PodListFilter{NamespaceID: ns.Id}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -1124,7 +1124,7 @@ func TestPGWorkloadCRUD(t *testing.T) {
 
 	// Filter by kind.
 	depKind := api.Deployment
-	items, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{NamespaceID: ns.Id, Kind: &depKind}, 10, "")
+	items, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{NamespaceID: ns.Id, Kind: &depKind}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list by kind: %v", err)
 	}
@@ -2535,7 +2535,7 @@ func TestPGListPagination(t *testing.T) {
 		}
 	}
 
-	page1, next, err := pg.ListClusters(ctx, 2, "", false)
+	page1, next, err := pg.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{Limit: 2})
 	if err != nil {
 		t.Fatalf("list page1: %v", err)
 	}
@@ -2546,7 +2546,7 @@ func TestPGListPagination(t *testing.T) {
 		t.Fatal("next cursor empty after page1")
 	}
 
-	page2, next, err := pg.ListClusters(ctx, 2, next, false)
+	page2, next, err := pg.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{Limit: 2, Cursor: next})
 	if err != nil {
 		t.Fatalf("list page2: %v", err)
 	}
@@ -2554,7 +2554,7 @@ func TestPGListPagination(t *testing.T) {
 		t.Fatalf("page2 len=%d, want 2", len(page2))
 	}
 
-	page3, next, err := pg.ListClusters(ctx, 2, next, false)
+	page3, next, err := pg.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{Limit: 2, Cursor: next})
 	if err != nil {
 		t.Fatalf("list page3: %v", err)
 	}
@@ -2688,7 +2688,7 @@ func TestPGPersistentVolumeAndClaimFK(t *testing.T) {
 	if n != 1 {
 		t.Errorf("deleted=%d, want 1", n)
 	}
-	items, _, err := pg.ListPersistentVolumes(ctx, cluster.Id, 10, "")
+	items, _, err := pg.ListPersistentVolumes(ctx, api.PersistentVolumeListFilter{ClusterID: cluster.Id}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -2739,7 +2739,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 
 	// node_name filter — only worker-01 pods.
 	node1Filter := api.PodListFilter{NodeName: &node1}
-	gotByNode, _, err := pg.ListPods(ctx, node1Filter, 10, "")
+	gotByNode, _, err := pg.ListPods(ctx, node1Filter, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list by node: %v", err)
 	}
@@ -2749,7 +2749,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 
 	// Image filter, case-insensitive substring — "nginx" matches NGINX:1.27-alpine only.
 	nginxSub := "nginx"
-	gotNginx, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &nginxSub}, 10, "")
+	gotNginx, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &nginxSub}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list by image nginx: %v", err)
 	}
@@ -2759,7 +2759,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 
 	// Init containers participate — "log4j:2.15" hits api-1 via its init container.
 	log4jSub := "log4j:2.15"
-	gotLog4j, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &log4jSub}, 10, "")
+	gotLog4j, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &log4jSub}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list by image log4j: %v", err)
 	}
@@ -2769,7 +2769,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 
 	// Empty match returns no rows — no false positives.
 	noMatch := "definitely-not-present"
-	gotNone, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &noMatch}, 10, "")
+	gotNone, _, err := pg.ListPods(ctx, api.PodListFilter{ImageSubstring: &noMatch}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list by image none: %v", err)
 	}
@@ -2778,7 +2778,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	}
 
 	// Combined: node + image filter AND together.
-	both, _, err := pg.ListPods(ctx, api.PodListFilter{NodeName: &node1, ImageSubstring: &nginxSub}, 10, "")
+	both, _, err := pg.ListPods(ctx, api.PodListFilter{NodeName: &node1, ImageSubstring: &nginxSub}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list combined: %v", err)
 	}
@@ -2797,7 +2797,7 @@ func TestPGListFiltersForImageAndNode(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("workload web: %v", err)
 	}
-	wls, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{ImageSubstring: &log4jSub}, 10, "")
+	wls, _, err := pg.ListWorkloads(ctx, api.WorkloadListFilter{ImageSubstring: &log4jSub}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list workloads: %v", err)
 	}
@@ -3280,7 +3280,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	}
 
 	// Default list: newest first, no filter.
-	got, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, 10, "")
+	got, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -3296,7 +3296,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	}
 
 	// Filter by actor.
-	actorFiltered, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{ActorID: &userID}, 10, "")
+	actorFiltered, _, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{ActorID: &userID}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list actor: %v", err)
 	}
@@ -3308,7 +3308,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	resType := "cluster"
 	resID := "c1"
 	resFiltered, _, err := pg.ListAuditEvents(ctx,
-		api.AuditEventFilter{ResourceType: &resType, ResourceID: &resID}, 10, "")
+		api.AuditEventFilter{ResourceType: &resType, ResourceID: &resID}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list resource: %v", err)
 	}
@@ -3320,7 +3320,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	since := base.Add(-2*time.Minute - 30*time.Second)
 	until := base.Add(-30 * time.Second)
 	windowed, _, err := pg.ListAuditEvents(ctx,
-		api.AuditEventFilter{Since: &since, Until: &until}, 10, "")
+		api.AuditEventFilter{Since: &since, Until: &until}, api.ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list window: %v", err)
 	}
@@ -3329,7 +3329,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	}
 
 	// Cursor pagination: page size 2 should yield 2 + next cursor, then 1.
-	page1, next, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, 2, "")
+	page1, next, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, api.ListPage{Limit: 2})
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
@@ -3339,7 +3339,7 @@ func TestPGAuditEventsRoundTrip(t *testing.T) {
 	if next == "" {
 		t.Fatal("expected next cursor")
 	}
-	page2, next2, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, 2, next)
+	page2, next2, err := pg.ListAuditEvents(ctx, api.AuditEventFilter{}, api.ListPage{Limit: 2, Cursor: next})
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}

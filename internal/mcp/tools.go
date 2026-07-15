@@ -343,7 +343,7 @@ func (s *Server) handleListClusters(ctx context.Context, request mcp.CallToolReq
 	defer func() { metrics.ObserveMCPToolCall("list_clusters", time.Since(start)) }()
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Cluster, string, error) {
-		return s.store.ListClusters(ctx, maxPageSize, cursor, false)
+		return s.store.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list clusters: %w", err)
@@ -406,7 +406,7 @@ func (s *Server) handleListNodes(ctx context.Context, request mcp.CallToolReques
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Node, string, error) {
-		return s.store.ListNodes(ctx, clusterID, maxPageSize, cursor, false)
+		return s.store.ListNodes(ctx, api.NodeListFilter{ClusterID: clusterID}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list nodes: %w", err)
@@ -456,7 +456,7 @@ func (s *Server) handleListNamespaces(ctx context.Context, request mcp.CallToolR
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Namespace, string, error) {
-		return s.store.ListNamespaces(ctx, clusterID, maxPageSize, cursor, false)
+		return s.store.ListNamespaces(ctx, api.NamespaceListFilter{ClusterID: clusterID}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list namespaces: %w", err)
@@ -521,7 +521,7 @@ func (s *Server) handleListWorkloads(ctx context.Context, request mcp.CallToolRe
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Workload, string, error) {
-		return s.store.ListWorkloads(ctx, filter, maxPageSize, cursor)
+		return s.store.ListWorkloads(ctx, filter, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list workloads: %w", err)
@@ -592,7 +592,7 @@ func (s *Server) handleListPods(ctx context.Context, request mcp.CallToolRequest
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Pod, string, error) {
-		return s.store.ListPods(ctx, filter, maxPageSize, cursor)
+		return s.store.ListPods(ctx, filter, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list pods: %w", err)
@@ -642,7 +642,7 @@ func (s *Server) handleListServices(ctx context.Context, request mcp.CallToolReq
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Service, string, error) {
-		return s.store.ListServices(ctx, nsID, maxPageSize, cursor)
+		return s.store.ListServices(ctx, api.ServiceListFilter{NamespaceID: nsID}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list services: %w", err)
@@ -668,7 +668,7 @@ func (s *Server) handleListIngresses(ctx context.Context, request mcp.CallToolRe
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Ingress, string, error) {
-		return s.store.ListIngresses(ctx, nsID, maxPageSize, cursor)
+		return s.store.ListIngresses(ctx, api.IngressListFilter{NamespaceID: nsID}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list ingresses: %w", err)
@@ -694,7 +694,11 @@ func (s *Server) handleListPersistentVolumes(ctx context.Context, request mcp.Ca
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.PersistentVolume, string, error) {
-		return s.store.ListPersistentVolumes(ctx, clusterID, maxPageSize, cursor)
+		return s.store.ListPersistentVolumes(
+			ctx,
+			api.PersistentVolumeListFilter{ClusterID: clusterID},
+			api.ListPage{Limit: maxPageSize, Cursor: cursor},
+		)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list persistent volumes: %w", err)
@@ -720,7 +724,11 @@ func (s *Server) handleListPersistentVolumeClaims(ctx context.Context, request m
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.PersistentVolumeClaim, string, error) {
-		return s.store.ListPersistentVolumeClaims(ctx, nsID, maxPageSize, cursor)
+		return s.store.ListPersistentVolumeClaims(
+			ctx,
+			api.PersistentVolumeClaimListFilter{NamespaceID: nsID},
+			api.ListPage{Limit: maxPageSize, Cursor: cursor},
+		)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list persistent volume claims: %w", err)
@@ -816,21 +824,21 @@ func (s *Server) handleGetEOLSummary(ctx context.Context, request mcp.CallToolRe
 	defer func() { metrics.ObserveMCPToolCall("get_eol_summary", time.Since(start)) }()
 
 	clusters, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Cluster, string, error) {
-		return s.store.ListClusters(ctx, maxPageSize, cursor, false)
+		return s.store.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list clusters for eol: %w", err)
 	}
 
 	nodes, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Node, string, error) {
-		return s.store.ListNodes(ctx, nil, maxPageSize, cursor, false)
+		return s.store.ListNodes(ctx, api.NodeListFilter{}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list nodes for eol: %w", err)
 	}
 
 	vms, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.VirtualMachine, string, error) {
-		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{}, maxPageSize, cursor)
+		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list virtual machines for eol: %w", err)
@@ -901,21 +909,21 @@ func (s *Server) handleSearchImages(ctx context.Context, request mcp.CallToolReq
 	}
 
 	workloads, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Workload, string, error) {
-		return s.store.ListWorkloads(ctx, api.WorkloadListFilter{ImageSubstring: &query}, maxPageSize, cursor)
+		return s.store.ListWorkloads(ctx, api.WorkloadListFilter{ImageSubstring: &query}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search workloads by image: %w", err)
 	}
 
 	pods, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Pod, string, error) {
-		return s.store.ListPods(ctx, api.PodListFilter{ImageSubstring: &query}, maxPageSize, cursor)
+		return s.store.ListPods(ctx, api.PodListFilter{ImageSubstring: &query}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search pods by image: %w", err)
 	}
 
 	vms, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.VirtualMachine, string, error) {
-		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{Image: &query}, maxPageSize, cursor)
+		return s.store.ListVirtualMachines(ctx, api.VirtualMachineListFilter{Image: &query}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("search virtual machines by image: %w", err)
@@ -942,7 +950,7 @@ func (s *Server) handleListCloudAccounts(ctx context.Context, request mcp.CallTo
 	defer func() { metrics.ObserveMCPToolCall("list_cloud_accounts", time.Since(start)) }()
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.CloudAccount, string, error) {
-		return s.store.ListCloudAccounts(ctx, maxPageSize, cursor)
+		return s.store.ListCloudAccounts(ctx, api.CloudAccountListFilter{}, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list cloud accounts: %w", err)
@@ -1057,7 +1065,7 @@ func (s *Server) handleListVirtualMachines(ctx context.Context, request mcp.Call
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.VirtualMachine, string, error) {
-		return s.store.ListVirtualMachines(ctx, filter, maxPageSize, cursor)
+		return s.store.ListVirtualMachines(ctx, filter, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list virtual machines: %w", err)

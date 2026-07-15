@@ -610,9 +610,31 @@ func (s *Server) VerifyToken(ctx context.Context, request VerifyTokenRequestObje
 
 // ListUsers returns a paged list of all users (admin view).
 func (s *Server) ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error) {
-	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
-	items, next, err := s.store.ListUsers(ctx, limit, cursor)
+	page := ListPage{}
+	if request.Params.Limit != nil {
+		page.Limit = *request.Params.Limit
+	}
+	if request.Params.Cursor != nil {
+		page.Cursor = *request.Params.Cursor
+	}
+	if request.Params.Sort != nil {
+		page.Sort = *request.Params.Sort
+	}
+	if request.Params.Order != nil {
+		page.Order = string(*request.Params.Order)
+	}
+	filter := UserListFilter{}
+	if request.Params.Name != nil {
+		n := *request.Params.Name
+		filter.Name = &n
+	}
+	items, next, err := s.store.ListUsers(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListUsers400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
 		return nil, fmt.Errorf("listUsers: %w", err)
 	}
 	resp := UserList{Items: items}
@@ -795,9 +817,31 @@ func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject
 
 // ListApiTokens returns a paged list of API tokens (admin view).
 func (s *Server) ListApiTokens(ctx context.Context, request ListApiTokensRequestObject) (ListApiTokensResponseObject, error) {
-	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
-	items, next, err := s.store.ListAPITokens(ctx, limit, cursor)
+	page := ListPage{}
+	if request.Params.Limit != nil {
+		page.Limit = *request.Params.Limit
+	}
+	if request.Params.Cursor != nil {
+		page.Cursor = *request.Params.Cursor
+	}
+	if request.Params.Sort != nil {
+		page.Sort = *request.Params.Sort
+	}
+	if request.Params.Order != nil {
+		page.Order = string(*request.Params.Order)
+	}
+	filter := APITokenListFilter{}
+	if request.Params.Name != nil {
+		n := *request.Params.Name
+		filter.Name = &n
+	}
+	items, next, err := s.store.ListAPITokens(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListApiTokens400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
 		return nil, fmt.Errorf("listApiTokens: %w", err)
 	}
 	resp := ApiTokenList{Items: items}
@@ -893,9 +937,31 @@ func (s *Server) RevokeApiToken(ctx context.Context, request RevokeApiTokenReque
 
 // ListSessions returns a paged list of active sessions (admin view).
 func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error) {
-	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
-	items, next, err := s.store.ListSessions(ctx, limit, cursor)
+	page := ListPage{}
+	if request.Params.Limit != nil {
+		page.Limit = *request.Params.Limit
+	}
+	if request.Params.Cursor != nil {
+		page.Cursor = *request.Params.Cursor
+	}
+	if request.Params.Sort != nil {
+		page.Sort = *request.Params.Sort
+	}
+	if request.Params.Order != nil {
+		page.Order = string(*request.Params.Order)
+	}
+	filter := SessionListFilter{}
+	if request.Params.Name != nil {
+		n := *request.Params.Name
+		filter.Name = &n
+	}
+	items, next, err := s.store.ListSessions(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListSessions400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
 		return nil, fmt.Errorf("listSessions: %w", err)
 	}
 	resp := SessionList{Items: items}
@@ -931,8 +997,22 @@ func (s *Server) RevokeSession(ctx context.Context, request RevokeSessionRequest
 // ── /v1/admin/audit ──────────────────────────────────────────────────
 
 // ListAuditEvents returns a filtered, paged list of audit events.
+//
+//nolint:gocritic // hugeParam: generated StrictServerInterface mandates the value param
 func (s *Server) ListAuditEvents(ctx context.Context, request ListAuditEventsRequestObject) (ListAuditEventsResponseObject, error) {
-	limit, cursor := paging(request.Params.Limit, request.Params.Cursor)
+	page := ListPage{}
+	if request.Params.Limit != nil {
+		page.Limit = *request.Params.Limit
+	}
+	if request.Params.Cursor != nil {
+		page.Cursor = *request.Params.Cursor
+	}
+	if request.Params.Sort != nil {
+		page.Sort = *request.Params.Sort
+	}
+	if request.Params.Order != nil {
+		page.Order = string(*request.Params.Order)
+	}
 	filter := AuditEventFilter{
 		ActorID:      request.Params.ActorId,
 		ResourceType: request.Params.ResourceType,
@@ -943,11 +1023,16 @@ func (s *Server) ListAuditEvents(ctx context.Context, request ListAuditEventsReq
 	}
 	if request.Params.Source != nil {
 		// Cast the codegen enum back to a plain string for the store filter.
-		s := string(*request.Params.Source)
-		filter.Source = &s
+		src := string(*request.Params.Source)
+		filter.Source = &src
 	}
-	items, next, err := s.store.ListAuditEvents(ctx, filter, limit, cursor)
+	items, next, err := s.store.ListAuditEvents(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListAuditEvents400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
 		return nil, fmt.Errorf("listAuditEvents: %w", err)
 	}
 	resp := AuditEventList{Items: items}
@@ -974,16 +1059,4 @@ func mustHashDummy() string {
 		return ""
 	}
 	return h
-}
-
-func paging(limit *Limit, cursor *Cursor) (limitVal int, cursorVal string) {
-	var l int
-	var c string
-	if limit != nil {
-		l = *limit
-	}
-	if cursor != nil {
-		c = *cursor
-	}
-	return l, c
 }

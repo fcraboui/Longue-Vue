@@ -113,7 +113,7 @@ func TestPGApplicationCRUD(t *testing.T) {
 		t.Fatalf("updated_at should advance: %v vs %v", updated.UpdatedAt, app.UpdatedAt)
 	}
 
-	items, _, err := pg.ListApplications(ctx, api.ApplicationListFilter{Name: strPtr("vau")}, 50, "")
+	items, _, err := pg.ListApplications(ctx, api.ApplicationListFilter{Name: strPtr("vau")}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list by name: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestPGApplicationCRUD(t *testing.T) {
 	}
 
 	// dict_min=4 → matches (SecConfidentialite=4 wins GREATEST).
-	items, _, err = pg.ListApplications(ctx, api.ApplicationListFilter{DICTMin: intPtr(4)}, 50, "")
+	items, _, err = pg.ListApplications(ctx, api.ApplicationListFilter{DICTMin: intPtr(4)}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list dict_min=4: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestPGApplicationCRUD(t *testing.T) {
 	}
 
 	// dict_min=5 → no match (axis cap is 4).
-	items, _, err = pg.ListApplications(ctx, api.ApplicationListFilter{DICTMin: intPtr(5)}, 50, "")
+	items, _, err = pg.ListApplications(ctx, api.ApplicationListFilter{DICTMin: intPtr(5)}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list dict_min=5: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestPGApplicationListFilterHasDICT(t *testing.T) {
 	}
 
 	yes := true
-	items, _, err := pg.ListApplications(ctx, api.ApplicationListFilter{HasDICT: &yes}, 50, "")
+	items, _, err := pg.ListApplications(ctx, api.ApplicationListFilter{HasDICT: &yes}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list HasDICT=true: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestPGApplicationListFilterHasDICT(t *testing.T) {
 	}
 
 	no := false
-	items, _, err = pg.ListApplications(ctx, api.ApplicationListFilter{HasDICT: &no}, 50, "")
+	items, _, err = pg.ListApplications(ctx, api.ApplicationListFilter{HasDICT: &no}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("list HasDICT=false: %v", err)
 	}
@@ -546,7 +546,7 @@ func TestPGApplicationListMembers(t *testing.T) {
 
 	app := seedApplicationWithMembers(t, pg)
 
-	members, next, err := pg.ListApplicationMembers(ctx, app.ID, 100, "")
+	members, next, err := pg.ListApplicationMembers(ctx, app.ID, "", 100, "")
 	if err != nil {
 		t.Fatalf("list members: %v", err)
 	}
@@ -583,6 +583,103 @@ func TestPGApplicationListMembers(t *testing.T) {
 		if m.Kind != wantOrder[i] {
 			t.Errorf("members[%d].Kind = %q, want %q", i, m.Kind, wantOrder[i])
 		}
+	}
+}
+
+// TestApplicationMembersKindFilter verifies the documented kind= filter:
+// kind=workload returns only the workload rows, kind=virtual_machine only
+// the FK-linked VM, kind=vm_application only the JSONB entry, and kind=""
+// keeps the full three-source walk.
+//
+//nolint:gocyclo // one fixture, four filter assertions
+func TestApplicationMembersKindFilter(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	app := seedApplicationWithMembers(t, pg)
+
+	// kind="" → unchanged three-source walk (2 workloads + 1 VM + 1 vm-app).
+	all, _, err := pg.ListApplicationMembers(ctx, app.ID, "", 100, "")
+	if err != nil {
+		t.Fatalf("list all members: %v", err)
+	}
+	if len(all) != 4 {
+		t.Fatalf("kind='' expected 4 members, got %d", len(all))
+	}
+
+	// kind=workload → only the 2 workload rows.
+	wls, next, err := pg.ListApplicationMembers(ctx, app.ID, memberKindWorkload, 100, "")
+	if err != nil {
+		t.Fatalf("list workload members: %v", err)
+	}
+	if next != "" {
+		t.Errorf("kind=workload next cursor = %q, want empty", next)
+	}
+	if len(wls) != 2 {
+		t.Fatalf("kind=workload expected 2 members, got %d: %+v", len(wls), wls)
+	}
+	for _, m := range wls {
+		if m.Kind != api.ApplicationMemberKindWorkload {
+			t.Errorf("kind=workload returned member kind %q", m.Kind)
+		}
+	}
+
+	// kind=virtual_machine → only the FK-linked VM.
+	vms, _, err := pg.ListApplicationMembers(ctx, app.ID, memberKindVM, 100, "")
+	if err != nil {
+		t.Fatalf("list vm members: %v", err)
+	}
+	if len(vms) != 1 || vms[0].Kind != api.ApplicationMemberKindVirtualMachine {
+		t.Fatalf("kind=virtual_machine returned %+v", vms)
+	}
+
+	// kind=vm_application → only the JSONB entry.
+	vmApps, _, err := pg.ListApplicationMembers(ctx, app.ID, memberKindVMApp, 100, "")
+	if err != nil {
+		t.Fatalf("list vm-app members: %v", err)
+	}
+	if len(vmApps) != 1 || vmApps[0].Kind != api.ApplicationMemberKindVMApplication {
+		t.Fatalf("kind=vm_application returned %+v", vmApps)
+	}
+}
+
+// TestApplicationMembersKindCursorMismatch verifies a cursor whose Kind
+// does not match the requested kind filter is rejected with
+// api.ErrInvalidCursor.
+func TestApplicationMembersKindCursorMismatch(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	app := seedApplicationWithMembers(t, pg)
+
+	// Mint a workload-phase cursor by paging with limit=1 (2 workloads seeded).
+	_, next, err := pg.ListApplicationMembers(ctx, app.ID, memberKindWorkload, 1, "")
+	if err != nil {
+		t.Fatalf("mint cursor: %v", err)
+	}
+	if next == "" {
+		t.Fatal("expected a continuation cursor")
+	}
+
+	// Replay it under kind=virtual_machine → mismatch.
+	_, _, err = pg.ListApplicationMembers(ctx, app.ID, memberKindVM, 1, next)
+	if !errors.Is(err, api.ErrInvalidCursor) {
+		t.Fatalf("expected ErrInvalidCursor on kind mismatch, got %v", err)
+	}
+}
+
+// TestApplicationMembersGarbageCursor verifies that a malformed cursor
+// (garbage base64, invalid JSON, etc.) is rejected with api.ErrInvalidCursor.
+func TestApplicationMembersGarbageCursor(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+
+	app := seedApplicationWithMembers(t, pg)
+
+	// Pass a garbage cursor that is not valid base64.
+	_, _, err := pg.ListApplicationMembers(ctx, app.ID, "", 100, "not-base64!!")
+	if !errors.Is(err, api.ErrInvalidCursor) {
+		t.Fatalf("expected ErrInvalidCursor on garbage cursor, got %v", err)
 	}
 }
 

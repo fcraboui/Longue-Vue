@@ -118,13 +118,43 @@ func (m *memStore) GetApplicationBlockByName(_ context.Context, name string) (Ap
 	return blk, nil
 }
 
+// fakeBlockSortKeys mirrors the store-side blockSortSpec allowlist so
+// the handler's 400-on-bad-sort path is testable without PG.
+var fakeBlockSortKeys = map[string]bool{
+	"": true, "name": true, "owner": true, "created_at": true, "updated_at": true,
+}
+
+// blockMatchesFilter returns true when the row passes every optional
+// filter. Name matches (name, display_name) with the uniform
+// substring/glob semantics — mirrors the PG drift fix.
+func blockMatchesFilter(blk *ApplicationBlock, filter ApplicationBlockListFilter) bool {
+	if filter.Name != nil {
+		nameHit := fakeNameTermMatch(blk.Name, *filter.Name)
+		if !nameHit && blk.DisplayName != nil {
+			nameHit = fakeNameTermMatch(*blk.DisplayName, *filter.Name)
+		}
+		if !nameHit {
+			return false
+		}
+	}
+	if filter.Owner != nil {
+		if blk.Owner == nil || *blk.Owner != *filter.Owner {
+			return false
+		}
+	}
+	return true
+}
+
 //nolint:gocyclo // test fake mirrors PG impl: optional filters + cursor branch
 func (m *memStore) ListApplicationBlocks(
 	_ context.Context,
 	filter ApplicationBlockListFilter,
-	limit int,
-	cursor string,
+	page ListPage,
 ) ([]ApplicationBlock, string, error) {
+	if !fakeBlockSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
@@ -138,19 +168,10 @@ func (m *memStore) ListApplicationBlocks(
 	// Collect, then filter.
 	all := make([]ApplicationBlock, 0, len(appBlockFake.byID))
 	for _, blk := range appBlockFake.byID { //nolint:gocritic // rangeValCopy: test fake; copy is intentional
-
-		if filter.Name != nil {
-			needle := strings.ToLower(*filter.Name)
-			if !strings.Contains(strings.ToLower(blk.Name), needle) {
-				continue
-			}
+		blkCopy := blk
+		if blockMatchesFilter(&blkCopy, filter) {
+			all = append(all, blkCopy)
 		}
-		if filter.Owner != nil {
-			if blk.Owner == nil || *blk.Owner != *filter.Owner {
-				continue
-			}
-		}
-		all = append(all, blk)
 	}
 
 	// Order by (created_at DESC, id DESC) — matches the PG impl so
@@ -167,8 +188,8 @@ func (m *memStore) ListApplicationBlocks(
 	// internal/api independent of internal/store; only the format needs
 	// to match what the handler emits, and the handler delegates to the
 	// store at runtime — the fake just needs to be internally consistent.
-	if cursor != "" {
-		ts, cid, err := decodeFakeCursor(cursor)
+	if page.Cursor != "" {
+		ts, cid, err := decodeFakeCursor(page.Cursor)
 		if err != nil {
 			return nil, "", err
 		}

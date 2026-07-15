@@ -23,7 +23,31 @@ var (
 	// handler-level CountActiveAdmins + UPDATE pair would otherwise leave
 	// open under concurrent admin-degrading requests (audit finding H1).
 	ErrLastAdmin = errors.New("last admin")
+	// ErrInvalidCursor is returned by List* methods when a pagination
+	// cursor is malformed, or was minted under different sort/order
+	// parameters than the current request. Handlers translate it into
+	// a 400 problem+json.
+	ErrInvalidCursor = errors.New("invalid cursor")
+	// ErrInvalidSort is returned by List* methods when sort/order are
+	// not in the entity's allowlist. Handlers translate it into a 400
+	// problem+json.
+	ErrInvalidSort = errors.New("invalid sort")
 )
+
+// ListPage carries the uniform pagination + sort controls shared by
+// every paginated List* method (ADR-0042). The zero value means: first
+// page, default page size, the entity's historical default order.
+type ListPage struct {
+	Limit  int
+	Cursor string
+	// Sort is the API sort key ("" = entity default order). Keys are
+	// validated against a per-entity allowlist in the store layer;
+	// unknown keys yield ErrInvalidSort.
+	Sort string
+	// Order is "asc" or "desc". Empty means: desc for the default
+	// sort (preserving historical order), asc when Sort is set.
+	Order string
+}
 
 // PodListFilter collects the optional filters accepted by ListPods. Nil
 // fields are ignored; all present fields are AND-combined. Stored as a
@@ -35,6 +59,9 @@ type PodListFilter struct {
 	// ImageSubstring matches any container (init included) whose `image`
 	// field case-insensitively contains the substring.
 	ImageSubstring *string
+	// Name is the uniform name= filter: ci substring, or anchored
+	// glob when the term contains `*` (spec 2026-07-10).
+	Name *string
 }
 
 // WorkloadListFilter mirrors PodListFilter for ListWorkloads.
@@ -60,6 +87,9 @@ type WorkloadListFilter struct {
 	// (ESCAPE '\\'). Ignored when empty. AND-combined with the other
 	// link-aware filters.
 	ApplicationNameSubstring *string
+	// Name is the uniform name= filter: ci substring, or anchored
+	// glob when the term contains `*` (spec 2026-07-10).
+	Name *string
 }
 
 // CascadeCounts holds the number of child resources that will be removed
@@ -107,6 +137,14 @@ type Store interface {
 	Ping(ctx context.Context) error
 }
 
+// ClusterListFilter — uniform list filter for clusters. Name matches
+// case-insensitively over BOTH name and display_name (substring, or
+// anchored glob when the term contains `*`).
+type ClusterListFilter struct {
+	Name              *string
+	IncludeTerminated bool
+}
+
 // ClusterStore covers cluster CRUD, the idempotent EnsureCluster, and the
 // cascade soft-delete helpers.
 type ClusterStore interface {
@@ -135,9 +173,9 @@ type ClusterStore interface {
 	// Returns ErrNotFound when no cluster carries that name.
 	GetClusterByName(ctx context.Context, name string) (Cluster, error)
 
-	// ListClusters returns up to limit clusters after the given opaque cursor,
-	// plus the cursor for the next page (empty when exhausted).
-	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) (items []Cluster, nextCursor string, err error)
+	// ListClusters returns up to page.Limit clusters after the given cursor,
+	// filtered by filter, plus the cursor for the next page (empty when exhausted).
+	ListClusters(ctx context.Context, filter ClusterListFilter, page ListPage) (items []Cluster, nextCursor string, err error)
 
 	// UpdateCluster applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the cluster does not exist.
@@ -158,6 +196,16 @@ type ClusterStore interface {
 	CountClusterChildren(ctx context.Context, clusterID uuid.UUID) (CascadeCounts, error)
 }
 
+// NodeListFilter — nil fields are ignored; set fields AND-combine
+// (same contract as PodListFilter).
+type NodeListFilter struct {
+	ClusterID *uuid.UUID
+	// Name is the uniform name= filter: ci substring, or anchored
+	// glob when the term contains `*` (spec 2026-07-10).
+	Name              *string
+	IncludeTerminated bool
+}
+
 // NodeStore covers node CRUD, upsert, and reconcile.
 type NodeStore interface {
 	// CreateNode inserts a new node. Returns ErrNotFound when the parent
@@ -168,15 +216,10 @@ type NodeStore interface {
 	// GetNode fetches a node by id. Returns ErrNotFound if absent.
 	GetNode(ctx context.Context, id uuid.UUID) (Node, error)
 
-	// ListNodes returns up to limit nodes after the given opaque cursor. When
-	// clusterID is non-nil, results are filtered to that cluster.
-	ListNodes(
-		ctx context.Context,
-		clusterID *uuid.UUID,
-		limit int,
-		cursor string,
-		includeTerminated bool,
-	) (items []Node, nextCursor string, err error)
+	// ListNodes returns a paged list of nodes matching filter, sorted by
+	// page.Sort/page.Order. Unknown sort keys → ErrInvalidSort; mismatched
+	// cursor → ErrInvalidCursor.
+	ListNodes(ctx context.Context, filter NodeListFilter, page ListPage) (items []Node, nextCursor string, err error)
 
 	// UpdateNode applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the node does not exist.
@@ -209,6 +252,16 @@ type NodeStore interface {
 	BackfillNodeImages(ctx context.Context, images []NodeImage) (matched, updated int, err error)
 }
 
+// NamespaceListFilter — nil fields are ignored; set fields AND-combine
+// (same contract as NodeListFilter).
+type NamespaceListFilter struct {
+	ClusterID *uuid.UUID
+	// Name is the uniform name= filter: ci substring, or anchored
+	// glob when the term contains `*` (spec 2026-07-10).
+	Name              *string
+	IncludeTerminated bool
+}
+
 // NamespaceStore covers namespace CRUD, upsert, soft-delete, and reconcile.
 type NamespaceStore interface {
 	// CreateNamespace inserts a new namespace. Returns ErrNotFound when the
@@ -219,15 +272,10 @@ type NamespaceStore interface {
 	// GetNamespace fetches a namespace by id. Returns ErrNotFound if absent.
 	GetNamespace(ctx context.Context, id uuid.UUID) (Namespace, error)
 
-	// ListNamespaces returns up to limit namespaces after the given opaque
-	// cursor. When clusterID is non-nil, results are filtered to that cluster.
-	ListNamespaces(
-		ctx context.Context,
-		clusterID *uuid.UUID,
-		limit int,
-		cursor string,
-		includeTerminated bool,
-	) (items []Namespace, nextCursor string, err error)
+	// ListNamespaces returns a paged list of namespaces matching filter,
+	// sorted by page.Sort/page.Order. Unknown sort keys → ErrInvalidSort;
+	// mismatched cursor → ErrInvalidCursor.
+	ListNamespaces(ctx context.Context, filter NamespaceListFilter, page ListPage) (items []Namespace, nextCursor string, err error)
 
 	// UpdateNamespace applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the namespace does not exist.
@@ -260,9 +308,10 @@ type PodStore interface {
 	// GetPod fetches a pod by id. Returns ErrNotFound if absent.
 	GetPod(ctx context.Context, id uuid.UUID) (Pod, error)
 
-	// ListPods returns up to limit pods after the given opaque cursor,
-	// optionally filtered. See PodListFilter for the accepted predicates.
-	ListPods(ctx context.Context, filter PodListFilter, limit int, cursor string) (items []Pod, nextCursor string, err error)
+	// ListPods returns a paged list of pods matching filter, sorted by
+	// page.Sort/page.Order. Unknown sort keys → ErrInvalidSort; mismatched
+	// cursor → ErrInvalidCursor.
+	ListPods(ctx context.Context, filter PodListFilter, page ListPage) (items []Pod, nextCursor string, err error)
 
 	// UpdatePod applies the merge-patch fields set in in. Returns
 	// ErrNotFound if the pod does not exist.
@@ -291,10 +340,10 @@ type WorkloadStore interface {
 	// GetWorkload fetches a workload by id. Returns ErrNotFound if absent.
 	GetWorkload(ctx context.Context, id uuid.UUID) (Workload, error)
 
-	// ListWorkloads returns up to limit workloads after the given opaque
-	// cursor, optionally filtered. See WorkloadListFilter for the accepted
-	// predicates.
-	ListWorkloads(ctx context.Context, filter WorkloadListFilter, limit int, cursor string) (items []Workload, nextCursor string, err error)
+	// ListWorkloads returns a paged list of workloads matching filter, sorted by
+	// page.Sort/page.Order. Unknown sort keys → ErrInvalidSort; mismatched
+	// cursor → ErrInvalidCursor.
+	ListWorkloads(ctx context.Context, filter WorkloadListFilter, page ListPage) (items []Workload, nextCursor string, err error)
 
 	// UpdateWorkload applies merge-patch on mutable fields. Returns
 	// ErrNotFound if the workload does not exist. clearApplication carries the
@@ -319,6 +368,12 @@ type WorkloadStore interface {
 	DeleteWorkloadsNotIn(ctx context.Context, namespaceID uuid.UUID, keepKinds, keepNames []string) (int64, error)
 }
 
+// ServiceListFilter is the predicate set accepted by ListServices.
+type ServiceListFilter struct {
+	NamespaceID *uuid.UUID
+	Name        *string
+}
+
 // ServiceStore covers service CRUD, upsert, and reconcile.
 type ServiceStore interface {
 	// CreateService inserts a new service.
@@ -327,8 +382,10 @@ type ServiceStore interface {
 	// GetService fetches a service by id.
 	GetService(ctx context.Context, id uuid.UUID) (Service, error)
 
-	// ListServices returns up to limit services, optionally filtered by namespace.
-	ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) (items []Service, nextCursor string, err error)
+	// ListServices returns a cursor-paginated page of services, optionally
+	// filtered by namespace and/or name. See ServiceListFilter for the
+	// accepted predicates.
+	ListServices(ctx context.Context, filter ServiceListFilter, page ListPage) (items []Service, nextCursor string, err error)
 
 	// UpdateService applies merge-patch.
 	UpdateService(ctx context.Context, id uuid.UUID, in ServiceUpdate) (Service, error)
@@ -346,6 +403,12 @@ type ServiceStore interface {
 	DeleteServicesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 }
 
+// IngressListFilter is the predicate set accepted by ListIngresses.
+type IngressListFilter struct {
+	NamespaceID *uuid.UUID
+	Name        *string
+}
+
 // IngressStore covers ingress CRUD, upsert, and reconcile.
 type IngressStore interface {
 	// CreateIngress inserts a new ingress.
@@ -354,8 +417,10 @@ type IngressStore interface {
 	// GetIngress fetches an ingress by id.
 	GetIngress(ctx context.Context, id uuid.UUID) (Ingress, error)
 
-	// ListIngresses returns up to limit ingresses, optionally filtered by namespace.
-	ListIngresses(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) (items []Ingress, nextCursor string, err error)
+	// ListIngresses returns a cursor-paginated page of ingresses, optionally
+	// filtered by namespace and/or name. See IngressListFilter for the
+	// accepted predicates.
+	ListIngresses(ctx context.Context, filter IngressListFilter, page ListPage) (items []Ingress, nextCursor string, err error)
 
 	// UpdateIngress applies merge-patch.
 	UpdateIngress(ctx context.Context, id uuid.UUID, in IngressUpdate) (Ingress, error)
@@ -373,6 +438,12 @@ type IngressStore interface {
 	DeleteIngressesNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
 }
 
+// PersistentVolumeListFilter is the predicate set accepted by ListPersistentVolumes.
+type PersistentVolumeListFilter struct {
+	ClusterID *uuid.UUID
+	Name      *string
+}
+
 // PersistentVolumeStore covers cluster-scoped PV CRUD, upsert, and reconcile.
 type PersistentVolumeStore interface {
 	// CreatePersistentVolume inserts a new cluster-scoped PV. Returns
@@ -383,9 +454,13 @@ type PersistentVolumeStore interface {
 	// GetPersistentVolume fetches a PV by id.
 	GetPersistentVolume(ctx context.Context, id uuid.UUID) (PersistentVolume, error)
 
-	// ListPersistentVolumes returns up to limit PVs, optionally filtered by cluster.
+	// ListPersistentVolumes returns a cursor-paginated page of PVs, optionally
+	// filtered by cluster and/or name. See PersistentVolumeListFilter for the
+	// accepted predicates.
 	ListPersistentVolumes(
-		ctx context.Context, clusterID *uuid.UUID, limit int, cursor string,
+		ctx context.Context,
+		filter PersistentVolumeListFilter,
+		page ListPage,
 	) (items []PersistentVolume, nextCursor string, err error)
 
 	// UpdatePersistentVolume applies merge-patch.
@@ -405,6 +480,12 @@ type PersistentVolumeStore interface {
 	DeletePersistentVolumesNotIn(ctx context.Context, clusterID uuid.UUID, keepNames []string) (int64, error)
 }
 
+// PersistentVolumeClaimListFilter is the predicate set accepted by ListPersistentVolumeClaims.
+type PersistentVolumeClaimListFilter struct {
+	NamespaceID *uuid.UUID
+	Name        *string
+}
+
 // PersistentVolumeClaimStore covers PVC CRUD, upsert, and reconcile.
 type PersistentVolumeClaimStore interface {
 	// CreatePersistentVolumeClaim inserts a new PVC. Returns ErrNotFound
@@ -415,9 +496,13 @@ type PersistentVolumeClaimStore interface {
 	// GetPersistentVolumeClaim fetches a PVC by id.
 	GetPersistentVolumeClaim(ctx context.Context, id uuid.UUID) (PersistentVolumeClaim, error)
 
-	// ListPersistentVolumeClaims returns up to limit PVCs, optionally filtered by namespace.
+	// ListPersistentVolumeClaims returns a cursor-paginated page of PVCs, optionally
+	// filtered by namespace and/or name. See PersistentVolumeClaimListFilter for the
+	// accepted predicates.
 	ListPersistentVolumeClaims(
-		ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string,
+		ctx context.Context,
+		filter PersistentVolumeClaimListFilter,
+		page ListPage,
 	) (items []PersistentVolumeClaim, nextCursor string, err error)
 
 	// UpdatePersistentVolumeClaim applies merge-patch.
@@ -434,6 +519,23 @@ type PersistentVolumeClaimStore interface {
 
 	// DeletePersistentVolumeClaimsNotIn mirrors DeletePodsNotIn.
 	DeletePersistentVolumeClaimsNotIn(ctx context.Context, namespaceID uuid.UUID, keepNames []string) (int64, error)
+}
+
+// UserListFilter is the predicate set accepted by ListUsers.
+// Name matches the username field (case-insensitive).
+type UserListFilter struct {
+	Name *string
+}
+
+// APITokenListFilter is the predicate set accepted by ListAPITokens.
+type APITokenListFilter struct { //nolint:revive // stutter is acceptable here for clarity alongside the APIToken generated type
+	Name *string
+}
+
+// SessionListFilter is the predicate set accepted by ListSessions.
+// Name matches the owning user's username (case-insensitive).
+type SessionListFilter struct {
+	Name *string
 }
 
 // AuthStore covers the auth substrate (ADR-0007): users, sessions, API
@@ -474,8 +576,8 @@ type AuthStore interface {
 	// (callers always do an argon2 verify regardless).
 	GetUserByUsername(ctx context.Context, username string) (UserWithSecret, error)
 
-	// ListUsers returns a page of users (admin view).
-	ListUsers(ctx context.Context, limit int, cursor string) (items []User, nextCursor string, err error)
+	// ListUsers returns a page of users (admin view), sorted and filtered per ListPage/UserListFilter.
+	ListUsers(ctx context.Context, filter UserListFilter, page ListPage) (items []User, nextCursor string, err error)
 
 	// UpdateUser applies merge-patch on role / disabled / must_change_password.
 	// Password changes go through SetUserPassword because they need the
@@ -553,7 +655,7 @@ type AuthStore interface {
 
 	// ListSessions returns a page of active sessions with denormalised
 	// username for admin display.
-	ListSessions(ctx context.Context, limit int, cursor string) (items []Session, nextCursor string, err error)
+	ListSessions(ctx context.Context, filter SessionListFilter, page ListPage) (items []Session, nextCursor string, err error)
 
 	// CreateAPIToken inserts a new token row. `hash` is argon2id of the
 	// full plaintext; `prefix` is the first 8 chars of the plaintext
@@ -566,7 +668,7 @@ type AuthStore interface {
 
 	// ListAPITokens (admin view, metadata only — plaintext is never in
 	// responses except at creation).
-	ListAPITokens(ctx context.Context, limit int, cursor string) (items []ApiToken, nextCursor string, err error)
+	ListAPITokens(ctx context.Context, filter APITokenListFilter, page ListPage) (items []ApiToken, nextCursor string, err error)
 
 	// RevokeAPIToken sets revoked_at. Idempotent: revoking an
 	// already-revoked token returns nil.
@@ -613,9 +715,12 @@ type AuditStore interface {
 	// Never returns ErrConflict — id collisions are caller bugs.
 	InsertAuditEvent(ctx context.Context, in AuditEventInsert) error
 
-	// ListAuditEvents returns the newest events first, paged by opaque
-	// cursor. filter fields are AND-combined; nil fields are ignored.
-	ListAuditEvents(ctx context.Context, filter AuditEventFilter, limit int, cursor string) (items []AuditEvent, nextCursor string, err error)
+	// ListAuditEvents returns audit events paged by opaque cursor. filter
+	// fields are AND-combined; nil fields are ignored. page.Sort selects
+	// the sort column (default: occurred_at DESC); ErrInvalidSort is
+	// returned for unknown keys and ErrInvalidCursor for stale/mismatched
+	// cursors.
+	ListAuditEvents(ctx context.Context, filter AuditEventFilter, page ListPage) (items []AuditEvent, nextCursor string, err error)
 }
 
 // CloudAccountStore covers cloud accounts (ADR-0015), including the
@@ -637,8 +742,9 @@ type CloudAccountStore interface {
 	// supported provider. Returns ErrNotFound when no row matches.
 	GetCloudAccountByNameAny(ctx context.Context, name string) (CloudAccount, error)
 
-	// ListCloudAccounts returns up to limit accounts after the given opaque cursor.
-	ListCloudAccounts(ctx context.Context, limit int, cursor string) (items []CloudAccount, nextCursor string, err error)
+	// ListCloudAccounts returns a cursor-paginated page of cloud accounts,
+	// optionally filtered by CloudAccountListFilter.
+	ListCloudAccounts(ctx context.Context, filter CloudAccountListFilter, page ListPage) (items []CloudAccount, nextCursor string, err error)
 
 	// UpdateCloudAccount applies merge-patch on curated metadata + name.
 	// Status transitions to/from `disabled` and `pending_credentials` are
@@ -698,8 +804,7 @@ type VirtualMachineStore interface {
 	ListVirtualMachines(
 		ctx context.Context,
 		filter VirtualMachineListFilter,
-		limit int,
-		cursor string,
+		page ListPage,
 	) (items []VirtualMachine, nextCursor string, err error)
 
 	// UpdateVirtualMachine applies merge-patch on curated-only fields.
@@ -807,8 +912,7 @@ type ApplicationStore interface {
 	ListApplicationBlocks(
 		ctx context.Context,
 		filter ApplicationBlockListFilter,
-		limit int,
-		cursor string,
+		page ListPage,
 	) (items []ApplicationBlock, nextCursor string, err error)
 	UpdateApplicationBlock(ctx context.Context, id uuid.UUID, in ApplicationBlockPatch) (ApplicationBlock, error)
 	DeleteApplicationBlock(ctx context.Context, id uuid.UUID) error
@@ -822,10 +926,16 @@ type ApplicationStore interface {
 	// list responses to avoid an N+1 (ADR-0029 §6).
 	GetApplicationsByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Application, error)
 	GetApplicationByName(ctx context.Context, name string) (Application, error)
-	ListApplications(ctx context.Context, filter ApplicationListFilter, limit int, cursor string) (items []Application, nextCursor string, err error)
+	ListApplications(ctx context.Context, filter ApplicationListFilter, page ListPage) (items []Application, nextCursor string, err error)
 	UpdateApplication(ctx context.Context, id uuid.UUID, in ApplicationPatch) (Application, error)
 	DeleteApplication(ctx context.Context, id uuid.UUID) error
-	ListApplicationMembers(ctx context.Context, id uuid.UUID, limit int, cursor string) (items []ApplicationMember, nextCursor string, err error)
+	ListApplicationMembers(
+		ctx context.Context,
+		id uuid.UUID,
+		kind string,
+		limit int,
+		cursor string,
+	) (items []ApplicationMember, nextCursor string, err error)
 	// DICTCoverageCounts returns the number of workloads in each
 	// effective-DICT source bucket (application | workload | none), feeding
 	// the longue_vue_dict_coverage gauge (ADR-0029 §6).
@@ -850,8 +960,13 @@ type SecurityGroupStore interface {
 	ReplaceSecurityGroupRules(ctx context.Context, sgID uuid.UUID, rules []SecurityGroupRuleRow) error
 
 	// ListSecurityGroupsByAccount returns a page of security groups for
-	// the given account, ordered by (reconcile_seen_at DESC, id DESC).
-	ListSecurityGroupsByAccount(ctx context.Context, accountID uuid.UUID, limit int, cursor string) ([]SecurityGroupRow, string, error)
+	// the given account, filtered and sorted per filter/page.
+	ListSecurityGroupsByAccount(
+		ctx context.Context,
+		accountID uuid.UUID,
+		filter SecurityGroupListFilter,
+		page ListPage,
+	) ([]SecurityGroupRow, string, error)
 
 	// ListSecurityGroupRules returns all rules for a single security
 	// group, in stable insertion order.
@@ -888,14 +1003,13 @@ type SecurityGroupStore interface {
 // (flow-matrix P1, ADR-0038).
 type NetworkPolicyStore interface {
 	// ListNetworkPoliciesByCluster returns a page of network policies for
-	// the given cluster, optionally filtered by namespace. Cursor-based
-	// pagination ordered by (reconcile_seen_at DESC, id DESC).
+	// the given cluster, filtered and sorted per filter/page. The optional
+	// namespace filter moved from positional arg into filter.NamespaceID.
 	ListNetworkPoliciesByCluster(
 		ctx context.Context,
 		clusterID uuid.UUID,
-		namespaceID *uuid.UUID,
-		limit int,
-		cursor string,
+		filter NetworkPolicyListFilter,
+		page ListPage,
 	) ([]NetworkPolicyRow, string, error)
 
 	// GetNetworkPolicy fetches a network policy by stable UUID.

@@ -68,16 +68,16 @@ func HandleCreateApplicationBlock(store Store) http.HandlerFunc {
 }
 
 // HandleListApplicationBlocks — read scope. GET /v1/application-blocks.
-// Query params: name (case-insensitive substring), owner (exact),
-// limit, cursor.
+// Query params: name (ci substring / anchored glob over name +
+// display_name), owner (exact), plus the uniform limit + cursor + sort +
+// order controls.
 func HandleListApplicationBlocks(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
 		q := r.URL.Query()
-		limit := parseLimit(q.Get("limit"), 50)
-		cursor := q.Get("cursor")
+		page := parseListPage(r)
 
 		var filter ApplicationBlockListFilter
 		if v := q.Get("name"); v != "" {
@@ -87,10 +87,9 @@ func HandleListApplicationBlocks(store Store) http.HandlerFunc {
 			filter.Owner = &v
 		}
 
-		items, next, err := store.ListApplicationBlocks(r.Context(), filter, limit, cursor)
+		items, next, err := store.ListApplicationBlocks(r.Context(), filter, page)
 		if err != nil {
-			slog.Error("list application_blocks", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			writeListError(w, "list application_blocks", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{

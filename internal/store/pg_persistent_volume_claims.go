@@ -113,17 +113,52 @@ func (p *PG) GetPersistentVolumeClaim(ctx context.Context, id uuid.UUID) (api.Pe
 	return pvc, nil
 }
 
-// ListPersistentVolumeClaims returns up to limit PVCs, optionally filtered by namespace.
+// pvcSortSpec is the sort=<key> allowlist for GET /v1/persistentvolumeclaims.
+//
+// capacity / requested_storage are TEXT ("10Gi") — sort is
+// lexicographic on the stored value (native-column semantics, spec
+// decision #3); numeric ordering would need a computed column.
+var pvcSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:             {expr: "LOWER(pvc.name)", kind: sortText},
+		sortKeyPhase:            {expr: "LOWER(pvc.phase)", kind: sortText, nullable: true},
+		sortKeyStorageClassName: {expr: "LOWER(pvc.storage_class_name)", kind: sortText, nullable: true},
+		sortKeyRequestedStorage: {expr: "LOWER(pvc.requested_storage)", kind: sortText, nullable: true},
+		sortKeyCreatedAt:        {expr: "pvc.created_at", kind: sortTime},
+		sortKeyUpdatedAt:        {expr: "pvc.updated_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+// pvcSortVal extracts the serialized sort value for cursor minting.
+func pvcSortVal(pvc *api.PersistentVolumeClaim, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&pvc.Name)
+	case sortKeyPhase:
+		return sortValText(pvc.Phase)
+	case sortKeyStorageClassName:
+		return sortValText(pvc.StorageClassName)
+	case sortKeyRequestedStorage:
+		return sortValText(pvc.RequestedStorage)
+	case sortKeyUpdatedAt:
+		return sortValTime(pvc.UpdatedAt)
+	default: // created_at
+		return sortValTime(pvc.CreatedAt)
+	}
+}
+
+// ListPersistentVolumeClaims returns a cursor-paginated page of PVCs, optionally
+// filtered by namespace id and/or name.
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListPersistentVolumeClaims(
-	ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string,
+	ctx context.Context, filter api.PersistentVolumeClaimListFilter, page api.ListPage,
 ) ([]api.PersistentVolumeClaim, string, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := pvcSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
 
 	sb := strings.Builder{}
@@ -131,30 +166,32 @@ func (p *PG) ListPersistentVolumeClaims(
 	sb.WriteString(pvcSelectColumns)
 	sb.WriteString(` `)
 	sb.WriteString(pvcFromJoined)
-	args := make([]any, 0, 4)
-	conds := make([]string, 0, 2)
+	args := make([]any, 0, 6)
+	conds := make([]string, 0, 4)
 
-	if namespaceID != nil {
-		args = append(args, *namespaceID)
+	if filter.NamespaceID != nil {
+		args = append(args, *filter.NamespaceID)
 		conds = append(conds, fmt.Sprintf("pvc.namespace_id = $%d", len(args)))
 	}
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
+	if filter.Name != nil && *filter.Name != "" {
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf("LOWER(pvc.name) LIKE $%d ESCAPE '\\'", len(args)))
+	}
+	if page.Cursor != "" {
+		val, cid, err := decodeListCursor(page.Cursor, key, dir)
 		if err != nil {
 			return nil, "", err
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(pvc.created_at, pvc.id) < ($%d, $%d)", tsIdx, idIdx))
+		if err := keysetCond(col, "pvc.id", dir, val, cid, &conds, &args); err != nil {
+			return nil, "", err
+		}
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY pvc.created_at DESC, pvc.id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "pvc.id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -176,9 +213,9 @@ func (p *PG) ListPersistentVolumeClaims(
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		if last.CreatedAt != nil && last.Id != nil {
-			next = encodeCursor(*last.CreatedAt, *last.Id)
+		last := &items[limit-1]
+		if last.Id != nil {
+			next = encodeListCursor(key, pvcSortVal(last, key), *last.Id, dir)
 		}
 		items = items[:limit]
 	}

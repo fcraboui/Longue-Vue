@@ -136,6 +136,13 @@ func storeErr(op string, err error) error {
 	return fmt.Errorf("%s: %w", op, err)
 }
 
+// listBadRequest builds the 400 problem body for ErrInvalidCursor /
+// ErrInvalidSort returned by List* store methods.
+func listBadRequest(err error) Problem {
+	detail := err.Error()
+	return Problem{Type: "about:blank", Title: "Bad Request", Status: http.StatusBadRequest, Detail: &detail}
+}
+
 // ── Health probes ────────────────────────────────────────────────────
 
 // GetHealthz reports that the process is alive.
@@ -154,44 +161,45 @@ func (s *Server) GetReadyz(ctx context.Context, _ GetReadyzRequestObject) (GetRe
 
 // ── Clusters ─────────────────────────────────────────────────────────
 
-// ListClusters returns a paged list of clusters.
+// ListClusters returns a paged cluster list. name= is the uniform
+// ci-substring/glob filter (it USED to be an exact-match short-circuit
+// to GetClusterByName; recon 2026-07-10 found zero live callers of the
+// exact semantics — the push collector bootstraps via the idempotent
+// POST /v1/clusters, ADR-0016).
 //
-//nolint:gocyclo // parameter extraction and filtering logic; complexity is not branching
+//nolint:gocyclo // parameter extraction; if-chains are unavoidable for optional pointer params
 func (s *Server) ListClusters(ctx context.Context, req ListClustersRequestObject) (ListClustersResponseObject, error) {
-	// Exact name filter: short-circuit to GetClusterByName and return a
-	// single-item list (or empty). Used by the push collector to resolve
-	// its cluster record without paginating.
-	if req.Params.Name != nil && *req.Params.Name != "" {
-		c, err := s.store.GetClusterByName(ctx, *req.Params.Name)
-		if err != nil {
-			if errors.Is(err, ErrNotFound) {
-				return ListClusters200JSONResponse(ClusterList{Items: []Cluster{}}), nil
-			}
-			return nil, fmt.Errorf("getClusterByName: %w", err)
-		}
-		c = withClusterLayer(c)
-		return ListClusters200JSONResponse(ClusterList{Items: []Cluster{c}}), nil
-	}
-
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
 	}
-
-	includeTerminated := false
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := ClusterListFilter{}
+	if req.Params.Name != nil && *req.Params.Name != "" {
+		n := *req.Params.Name
+		filter.Name = &n
+	}
 	if req.Params.IncludeTerminated != nil {
-		includeTerminated = *req.Params.IncludeTerminated
+		filter.IncludeTerminated = *req.Params.IncludeTerminated
 	}
 
-	items, next, err := s.store.ListClusters(ctx, limit, cursor, includeTerminated)
+	items, next, err := s.store.ListClusters(ctx, filter, page)
 	if err != nil {
-		return nil, fmt.Errorf("listClusters: %w", err)
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListClusters400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
+		return nil, storeErr("listClusters", err)
 	}
-
 	for i := range items {
 		items[i] = withClusterLayer(items[i])
 	}
@@ -347,24 +355,39 @@ func clusterDeletionSnapshot(c *Cluster, counts CascadeCounts) map[string]any {
 
 // ── Nodes ────────────────────────────────────────────────────────────
 
-// ListNodes returns a paged list of nodes, optionally filtered by cluster_id.
+// ListNodes returns a paged list of nodes, optionally filtered by cluster_id and/or name.
+//
+//nolint:gocyclo // parameter extraction and error mapping; complexity is not branching
 func (s *Server) ListNodes(ctx context.Context, req ListNodesRequestObject) (ListNodesResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
 	}
-
-	includeTerminated := false
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := NodeListFilter{ClusterID: req.Params.ClusterId}
+	if req.Params.Name != nil {
+		n := *req.Params.Name
+		filter.Name = &n
+	}
 	if req.Params.IncludeTerminated != nil {
-		includeTerminated = *req.Params.IncludeTerminated
+		filter.IncludeTerminated = *req.Params.IncludeTerminated
 	}
 
-	items, next, err := s.store.ListNodes(ctx, req.Params.ClusterId, limit, cursor, includeTerminated)
+	items, next, err := s.store.ListNodes(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListNodes400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
 		return nil, storeErr("listNodes", err)
 	}
 
@@ -474,25 +497,40 @@ func (s *Server) DeleteNode(ctx context.Context, req DeleteNodeRequestObject) (D
 
 // ── Namespaces ───────────────────────────────────────────────────────
 
-// ListNamespaces returns a paged list of namespaces, optionally filtered by cluster_id.
+// ListNamespaces returns a paged list of namespaces, optionally filtered by cluster_id and/or name.
+//
+//nolint:gocyclo // parameter extraction and error mapping; complexity is not branching
 func (s *Server) ListNamespaces(ctx context.Context, req ListNamespacesRequestObject) (ListNamespacesResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
 	}
-
-	includeTerminated := false
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := NamespaceListFilter{ClusterID: req.Params.ClusterId}
+	if req.Params.Name != nil {
+		n := *req.Params.Name
+		filter.Name = &n
+	}
 	if req.Params.IncludeTerminated != nil {
-		includeTerminated = *req.Params.IncludeTerminated
+		filter.IncludeTerminated = *req.Params.IncludeTerminated
 	}
 
-	items, next, err := s.store.ListNamespaces(ctx, req.Params.ClusterId, limit, cursor, includeTerminated)
+	items, next, err := s.store.ListNamespaces(ctx, filter, page)
 	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListNamespaces400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
+		return nil, storeErr("listNamespaces", err)
 	}
 
 	for i := range items {
@@ -604,23 +642,34 @@ func (s *Server) DeleteNamespace(ctx context.Context, req DeleteNamespaceRequest
 // ListPods returns a paged list of pods, optionally filtered by namespace_id,
 // node_name, and/or container image substring.
 func (s *Server) ListPods(ctx context.Context, req ListPodsRequestObject) (ListPodsResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
 	}
 	filter := PodListFilter{
 		NamespaceID:    req.Params.NamespaceId,
 		NodeName:       req.Params.NodeName,
 		WorkloadID:     req.Params.WorkloadId,
 		ImageSubstring: req.Params.Image,
+		Name:           req.Params.Name,
 	}
 
-	items, next, err := s.store.ListPods(ctx, filter, limit, cursor)
+	items, next, err := s.store.ListPods(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidSort) || errors.Is(err, ErrInvalidCursor) {
+			return ListPods400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid parameter", err.Error())),
+			}, nil
+		}
 		return nil, fmt.Errorf("store: %w", err)
 	}
 
@@ -731,20 +780,26 @@ func (s *Server) DeletePod(ctx context.Context, req DeletePodRequestObject) (Del
 // ListWorkloads returns a paged list of workloads, optionally filtered by
 // namespace_id and/or kind.
 //
-//nolint:gocritic // req is passed by value to satisfy the oapi-codegen ServerInterface signature.
+//nolint:gocritic,gocyclo // req is passed by value to satisfy the oapi-codegen ServerInterface signature; link-aware filter branches inflate cyclo count.
 func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObject) (ListWorkloadsResponseObject, error) {
-	limit := 0
-	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
-	}
-	cursor := ""
-	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
-	}
 	if req.Params.Kind != nil && !req.Params.Kind.Valid() {
 		return ListWorkloads400ApplicationProblemPlusJSONResponse{
 			BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid filter", "query 'kind' is not a known workload kind")),
 		}, nil
+	}
+
+	page := ListPage{}
+	if req.Params.Limit != nil {
+		page.Limit = *req.Params.Limit
+	}
+	if req.Params.Cursor != nil {
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
 	}
 
 	includeTerminated := false
@@ -762,10 +817,16 @@ func (s *Server) ListWorkloads(ctx context.Context, req ListWorkloadsRequestObje
 		ApplicationID:   req.Params.ApplicationId,
 		ApplicationName: req.Params.ApplicationName,
 		Unlinked:        req.Params.Unlinked,
+		Name:            req.Params.Name,
 	}
 
-	items, next, err := s.store.ListWorkloads(ctx, filter, limit, cursor)
+	items, next, err := s.store.ListWorkloads(ctx, filter, page)
 	if err != nil {
+		if errors.Is(err, ErrInvalidSort) || errors.Is(err, ErrInvalidCursor) {
+			return ListWorkloads400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(problemBadRequest("Invalid parameter", err.Error())),
+			}, nil
+		}
 		return nil, fmt.Errorf("store: %w", err)
 	}
 
@@ -912,20 +973,37 @@ func (s *Server) DeleteWorkload(ctx context.Context, req DeleteWorkloadRequestOb
 
 // ── Services ─────────────────────────────────────────────────────────
 
-// ListServices returns a paged list of services, optionally filtered by namespace_id.
+// ListServices returns a paged list of services, optionally filtered by namespace_id and/or name.
+//
+//nolint:gocyclo // parameter extraction and error mapping; complexity is not branching
 func (s *Server) ListServices(ctx context.Context, req ListServicesRequestObject) (ListServicesResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := ServiceListFilter{NamespaceID: req.Params.NamespaceId}
+	if req.Params.Name != nil {
+		n := *req.Params.Name
+		filter.Name = &n
 	}
 
-	items, next, err := s.store.ListServices(ctx, req.Params.NamespaceId, limit, cursor)
+	items, next, err := s.store.ListServices(ctx, filter, page)
 	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListServices400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
+		return nil, storeErr("listServices", err)
 	}
 
 	for i := range items {
@@ -1039,20 +1117,37 @@ func (s *Server) DeleteService(ctx context.Context, req DeleteServiceRequestObje
 
 // ── Ingresses ────────────────────────────────────────────────────────
 
-// ListIngresses returns a paged list of ingresses, optionally filtered by namespace_id.
+// ListIngresses returns a paged list of ingresses, optionally filtered by namespace_id and/or name.
+//
+//nolint:gocyclo // parameter extraction and error mapping; complexity is not branching
 func (s *Server) ListIngresses(ctx context.Context, req ListIngressesRequestObject) (ListIngressesResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := IngressListFilter{NamespaceID: req.Params.NamespaceId}
+	if req.Params.Name != nil {
+		n := *req.Params.Name
+		filter.Name = &n
 	}
 
-	items, next, err := s.store.ListIngresses(ctx, req.Params.NamespaceId, limit, cursor)
+	items, next, err := s.store.ListIngresses(ctx, filter, page)
 	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListIngresses400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
+		return nil, storeErr("listIngresses", err)
 	}
 
 	for i := range items {
@@ -1160,19 +1255,36 @@ func isValidServiceType(t ServiceType) bool {
 // ── Persistent Volumes ───────────────────────────────────────────────
 
 // ListPersistentVolumes returns a paged list of PVs.
+//
+//nolint:gocyclo // parameter extraction and error mapping; complexity is not branching
 func (s *Server) ListPersistentVolumes(ctx context.Context, req ListPersistentVolumesRequestObject) (ListPersistentVolumesResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := PersistentVolumeListFilter{ClusterID: req.Params.ClusterId}
+	if req.Params.Name != nil {
+		n := *req.Params.Name
+		filter.Name = &n
 	}
 
-	items, next, err := s.store.ListPersistentVolumes(ctx, req.Params.ClusterId, limit, cursor)
+	items, next, err := s.store.ListPersistentVolumes(ctx, filter, page)
 	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListPersistentVolumes400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
+		return nil, storeErr("listPersistentVolumes", err)
 	}
 
 	for i := range items {
@@ -1272,21 +1384,38 @@ func (s *Server) DeletePersistentVolume(ctx context.Context, req DeletePersisten
 // ── Persistent Volume Claims ─────────────────────────────────────────
 
 // ListPersistentVolumeClaims returns a paged list of PVCs.
+//
+//nolint:gocyclo // parameter extraction and error mapping; complexity is not branching
 func (s *Server) ListPersistentVolumeClaims(
 	ctx context.Context, req ListPersistentVolumeClaimsRequestObject,
 ) (ListPersistentVolumeClaimsResponseObject, error) {
-	limit := 0
+	page := ListPage{}
 	if req.Params.Limit != nil {
-		limit = *req.Params.Limit
+		page.Limit = *req.Params.Limit
 	}
-	cursor := ""
 	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
+		page.Cursor = *req.Params.Cursor
+	}
+	if req.Params.Sort != nil {
+		page.Sort = *req.Params.Sort
+	}
+	if req.Params.Order != nil {
+		page.Order = string(*req.Params.Order)
+	}
+	filter := PersistentVolumeClaimListFilter{NamespaceID: req.Params.NamespaceId}
+	if req.Params.Name != nil {
+		n := *req.Params.Name
+		filter.Name = &n
 	}
 
-	items, next, err := s.store.ListPersistentVolumeClaims(ctx, req.Params.NamespaceId, limit, cursor)
+	items, next, err := s.store.ListPersistentVolumeClaims(ctx, filter, page)
 	if err != nil {
-		return nil, fmt.Errorf("store: %w", err)
+		if errors.Is(err, ErrInvalidCursor) || errors.Is(err, ErrInvalidSort) {
+			return ListPersistentVolumeClaims400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse(listBadRequest(err)),
+			}, nil
+		}
+		return nil, storeErr("listPersistentVolumeClaims", err)
 	}
 
 	for i := range items {

@@ -178,8 +178,8 @@ func (p *PG) ListImageOriginMappings(
 		argN++
 	}
 	if params.Q != "" {
-		filters = append(filters, fmt.Sprintf("image_name ILIKE $%d", argN))
-		args = append(args, "%"+params.Q+"%")
+		filters = append(filters, fmt.Sprintf("image_name ILIKE $%d ESCAPE '\\'", argN))
+		args = append(args, "%"+escapeLike(params.Q)+"%")
 		argN++
 	}
 	where := ""

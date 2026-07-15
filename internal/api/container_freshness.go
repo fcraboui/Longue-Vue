@@ -201,7 +201,7 @@ func BuildContainerFreshness(ctx context.Context, s Store) ([]Workload, error) {
 	var out []Workload
 	cursor := ""
 	for {
-		items, next, err := s.ListWorkloads(ctx, WorkloadListFilter{}, buildContainerFreshnessPageSize, cursor)
+		items, next, err := s.ListWorkloads(ctx, WorkloadListFilter{}, ListPage{Limit: buildContainerFreshnessPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("list workloads: %w", err)
 		}

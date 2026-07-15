@@ -18,13 +18,13 @@ import (
 
 // ExtractStore is the narrow slice of Store the extract handlers consume.
 type ExtractStore interface {
-	ListClusters(ctx context.Context, limit int, cursor string, includeTerminated bool) ([]Cluster, string, error)
-	ListNodes(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]Node, string, error)
-	ListNamespaces(ctx context.Context, clusterID *uuid.UUID, limit int, cursor string, includeTerminated bool) ([]Namespace, string, error)
-	ListWorkloads(ctx context.Context, filter WorkloadListFilter, limit int, cursor string) ([]Workload, string, error)
-	ListPods(ctx context.Context, filter PodListFilter, limit int, cursor string) ([]Pod, string, error)
-	ListVirtualMachines(ctx context.Context, filter VirtualMachineListFilter, limit int, cursor string) ([]VirtualMachine, string, error)
-	ListCloudAccounts(ctx context.Context, limit int, cursor string) ([]CloudAccount, string, error)
+	ListClusters(ctx context.Context, filter ClusterListFilter, page ListPage) ([]Cluster, string, error)
+	ListNodes(ctx context.Context, filter NodeListFilter, page ListPage) ([]Node, string, error)
+	ListNamespaces(ctx context.Context, filter NamespaceListFilter, page ListPage) ([]Namespace, string, error)
+	ListWorkloads(ctx context.Context, filter WorkloadListFilter, page ListPage) ([]Workload, string, error)
+	ListPods(ctx context.Context, filter PodListFilter, page ListPage) ([]Pod, string, error)
+	ListVirtualMachines(ctx context.Context, filter VirtualMachineListFilter, page ListPage) ([]VirtualMachine, string, error)
+	ListCloudAccounts(ctx context.Context, filter CloudAccountListFilter, page ListPage) ([]CloudAccount, string, error)
 
 	// Container-version enrichment surface (used to attach EOL status to
 	// workload images for the EOL extract).
@@ -272,7 +272,7 @@ func collectAllClusters(ctx context.Context, store ExtractStore) ([]Cluster, err
 	var out []Cluster
 	cursor := ""
 	for {
-		items, next, err := store.ListClusters(ctx, extractPageSize, cursor, false)
+		items, next, err := store.ListClusters(ctx, ClusterListFilter{}, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("listClusters: %w", err)
 		}
@@ -288,7 +288,7 @@ func collectAllNodes(ctx context.Context, store ExtractStore) ([]Node, error) {
 	var out []Node
 	cursor := ""
 	for {
-		items, next, err := store.ListNodes(ctx, nil, extractPageSize, cursor, false)
+		items, next, err := store.ListNodes(ctx, NodeListFilter{}, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("listNodes: %w", err)
 		}
@@ -308,7 +308,7 @@ func collectAllVMs(
 	var out []VirtualMachine
 	cursor := ""
 	for {
-		items, next, err := store.ListVirtualMachines(ctx, filter, extractPageSize, cursor)
+		items, next, err := store.ListVirtualMachines(ctx, filter, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("listVirtualMachines: %w", err)
 		}
@@ -564,7 +564,7 @@ func loadClusterNamespaceIndex(
 	nsByID = make(map[uuid.UUID]Namespace)
 	cursor := ""
 	for {
-		items, next, err := store.ListNamespaces(ctx, nil, extractPageSize, cursor, false)
+		items, next, err := store.ListNamespaces(ctx, NamespaceListFilter{}, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, nil, fmt.Errorf("loadClusterNamespaceIndex namespaces: %w", err)
 		}
@@ -653,7 +653,7 @@ func listAllWorkloadsByFilter(
 	var out []Workload
 	cursor := ""
 	for {
-		items, next, err := store.ListWorkloads(ctx, filter, extractPageSize, cursor)
+		items, next, err := store.ListWorkloads(ctx, filter, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("listAllWorkloadsByFilter: %w", err)
 		}
@@ -669,7 +669,7 @@ func collectAllCloudAccounts(ctx context.Context, store ExtractStore) ([]CloudAc
 	var out []CloudAccount
 	cursor := ""
 	for {
-		items, next, err := store.ListCloudAccounts(ctx, extractPageSize, cursor)
+		items, next, err := store.ListCloudAccounts(ctx, CloudAccountListFilter{}, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("collectAllCloudAccounts: %w", err)
 		}
@@ -709,7 +709,7 @@ func collectWorkloadExtract(
 	}
 	cursor := ""
 	for {
-		items, next, err := store.ListWorkloads(ctx, wlFilter, extractPageSize, cursor)
+		items, next, err := store.ListWorkloads(ctx, wlFilter, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, nil, fmt.Errorf("collectWorkloadExtract: %w", err)
 		}
@@ -810,7 +810,7 @@ func collectPodExtract(
 	q := f.q
 	cursor := ""
 	for {
-		items, next, err := store.ListPods(ctx, PodListFilter{ImageSubstring: &q}, extractPageSize, cursor)
+		items, next, err := store.ListPods(ctx, PodListFilter{ImageSubstring: &q}, ListPage{Limit: extractPageSize, Cursor: cursor})
 		if err != nil {
 			return nil, nil, fmt.Errorf("collectPodExtract: %w", err)
 		}

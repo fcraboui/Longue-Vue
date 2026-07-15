@@ -172,17 +172,32 @@ func (m *memStore) GetClusterByName(_ context.Context, name string) (Cluster, er
 	return m.byID[id], nil
 }
 
-func (m *memStore) ListClusters(_ context.Context, limit int, _ string, includeTerminated bool) ([]Cluster, string, error) {
+var fakeClusterSortKeys = map[string]bool{
+	"": true, "name": true, "environment": true, "provider": true,
+	"region": true, "kubernetes_version": true, "created_at": true, "updated_at": true,
+}
+
+func (m *memStore) ListClusters(_ context.Context, filter ClusterListFilter, page ListPage) ([]Cluster, string, error) {
+	if !fakeClusterSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]Cluster, 0, len(m.byID))
 	for _, c := range m.byID { //nolint:gocritic // acceptable copy in test code
-		// Filter out terminated clusters unless includeTerminated is true.
-		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
-		_ = includeTerminated
+		// memStore doesn't track terminated_at; IncludeTerminated is accepted but a no-op.
+		if filter.Name != nil && *filter.Name != "" {
+			lower := strings.ToLower(*filter.Name)
+			nameMatch := strings.Contains(strings.ToLower(c.Name), lower)
+			displayMatch := c.DisplayName != nil && strings.Contains(strings.ToLower(*c.DisplayName), lower)
+			if !nameMatch && !displayMatch {
+				continue
+			}
+		}
 		out = append(out, c)
 	}
 	if len(out) > limit {
@@ -416,24 +431,28 @@ func (m *memStore) GetNode(_ context.Context, id uuid.UUID) (Node, error) {
 	return n, nil
 }
 
-func (m *memStore) ListNodes(_ context.Context, clusterID *uuid.UUID, limit int, _ string, includeTerminated bool) ([]Node, string, error) {
+var fakeNodeSortKeys = map[string]bool{
+	"": true, "name": true, "role": true, "zone": true,
+	"instance_type": true, "created_at": true, "updated_at": true,
+}
+
+func (m *memStore) ListNodes(_ context.Context, filter NodeListFilter, page ListPage) ([]Node, string, error) {
+	if !fakeNodeSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if limit <= 0 {
-		limit = 50
-	}
-	out := make([]Node, 0, len(m.nodesByID))
+	out := []Node{}
 	for _, n := range m.nodesByID { //nolint:gocritic // acceptable copy in test code
-		if clusterID != nil && n.ClusterId != *clusterID {
+		if filter.ClusterID != nil && n.ClusterId != *filter.ClusterID {
 			continue
 		}
-		// Filter out terminated nodes unless includeTerminated is true.
-		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
-		_ = includeTerminated
+		if filter.Name != nil {
+			if !strings.Contains(strings.ToLower(n.Name), strings.ToLower(*filter.Name)) {
+				continue
+			}
+		}
 		out = append(out, n)
-	}
-	if len(out) > limit {
-		out = out[:limit]
 	}
 	return out, "", nil
 }
@@ -609,20 +628,33 @@ func (m *memStore) GetNamespace(_ context.Context, id uuid.UUID) (Namespace, err
 	return n, nil
 }
 
-func (m *memStore) ListNamespaces(_ context.Context, clusterID *uuid.UUID, limit int, _ string, includeTerminated bool) ([]Namespace, string, error) {
+var fakeNamespaceSortKeys = map[string]bool{
+	"": true, "name": true, "phase": true, "created_at": true, "updated_at": true,
+}
+
+func (m *memStore) ListNamespaces(_ context.Context, filter NamespaceListFilter, page ListPage) ([]Namespace, string, error) {
+	if !fakeNamespaceSortKeys[page.Sort] {
+		return nil, "", ErrInvalidSort
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]Namespace, 0, len(m.nsByID))
 	for _, n := range m.nsByID { //nolint:gocritic // acceptable copy in test code
-		if clusterID != nil && n.ClusterId != *clusterID {
+		if filter.ClusterID != nil && n.ClusterId != *filter.ClusterID {
 			continue
 		}
-		// Filter out terminated namespaces unless includeTerminated is true.
+		if filter.Name != nil {
+			if !strings.Contains(strings.ToLower(n.Name), strings.ToLower(*filter.Name)) {
+				continue
+			}
+		}
+		// Filter out terminated namespaces unless IncludeTerminated is true.
 		// Note: memStore doesn't track terminated_at, so this just accepts the parameter.
-		_ = includeTerminated
+		_ = filter.IncludeTerminated
 		out = append(out, n)
 	}
 	if len(out) > limit {
@@ -739,9 +771,10 @@ func (m *memStore) GetPod(_ context.Context, id uuid.UUID) (Pod, error) {
 }
 
 //nolint:gocyclo // multi-filter test fake
-func (m *memStore) ListPods(_ context.Context, filter PodListFilter, limit int, _ string) ([]Pod, string, error) {
+func (m *memStore) ListPods(_ context.Context, filter PodListFilter, page ListPage) ([]Pod, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
@@ -958,10 +991,11 @@ func (m *memStore) GetWorkload(_ context.Context, id uuid.UUID) (Workload, error
 
 //nolint:gocyclo // multi-filter test fake
 func (m *memStore) ListWorkloads(
-	_ context.Context, filter WorkloadListFilter, limit int, _ string,
+	_ context.Context, filter WorkloadListFilter, page ListPage,
 ) ([]Workload, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
@@ -1165,16 +1199,20 @@ func (m *memStore) GetIngress(_ context.Context, id uuid.UUID) (Ingress, error) 
 	return i, nil
 }
 
-func (m *memStore) ListIngresses(_ context.Context, namespaceID *uuid.UUID, limit int, _ string) ([]Ingress, string, error) {
+func (m *memStore) ListIngresses(_ context.Context, filter IngressListFilter, page ListPage) ([]Ingress, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]Ingress, 0, len(m.ingressesByID))
 	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, i := range m.ingressesByID {
-		if namespaceID != nil && i.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && i.NamespaceId != *filter.NamespaceID {
+			continue
+		}
+		if filter.Name != nil && *filter.Name != "" && !strings.Contains(strings.ToLower(i.Name), strings.ToLower(*filter.Name)) {
 			continue
 		}
 		out = append(out, i)
@@ -1332,16 +1370,20 @@ func (m *memStore) GetService(_ context.Context, id uuid.UUID) (Service, error) 
 	return s, nil
 }
 
-func (m *memStore) ListServices(_ context.Context, namespaceID *uuid.UUID, limit int, _ string) ([]Service, string, error) {
+func (m *memStore) ListServices(_ context.Context, filter ServiceListFilter, page ListPage) ([]Service, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]Service, 0, len(m.servicesByID))
 	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, s := range m.servicesByID {
-		if namespaceID != nil && s.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && s.NamespaceId != *filter.NamespaceID {
+			continue
+		}
+		if filter.Name != nil && *filter.Name != "" && !strings.Contains(strings.ToLower(s.Name), strings.ToLower(*filter.Name)) {
 			continue
 		}
 		out = append(out, s)
@@ -1656,15 +1698,16 @@ func (m *memStore) GetPersistentVolume(_ context.Context, id uuid.UUID) (Persist
 	return pv, nil
 }
 
-func (m *memStore) ListPersistentVolumes(_ context.Context, clusterID *uuid.UUID, limit int, _ string) ([]PersistentVolume, string, error) {
+func (m *memStore) ListPersistentVolumes(_ context.Context, filter PersistentVolumeListFilter, page ListPage) ([]PersistentVolume, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]PersistentVolume, 0, len(m.pvsByID))
 	for _, pv := range m.pvsByID { //nolint:gocritic // acceptable copy in test code
-		if clusterID != nil && pv.ClusterId != *clusterID {
+		if filter.ClusterID != nil && pv.ClusterId != *filter.ClusterID {
 			continue
 		}
 		out = append(out, pv)
@@ -1879,17 +1922,18 @@ func (m *memStore) GetPersistentVolumeClaim(_ context.Context, id uuid.UUID) (Pe
 }
 
 func (m *memStore) ListPersistentVolumeClaims(
-	_ context.Context, namespaceID *uuid.UUID, limit int, _ string,
+	_ context.Context, filter PersistentVolumeClaimListFilter, page ListPage,
 ) ([]PersistentVolumeClaim, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	limit := page.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 	out := make([]PersistentVolumeClaim, 0, len(m.pvcsByID))
 	//nolint:gocritic // rangeValCopy: test fixture; copying the entity struct is acceptable here
 	for _, pvc := range m.pvcsByID {
-		if namespaceID != nil && pvc.NamespaceId != *namespaceID {
+		if filter.NamespaceID != nil && pvc.NamespaceId != *filter.NamespaceID {
 			continue
 		}
 		out = append(out, pvc)
@@ -2953,7 +2997,7 @@ func TestDeleteClusterAuditEnrichment(t *testing.T) { //nolint:gocyclo // end-to
 	}
 
 	// Verify the audit event contains the enriched details.
-	evs, _, err := store.ListAuditEvents(context.Background(), AuditEventFilter{}, 10, "")
+	evs, _, err := store.ListAuditEvents(context.Background(), AuditEventFilter{}, ListPage{Limit: 10})
 	if err != nil {
 		t.Fatalf("list audit events: %v", err)
 	}
@@ -3020,6 +3064,19 @@ func TestDeleteClusterAuditEnrichment(t *testing.T) { //nolint:gocyclo // end-to
 // Application store methods live in server_application_fake_test.go
 // (real in-memory impl, used by the application handler tests).
 // ApplicationBlock methods live in server_application_block_fake_test.go.
+
+func TestListNodesBadSortReturns400Problem(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t, newMemStore())
+
+	rr := do(h, http.MethodGet, "/v1/nodes?sort=bogus", "")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%q, want 400", rr.Code, rr.Body.String())
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("content-type=%q, want application/problem+json", ct)
+	}
+}
 
 func do(h http.Handler, method, target, body string) *httptest.ResponseRecorder {
 	req, _ := http.NewRequestWithContext(context.Background(), method, target, strings.NewReader(body))

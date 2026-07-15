@@ -329,6 +329,96 @@ func TestApplicationList_NameFilter(t *testing.T) {
 	}
 }
 
+// TestApplicationList_GlobNameFilter proves the uniform name= glob
+// passes through the handler: off* matches the two office-* seeds.
+func TestApplicationList_GlobNameFilter(t *testing.T) {
+	resetApplicationFakes()
+	store := newMemStore()
+	h := buildApplicationMux(t, store, editorCaller())
+
+	for _, name := range []string{"office-suite", "office-mobile", "data-platform"} {
+		rr := doReq(t, h, http.MethodPost, "/v1/applications", map[string]any{"name": name})
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("seed %q status=%d body=%q", name, rr.Code, rr.Body.String())
+		}
+	}
+
+	rr := doReq(t, h, http.MethodGet, "/v1/applications?name=off*", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	var page struct {
+		Items []Application `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("glob off*: got %d items, want 2", len(page.Items))
+	}
+}
+
+// TestApplicationList_BadSort verifies an unknown sort key surfaces as a
+// 400 problem via writeListError (hand-written path).
+func TestApplicationList_BadSort(t *testing.T) {
+	resetApplicationFakes()
+	store := newMemStore()
+	h := buildApplicationMux(t, store, editorCaller())
+
+	rr := doReq(t, h, http.MethodGet, "/v1/applications?sort=bogus", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%q", rr.Code, rr.Body.String())
+	}
+}
+
+// TestApplicationListMembers_BadKind verifies kind= outside the enum
+// (workload | virtual_machine | vm_application) is rejected with 400.
+func TestApplicationListMembers_BadKind(t *testing.T) {
+	resetApplicationFakes()
+	store := newMemStore()
+	h := buildApplicationMux(t, store, editorCaller())
+
+	rr := doReq(t, h, http.MethodPost, "/v1/applications", map[string]any{"name": "kind-test"})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed status=%d", rr.Code)
+	}
+	var app Application
+	_ = json.Unmarshal(rr.Body.Bytes(), &app)
+
+	rr = doReq(t, h, http.MethodGet, fmt.Sprintf("/v1/applications/%s/members?kind=bogus", app.ID), nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for bogus kind, got %d body=%q", rr.Code, rr.Body.String())
+	}
+
+	// The three documented values (and empty) pass validation.
+	for _, kind := range []string{"", "workload", "virtual_machine", "vm_application"} {
+		rr = doReq(t, h, http.MethodGet, fmt.Sprintf("/v1/applications/%s/members?kind=%s", app.ID, kind), nil)
+		if rr.Code != http.StatusOK {
+			t.Errorf("kind=%q expected 200, got %d body=%q", kind, rr.Code, rr.Body.String())
+		}
+	}
+}
+
+// TestApplicationListMembers_BadCursor verifies that a malformed cursor
+// (garbage base64) is rejected with 400 problem+json.
+func TestApplicationListMembers_BadCursor(t *testing.T) {
+	resetApplicationFakes()
+	store := newMemStore()
+	h := buildApplicationMux(t, store, editorCaller())
+
+	rr := doReq(t, h, http.MethodPost, "/v1/applications", map[string]any{"name": "cursor-test"})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed status=%d", rr.Code)
+	}
+	var app Application
+	_ = json.Unmarshal(rr.Body.Bytes(), &app)
+
+	rr = doReq(t, h, http.MethodGet, fmt.Sprintf("/v1/applications/%s/members?cursor=not-base64!!", app.ID), nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for garbage cursor, got %d body=%q", rr.Code, rr.Body.String())
+	}
+}
+
 func TestApplicationList_DICTMinFilter(t *testing.T) {
 	resetApplicationFakes()
 	store := newMemStore()

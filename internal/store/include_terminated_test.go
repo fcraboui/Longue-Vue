@@ -73,7 +73,7 @@ func TestListNodesIncludeTerminated(t *testing.T) {
 
 	// Test 1: ListNodes with includeTerminated=false (default).
 	// Should return 2 nodes (live-1 and live-2).
-	items, _, err := pg.ListNodes(ctx, cluster.Id, 0, "", false)
+	items, _, err := pg.ListNodes(ctx, api.NodeListFilter{ClusterID: cluster.Id}, api.ListPage{})
 	if err != nil {
 		t.Fatalf("ListNodes (includeTerminated=false): %v", err)
 	}
@@ -86,7 +86,7 @@ func TestListNodesIncludeTerminated(t *testing.T) {
 
 	// Test 2: ListNodes with includeTerminated=true.
 	// Should return 3 nodes (live-1, live-2, and soon-dead).
-	items, _, err = pg.ListNodes(ctx, cluster.Id, 0, "", true)
+	items, _, err = pg.ListNodes(ctx, api.NodeListFilter{ClusterID: cluster.Id, IncludeTerminated: true}, api.ListPage{})
 	if err != nil {
 		t.Fatalf("ListNodes (includeTerminated=true): %v", err)
 	}
@@ -173,7 +173,7 @@ func TestListNamespacesIncludeTerminated(t *testing.T) {
 
 	// Test 1: ListNamespaces with includeTerminated=false (default).
 	// Should return 2 namespaces.
-	items, _, err := pg.ListNamespaces(ctx, cluster.Id, 0, "", false)
+	items, _, err := pg.ListNamespaces(ctx, api.NamespaceListFilter{ClusterID: cluster.Id}, api.ListPage{})
 	if err != nil {
 		t.Fatalf("ListNamespaces (includeTerminated=false): %v", err)
 	}
@@ -186,7 +186,7 @@ func TestListNamespacesIncludeTerminated(t *testing.T) {
 
 	// Test 2: ListNamespaces with includeTerminated=true.
 	// Should return 3 namespaces.
-	items, _, err = pg.ListNamespaces(ctx, cluster.Id, 0, "", true)
+	items, _, err = pg.ListNamespaces(ctx, api.NamespaceListFilter{ClusterID: cluster.Id, IncludeTerminated: true}, api.ListPage{})
 	if err != nil {
 		t.Fatalf("ListNamespaces (includeTerminated=true): %v", err)
 	}
@@ -222,22 +222,22 @@ func TestListClustersIncludeTerminated(t *testing.T) {
 	// Note: Clusters don't have soft-delete yet (only nodes, namespaces, and workloads do in phase 1).
 	// This test just verifies the parameter is accepted.
 
-	// Test 1: ListClusters with includeTerminated=false should return 2.
-	items, _, err := pg.ListClusters(ctx, 0, "", false)
+	// Test 1: ListClusters with IncludeTerminated=false should return 2.
+	items, _, err := pg.ListClusters(ctx, api.ClusterListFilter{}, api.ListPage{})
 	if err != nil {
-		t.Fatalf("ListClusters (includeTerminated=false): %v", err)
+		t.Fatalf("ListClusters (IncludeTerminated=false): %v", err)
 	}
 	if len(items) != 2 {
-		t.Errorf("ListClusters (includeTerminated=false) returned %d items, want 2", len(items))
+		t.Errorf("ListClusters (IncludeTerminated=false) returned %d items, want 2", len(items))
 	}
 
-	// Test 2: ListClusters with includeTerminated=true should also return 2 (no deletions).
-	items, _, err = pg.ListClusters(ctx, 0, "", true)
+	// Test 2: ListClusters with IncludeTerminated=true should also return 2 (no deletions).
+	items, _, err = pg.ListClusters(ctx, api.ClusterListFilter{IncludeTerminated: true}, api.ListPage{})
 	if err != nil {
-		t.Fatalf("ListClusters (includeTerminated=true): %v", err)
+		t.Fatalf("ListClusters (IncludeTerminated=true): %v", err)
 	}
 	if len(items) != 2 {
-		t.Errorf("ListClusters (includeTerminated=true) returned %d items, want 2", len(items))
+		t.Errorf("ListClusters (IncludeTerminated=true) returned %d items, want 2", len(items))
 	}
 
 	_ = cluster1 // unused

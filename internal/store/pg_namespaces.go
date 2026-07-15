@@ -203,21 +203,40 @@ func (p *PG) GetNamespace(ctx context.Context, id uuid.UUID) (api.Namespace, err
 	return n, nil
 }
 
-// ListNamespaces returns up to limit namespaces sorted (created_at DESC, id DESC).
+// namespaceSortSpec is the sort=<key> allowlist for GET /v1/namespaces.
+var namespaceSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:      {expr: "LOWER(n.name)", kind: sortText},
+		sortKeyPhase:     {expr: "LOWER(n.phase)", kind: sortText, nullable: true},
+		sortKeyCreatedAt: {expr: "n.created_at", kind: sortTime},
+		sortKeyUpdatedAt: {expr: "n.updated_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+// namespaceSortVal extracts the serialized sort value for cursor minting.
+func namespaceSortVal(n *api.Namespace, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&n.Name)
+	case sortKeyPhase:
+		return sortValText(n.Phase)
+	case sortKeyUpdatedAt:
+		return sortValTime(n.UpdatedAt)
+	default: // created_at
+		return sortValTime(n.CreatedAt)
+	}
+}
+
+// ListNamespaces returns up to limit namespaces sorted by the requested sort
+// key, optionally filtered by cluster id, name, and/or termination status.
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
-func (p *PG) ListNamespaces(
-	ctx context.Context,
-	clusterID *uuid.UUID,
-	limit int,
-	cursor string,
-	includeTerminated bool,
-) ([]api.Namespace, string, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
+func (p *PG) ListNamespaces(ctx context.Context, filter api.NamespaceListFilter, page api.ListPage) ([]api.Namespace, string, error) {
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := namespaceSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
 
 	sb := strings.Builder{}
@@ -225,33 +244,35 @@ func (p *PG) ListNamespaces(
 	sb.WriteString(namespaceSelectColumns)
 	sb.WriteString(` `)
 	sb.WriteString(namespaceFromJoined)
-	args := make([]any, 0, 4)
-	conds := make([]string, 0, 3)
+	args := make([]any, 0, 6)
+	conds := make([]string, 0, 4)
 
-	if !includeTerminated {
+	if !filter.IncludeTerminated {
 		conds = append(conds, "n.terminated_at IS NULL")
 	}
-	if clusterID != nil {
-		args = append(args, *clusterID)
+	if filter.ClusterID != nil {
+		args = append(args, *filter.ClusterID)
 		conds = append(conds, fmt.Sprintf("n.cluster_id = $%d", len(args)))
 	}
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
+	if filter.Name != nil && *filter.Name != "" {
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf("LOWER(n.name) LIKE $%d ESCAPE '\\'", len(args)))
+	}
+	if page.Cursor != "" {
+		val, cid, err := decodeListCursor(page.Cursor, key, dir)
 		if err != nil {
 			return nil, "", err
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(n.created_at, n.id) < ($%d, $%d)", tsIdx, idIdx))
+		if err := keysetCond(col, "n.id", dir, val, cid, &conds, &args); err != nil {
+			return nil, "", err
+		}
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY n.created_at DESC, n.id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "n.id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -273,9 +294,9 @@ func (p *PG) ListNamespaces(
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		if last.CreatedAt != nil && last.Id != nil {
-			next = encodeCursor(*last.CreatedAt, *last.Id)
+		last := &items[limit-1]
+		if last.Id != nil {
+			next = encodeListCursor(key, namespaceSortVal(last, key), *last.Id, dir)
 		}
 		items = items[:limit]
 	}
@@ -299,7 +320,7 @@ func (p *PG) UpdateNamespace(ctx context.Context, id uuid.UUID, in api.Namespace
 		appendSet("display_name", *in.DisplayName)
 	}
 	if in.Phase != nil {
-		appendSet("phase", *in.Phase)
+		appendSet(sortKeyPhase, *in.Phase)
 	}
 	if in.Labels != nil {
 		b, err := marshalLabels(in.Labels)

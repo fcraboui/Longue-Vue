@@ -107,15 +107,47 @@ func (p *PG) GetService(ctx context.Context, id uuid.UUID) (api.Service, error) 
 	return s, nil
 }
 
-// ListServices returns up to limit services, optionally filtered by namespace.
+// serviceSortSpec is the sort=<key> allowlist for GET /v1/services.
+var serviceSortSpec = sortSpec{
+	columns: map[string]sortColumn{
+		sortKeyName:      {expr: "LOWER(s.name)", kind: sortText},
+		sortKeyType:      {expr: "LOWER(s.type)", kind: sortText, nullable: true},
+		sortKeyClusterIP: {expr: "LOWER(s.cluster_ip)", kind: sortText, nullable: true},
+		sortKeyCreatedAt: {expr: "s.created_at", kind: sortTime},
+		sortKeyUpdatedAt: {expr: "s.updated_at", kind: sortTime},
+	},
+	defaultKey: sortKeyCreatedAt,
+}
+
+// serviceSortVal extracts the serialized sort value for cursor minting.
+func serviceSortVal(s *api.Service, key string) *string {
+	switch key {
+	case sortKeyName:
+		return sortValText(&s.Name)
+	case sortKeyType:
+		if s.Type == nil {
+			return sortValText(nil)
+		}
+		t := string(*s.Type)
+		return sortValText(&t)
+	case sortKeyClusterIP:
+		return sortValText(s.ClusterIp)
+	case sortKeyUpdatedAt:
+		return sortValTime(s.UpdatedAt)
+	default: // created_at
+		return sortValTime(s.CreatedAt)
+	}
+}
+
+// ListServices returns up to limit services sorted by the requested sort
+// key, optionally filtered by namespace id and/or name.
 //
 //nolint:gocyclo // cursor-paginated query builder with optional filters
-func (p *PG) ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int, cursor string) ([]api.Service, string, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
+func (p *PG) ListServices(ctx context.Context, filter api.ServiceListFilter, page api.ListPage) ([]api.Service, string, error) {
+	limit := clampLimit(page.Limit, 200)
+	key, col, dir, err := serviceSortSpec.resolve(page)
+	if err != nil {
+		return nil, "", err
 	}
 
 	sb := strings.Builder{}
@@ -123,30 +155,32 @@ func (p *PG) ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int
 	sb.WriteString(serviceSelectColumns)
 	sb.WriteString(` `)
 	sb.WriteString(serviceFromJoined)
-	args := make([]any, 0, 4)
-	conds := make([]string, 0, 2)
+	args := make([]any, 0, 6)
+	conds := make([]string, 0, 4)
 
-	if namespaceID != nil {
-		args = append(args, *namespaceID)
+	if filter.NamespaceID != nil {
+		args = append(args, *filter.NamespaceID)
 		conds = append(conds, fmt.Sprintf("s.namespace_id = $%d", len(args)))
 	}
-	if cursor != "" {
-		ts, cid, err := decodeCursor(cursor)
+	if filter.Name != nil && *filter.Name != "" {
+		args = append(args, namePattern(*filter.Name))
+		conds = append(conds, fmt.Sprintf("LOWER(s.name) LIKE $%d ESCAPE '\\'", len(args)))
+	}
+	if page.Cursor != "" {
+		val, cid, err := decodeListCursor(page.Cursor, key, dir)
 		if err != nil {
 			return nil, "", err
 		}
-		args = append(args, ts)
-		tsIdx := len(args)
-		args = append(args, cid)
-		idIdx := len(args)
-		conds = append(conds, fmt.Sprintf("(s.created_at, s.id) < ($%d, $%d)", tsIdx, idIdx))
+		if err := keysetCond(col, "s.id", dir, val, cid, &conds, &args); err != nil {
+			return nil, "", err
+		}
 	}
 	if len(conds) > 0 {
 		sb.WriteString(" WHERE ")
 		sb.WriteString(strings.Join(conds, " AND "))
 	}
 	args = append(args, limit+1)
-	fmt.Fprintf(&sb, " ORDER BY s.created_at DESC, s.id DESC LIMIT $%d", len(args))
+	fmt.Fprintf(&sb, " %s LIMIT $%d", orderBy(col, "s.id", dir), len(args))
 
 	rows, err := p.pool.Query(ctx, sb.String(), args...)
 	if err != nil {
@@ -168,9 +202,9 @@ func (p *PG) ListServices(ctx context.Context, namespaceID *uuid.UUID, limit int
 
 	var next string
 	if len(items) > limit {
-		last := items[limit-1]
-		if last.CreatedAt != nil && last.Id != nil {
-			next = encodeCursor(*last.CreatedAt, *last.Id)
+		last := &items[limit-1]
+		if last.Id != nil {
+			next = encodeListCursor(key, serviceSortVal(last, key), *last.Id, dir)
 		}
 		items = items[:limit]
 	}

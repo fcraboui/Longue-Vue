@@ -39,7 +39,7 @@ func (s *Server) handleListApplicationBlocks(ctx context.Context, request mcp.Ca
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.ApplicationBlock, string, error) {
-		return s.store.ListApplicationBlocks(ctx, filter, maxPageSize, cursor)
+		return s.store.ListApplicationBlocks(ctx, filter, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list application blocks: %w", err)

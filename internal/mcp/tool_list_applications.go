@@ -40,7 +40,7 @@ func (s *Server) handleListApplications(ctx context.Context, request mcp.CallToo
 	}
 
 	items, err := collectAll(ctx, func(ctx context.Context, cursor string) ([]api.Application, string, error) {
-		return s.store.ListApplications(ctx, filter, maxPageSize, cursor)
+		return s.store.ListApplications(ctx, filter, api.ListPage{Limit: maxPageSize, Cursor: cursor})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list applications: %w", err)
