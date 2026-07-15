@@ -3,6 +3,7 @@
 // id links through to the detail page. Kept together so adding a new kind
 // means editing one file.
 
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import * as api from '../api';
 import { useResource, usePagedList } from '../hooks';
@@ -71,85 +72,59 @@ async function fetchAllClusters(): Promise<api.Cluster[]> {
 }
 
 export function Nodes() {
-  const list = usePagedList<api.Node>(
-    (cursor, limit) => api.listNodes({ cursor, limit }),
-    [],
-  );
-  const clusters = useResource(() => fetchAllClusters(), []);
-  const clustersById =
-    clusters.status === 'ready'
-      ? new Map(clusters.data.map((c) => [c.id, c]))
-      : new Map<string, api.Cluster>();
-  const tableRef = useEntityTable('lists.nodes');
+  const clustersState = useResource(() => fetchAllClusters(), []);
+  const clustersById = useMemo(() => {
+    if (clustersState.status !== 'ready') return new Map<string, api.Cluster>();
+    return new Map(clustersState.data.map((c) => [c.id, c]));
+  }, [clustersState]);
   return (
-    <>
-      <h2><NodeIcon size={20} /> Nodes</h2>
-      <Paginator
-        pageSize={list.pageSize}
-        hasPrev={list.hasPrev}
-        hasNext={list.hasNext}
-        onPrev={list.prev}
-        onNext={list.next}
-        onPageSize={list.setPageSize}
-      />
-      {list.loading ? (
-        <p className="loading">Loading…</p>
-      ) : list.error ? (
-        <div className="error">Failed to load: {list.error}</div>
-      ) : list.items.length === 0 ? (
-        <Empty message="No nodes found. Ensure a collector is running and connected to a cluster." />
-      ) : (
-        <div className="table-wrap">
-          <table className="entities" ref={tableRef}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Cluster</th>
-                <th>Role</th>
-                <th>Zone</th>
-                <th>Instance type</th>
-                <th>CPU / Mem</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((n) => {
-                const cluster = clustersById.get(n.cluster_id);
-                return (
-                  <tr key={n.id}>
-                    <td>
-                      <Link to={`/nodes/${n.id}`}>
-                        <strong>{n.display_name || n.name}</strong>
-                      </Link>
-                    </td>
-                    <td>
-                      {cluster ? (
-                        <Link to={`/clusters/${cluster.id}`}>{cluster.name}</Link>
-                      ) : (
-                        <IdLink to={`/clusters/${n.cluster_id}`} id={n.cluster_id} />
-                      )}
-                    </td>
-                    <td>{n.role ? <span className="pill">{n.role}</span> : <Dash />}</td>
-                    <td>{n.zone ? <code>{n.zone}</code> : <Dash />}</td>
-                    <td>{n.instance_type ? <code>{n.instance_type}</code> : <Dash />}</td>
-                    <td>
-                      {n.capacity_cpu || n.capacity_memory ? (
-                        <code>{n.capacity_cpu || '?'} / {n.capacity_memory || '?'}</code>
-                      ) : (
-                        <Dash />
-                      )}
-                    </td>
-                    <td>
-                      <NodeStatusBadge ready={n.ready} unschedulable={n.unschedulable} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
+    <EntityListPage<api.Node>
+      title="Nodes"
+      icon={<NodeIcon size={20} />}
+      storageKey="lists.nodes"
+      emptyMessage="No nodes found. Ensure a collector is running and connected to a cluster."
+      fetchPage={(params, cursor, limit) => api.listNodes({ ...params, cursor, limit })}
+      rowKey={(n) => n.id}
+      columns={[
+        {
+          key: 'name',
+          label: 'Name',
+          sortKey: 'name',
+          render: (n) => (
+            <Link to={`/nodes/${n.id}`}>
+              <strong>{n.display_name || n.name}</strong>
+            </Link>
+          ),
+        },
+        {
+          key: 'cluster',
+          label: 'Cluster',
+          render: (n) => {
+            const cluster = clustersById.get(n.cluster_id);
+            return cluster ? (
+              <Link to={`/clusters/${cluster.id}`}>{cluster.name}</Link>
+            ) : (
+              <IdLink to={`/clusters/${n.cluster_id}`} id={n.cluster_id} />
+            );
+          },
+        },
+        { key: 'role', label: 'Role', sortKey: 'role', render: (n) => n.role ? <span className="pill">{n.role}</span> : <Dash /> },
+        { key: 'zone', label: 'Zone', sortKey: 'zone', render: (n) => n.zone ? <code>{n.zone}</code> : <Dash /> },
+        { key: 'instance_type', label: 'Instance type', sortKey: 'instance_type', render: (n) => n.instance_type ? <code>{n.instance_type}</code> : <Dash /> },
+        {
+          key: 'cpu_mem',
+          label: 'CPU / Mem',
+          render: (n) => (
+            n.capacity_cpu || n.capacity_memory ? (
+              <code>{n.capacity_cpu || '?'} / {n.capacity_memory || '?'}</code>
+            ) : (
+              <Dash />
+            )
+          ),
+        },
+        { key: 'status', label: 'Status', render: (n) => <NodeStatusBadge ready={n.ready} unschedulable={n.unschedulable} /> },
+      ]}
+    />
   );
 }
 
@@ -169,207 +144,149 @@ function NodeStatusBadge({
 }
 
 export function Namespaces() {
-  const list = usePagedList<api.Namespace>(
-    (cursor, limit) => api.listNamespaces({ cursor, limit }),
-    [],
-  );
-  const tableRef = useEntityTable('lists.namespaces');
   return (
-    <>
-      <h2><NamespaceIcon size={20} /> Namespaces</h2>
-      <Paginator
-        pageSize={list.pageSize}
-        hasPrev={list.hasPrev}
-        hasNext={list.hasNext}
-        onPrev={list.prev}
-        onNext={list.next}
-        onPageSize={list.setPageSize}
-      />
-      {list.loading ? (
-        <p className="loading">Loading…</p>
-      ) : list.error ? (
-        <div className="error">Failed to load: {list.error}</div>
-      ) : list.items.length === 0 ? (
-        <Empty message="No namespaces found. They are collected automatically from your clusters." />
-      ) : (
-        <div className="table-wrap">
-          <table className="entities" ref={tableRef}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Cluster</th>
-                <th>Phase</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((n) => (
-                <tr key={n.id}>
-                  <td>
-                    <Link to={`/namespaces/${n.id}`}>
-                      <strong>{n.name}</strong>
-                    </Link>
-                  </td>
-                  <td>
-                    <Link to={`/clusters/${n.cluster_id}`}>
-                      {n.cluster_name ?? <span title="cluster row missing">(orphan)</span>}
-                    </Link>
-                  </td>
-                  <td>{n.phase || <Dash />}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
+    <EntityListPage<api.Namespace>
+      title="Namespaces"
+      icon={<NamespaceIcon size={20} />}
+      storageKey="lists.namespaces"
+      emptyMessage="No namespaces found. They are collected automatically from your clusters."
+      fetchPage={(params, cursor, limit) => api.listNamespaces({ ...params, cursor, limit })}
+      rowKey={(n) => n.id}
+      columns={[
+        {
+          key: 'name',
+          label: 'Name',
+          sortKey: 'name',
+          render: (n) => (
+            <Link to={`/namespaces/${n.id}`}>
+              <strong>{n.name}</strong>
+            </Link>
+          ),
+        },
+        {
+          key: 'cluster',
+          label: 'Cluster',
+          render: (n) => (
+            <Link to={`/clusters/${n.cluster_id}`}>
+              {n.cluster_name ?? <span title="cluster row missing">(orphan)</span>}
+            </Link>
+          ),
+        },
+        { key: 'phase', label: 'Phase', sortKey: 'phase', render: (n) => n.phase || <Dash /> },
+      ]}
+    />
   );
 }
 
 export function Workloads() {
-  const list = usePagedList<api.Workload>(
-    (cursor, limit) => api.listWorkloads({ cursor, limit }),
-    [],
-  );
-  const tableRef = useEntityTable('lists.workloads');
-
   return (
-    <>
-      <h2><WorkloadIcon size={20} /> Workloads</h2>
-      <Paginator
-        pageSize={list.pageSize}
-        hasPrev={list.hasPrev}
-        hasNext={list.hasNext}
-        onPrev={list.prev}
-        onNext={list.next}
-        onPageSize={list.setPageSize}
-      />
-      {list.loading ? (
-        <p className="loading">Loading…</p>
-      ) : list.error ? (
-        <div className="error">Failed to load: {list.error}</div>
-      ) : list.items.length === 0 ? (
-        <Empty message="No workloads found. Deployments, StatefulSets and DaemonSets will appear here once collected." />
-      ) : (
-        <div className="table-wrap">
-          <table className="entities" ref={tableRef}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Kind</th>
-                <th>Namespace</th>
-                <th>Replicas</th>
-                <th>Containers</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((w) => (
-                <tr key={w.id}>
-                  <td>
-                    <Link to={`/workloads/${w.id}`}>
-                      <strong>{w.name}</strong>
-                    </Link>
-                  </td>
-                  <td><span className="pill">{w.kind}</span></td>
-                  <td>
-                    <NamespaceLink
-                      namespaceId={w.namespace_id}
-                      namespaceName={w.namespace_name}
-                      clusterId={w.cluster_id}
-                      clusterName={w.cluster_name}
-                    />
-                  </td>
-                  <td>
-                    {w.ready_replicas ?? '?'}
-                    <span className="muted">/{w.replicas ?? '?'}</span>
-                  </td>
-                  <td>
-                    {w.containers?.length ? (
-                      <code>{w.containers.map((c) => c.image).join(', ')}</code>
-                    ) : (
-                      <Dash />
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
+    <EntityListPage<api.Workload>
+      title="Workloads"
+      icon={<WorkloadIcon size={20} />}
+      storageKey="lists.workloads"
+      emptyMessage="No workloads found. Deployments, StatefulSets and DaemonSets will appear here once collected."
+      fetchPage={(params, cursor, limit) => api.listWorkloads({ ...params, cursor, limit })}
+      rowKey={(w) => w.id}
+      columns={[
+        {
+          key: 'name',
+          label: 'Name',
+          sortKey: 'name',
+          render: (w) => (
+            <Link to={`/workloads/${w.id}`}>
+              <strong>{w.name}</strong>
+            </Link>
+          ),
+        },
+        { key: 'kind', label: 'Kind', sortKey: 'kind', render: (w) => <span className="pill">{w.kind}</span> },
+        {
+          key: 'namespace',
+          label: 'Namespace',
+          render: (w) => (
+            <NamespaceLink
+              namespaceId={w.namespace_id}
+              namespaceName={w.namespace_name}
+              clusterId={w.cluster_id}
+              clusterName={w.cluster_name}
+            />
+          ),
+        },
+        {
+          key: 'replicas',
+          label: 'Replicas',
+          render: (w) => (
+            <>
+              {w.ready_replicas ?? '?'}
+              <span className="muted">/{w.replicas ?? '?'}</span>
+            </>
+          ),
+        },
+        {
+          key: 'containers',
+          label: 'Containers',
+          render: (w) => (
+            w.containers?.length ? (
+              <code>{w.containers.map((c) => c.image).join(', ')}</code>
+            ) : (
+              <Dash />
+            )
+          ),
+        },
+      ]}
+    />
   );
 }
 
 export function Pods() {
-  const list = usePagedList<api.Pod>(
-    (cursor, limit) => api.listPods({ cursor, limit }),
-    [],
-  );
-  const tableRef = useEntityTable('lists.pods');
   return (
-    <>
-      <h2><PodIcon size={20} /> Pods</h2>
-      <Paginator
-        pageSize={list.pageSize}
-        hasPrev={list.hasPrev}
-        hasNext={list.hasNext}
-        onPrev={list.prev}
-        onNext={list.next}
-        onPageSize={list.setPageSize}
-      />
-      {list.loading ? (
-        <p className="loading">Loading…</p>
-      ) : list.error ? (
-        <div className="error">Failed to load: {list.error}</div>
-      ) : list.items.length === 0 ? (
-        <Empty message="No pods found. Pods are collected from all connected clusters." />
-      ) : (
-        <div className="table-wrap">
-          <table className="entities" ref={tableRef}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Namespace</th>
-                <th>Phase</th>
-                <th>Node</th>
-                <th>Pod IP</th>
-                <th>Workload</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <Link to={`/pods/${p.id}`}>
-                      <strong>{p.name}</strong>
-                    </Link>
-                  </td>
-                  <td>
-                    <NamespaceLink
-                      namespaceId={p.namespace_id}
-                      namespaceName={p.namespace_name}
-                      clusterId={p.cluster_id}
-                      clusterName={p.cluster_name}
-                    />
-                  </td>
-                  <td>{p.phase || <Dash />}</td>
-                  <td>{p.node_name ? <code>{p.node_name}</code> : <Dash />}</td>
-                  <td>{p.pod_ip ? <code>{p.pod_ip}</code> : <Dash />}</td>
-                  <td>
-                    {p.workload_id ? (
-                      <Link to={`/workloads/${p.workload_id}`}>
-                        {p.workload_name ?? <IdLink to={`/workloads/${p.workload_id}`} id={p.workload_id} />}
-                      </Link>
-                    ) : (
-                      <Dash />
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
+    <EntityListPage<api.Pod>
+      title="Pods"
+      icon={<PodIcon size={20} />}
+      storageKey="lists.pods"
+      emptyMessage="No pods found. Pods are collected from all connected clusters."
+      fetchPage={(params, cursor, limit) => api.listPods({ ...params, cursor, limit })}
+      rowKey={(p) => p.id}
+      columns={[
+        {
+          key: 'name',
+          label: 'Name',
+          sortKey: 'name',
+          render: (p) => (
+            <Link to={`/pods/${p.id}`}>
+              <strong>{p.name}</strong>
+            </Link>
+          ),
+        },
+        {
+          key: 'namespace',
+          label: 'Namespace',
+          render: (p) => (
+            <NamespaceLink
+              namespaceId={p.namespace_id}
+              namespaceName={p.namespace_name}
+              clusterId={p.cluster_id}
+              clusterName={p.cluster_name}
+            />
+          ),
+        },
+        { key: 'phase', label: 'Phase', sortKey: 'phase', render: (p) => p.phase || <Dash /> },
+        { key: 'node', label: 'Node', sortKey: 'node_name', render: (p) => p.node_name ? <code>{p.node_name}</code> : <Dash /> },
+        { key: 'pod_ip', label: 'Pod IP', sortKey: 'pod_ip', render: (p) => p.pod_ip ? <code>{p.pod_ip}</code> : <Dash /> },
+        {
+          key: 'workload',
+          label: 'Workload',
+          render: (p) => (
+            p.workload_id ? (
+              <Link to={`/workloads/${p.workload_id}`}>
+                {p.workload_name ?? <IdLink to={`/workloads/${p.workload_id}`} id={p.workload_id} />}
+              </Link>
+            ) : (
+              <Dash />
+            )
+          ),
+        },
+      ]}
+    />
   );
 }
 

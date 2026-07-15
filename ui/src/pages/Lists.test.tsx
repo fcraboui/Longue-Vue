@@ -184,6 +184,26 @@ describe('Pods list', () => {
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument(),
     );
   });
+
+  it('Node column header is sortable and clicking it sends sort=node_name&order=asc', async () => {
+    const captured: string[] = [];
+    server.use(
+      http.get('/v1/pods', ({ request }) => {
+        captured.push(new URL(request.url).search);
+        return HttpResponse.json({ items: [fixturePod], next_cursor: null });
+      }),
+    );
+    renderWithRouter(<Pods />, { initialPath: '/pods' });
+    await waitFor(() => expect(screen.getByText(fixturePod.name)).toBeInTheDocument());
+    const nodeHeader = screen.getByRole('columnheader', { name: /^Node/ });
+    expect(nodeHeader.className).toContain('sortable');
+    fireEvent.click(nodeHeader);
+    await waitFor(() => {
+      const last = captured.at(-1) ?? '';
+      expect(last).toContain('sort=node_name');
+      expect(last).toContain('order=asc');
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
