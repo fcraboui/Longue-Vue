@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Applications from './Applications';
 import { renderWithRouter } from '../test/render';
@@ -87,30 +87,63 @@ describe('Applications list', () => {
     renderWithRouter(<Applications />, { initialPath: '/applications' });
     await waitFor(() => expect(screen.getByRole('link', { name: /billing/ })).toBeInTheDocument());
 
-    await user.type(screen.getByPlaceholderText('prefix or substring'), 'bill');
+    await user.type(screen.getByPlaceholderText('Filter by name… (* = wildcard)'), 'bill');
     await waitFor(() => expect(seen).toContain('bill'));
   });
 
-  it('"Load more" calls the fetcher with the previous cursor', async () => {
-    const cursors: (string | null)[] = [];
-    let call = 0;
+  it('renders the Paginator (no Load-more button)', async () => {
+    server.use(
+      http.get('/v1/applications', () =>
+        HttpResponse.json({ items: [billing], next_cursor: 'C1' }),
+      ),
+    );
+    renderWithRouter(<Applications />, { initialPath: '/applications' });
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /billing/ })).toBeInTheDocument(),
+    );
+    // Standard Paginator "Next" button should be present.
+    expect(screen.getByRole('button', { name: /next/i })).toBeInTheDocument();
+    // Old "Load more" button must NOT be present.
+    expect(screen.queryByRole('button', { name: /load more/i })).toBeNull();
+  });
+
+  it('Owner column header sends sort=owner&order=asc', async () => {
+    const captured: string[] = [];
     server.use(
       http.get('/v1/applications', ({ request }) => {
-        cursors.push(new URL(request.url).searchParams.get('cursor'));
-        call += 1;
-        if (call === 1) {
-          return HttpResponse.json({ items: [billing], next_cursor: 'CURSOR123' });
-        }
-        return HttpResponse.json({ items: [ledger], next_cursor: null });
+        captured.push(new URL(request.url).search);
+        return HttpResponse.json(paged([billing]));
       }),
     );
-    const user = userEvent.setup();
     renderWithRouter(<Applications />, { initialPath: '/applications' });
-    await waitFor(() => expect(screen.getByRole('link', { name: /billing/ })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /billing/ })).toBeInTheDocument(),
+    );
+    const ownerHeader = screen.getByRole('columnheader', { name: /^Owner/ });
+    expect(ownerHeader.className).toContain('sortable');
+    fireEvent.click(ownerHeader);
+    await waitFor(() => {
+      const last = captured.at(-1) ?? '';
+      expect(last).toContain('sort=owner');
+      expect(last).toContain('order=asc');
+    });
+  });
 
-    await user.click(screen.getByRole('button', { name: /load more/i }));
-    await waitFor(() => expect(cursors).toContain('CURSOR123'));
-    await waitFor(() => expect(screen.getByRole('link', { name: /^Ledger$/ })).toBeInTheDocument());
+  it('URL application_block_name is sent to the API', async () => {
+    const captured: string[] = [];
+    server.use(
+      http.get('/v1/applications', ({ request }) => {
+        captured.push(new URL(request.url).search);
+        return HttpResponse.json(paged([billing]));
+      }),
+    );
+    renderWithRouter(<Applications />, {
+      initialPath: '/applications?application_block_name=facturation',
+    });
+    await waitFor(() => {
+      const last = captured.at(-1) ?? '';
+      expect(last).toContain('application_block_name=facturation');
+    });
   });
 
   it('renders the empty state', async () => {
