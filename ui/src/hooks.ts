@@ -251,12 +251,13 @@ export function useListControls(): ListControls {
   }, [urlName]);
 
   const toggleSort = (key: string) => {
+    // replace: sort clicks shouldn't pile up in browser history.
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.set('sort', key);
       next.set('order', sort === key && order === 'asc' ? 'desc' : 'asc');
       return next;
-    });
+    }, { replace: true });
   };
 
   return {
