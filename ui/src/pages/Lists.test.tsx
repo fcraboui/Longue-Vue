@@ -288,6 +288,26 @@ describe('PersistentVolumes list', () => {
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument(),
     );
   });
+
+  it('Capacity column header is sortable and clicking it sends sort=capacity&order=asc', async () => {
+    const captured: string[] = [];
+    server.use(
+      http.get('/v1/persistentvolumes', ({ request }) => {
+        captured.push(new URL(request.url).search);
+        return HttpResponse.json({ items: [fixturePV], next_cursor: null });
+      }),
+    );
+    renderWithRouter(<PersistentVolumes />, { initialPath: '/persistent-volumes' });
+    await waitFor(() => expect(screen.getByText(fixturePV.name)).toBeInTheDocument());
+    const capacityHeader = screen.getByRole('columnheader', { name: /^Capacity/ });
+    expect(capacityHeader.className).toContain('sortable');
+    fireEvent.click(capacityHeader);
+    await waitFor(() => {
+      const last = captured.at(-1) ?? '';
+      expect(last).toContain('sort=capacity');
+      expect(last).toContain('order=asc');
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

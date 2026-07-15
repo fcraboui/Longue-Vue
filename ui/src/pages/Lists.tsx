@@ -1,14 +1,12 @@
-// One-file home for every top-level list page. All of them use the same
-// pattern — usePagedList(listFn) → Paginator → table with a few columns →
-// id links through to the detail page. Kept together so adding a new kind
-// means editing one file.
+// One-file home for every top-level list page. All of them use EntityListPage
+// with per-entity column configs — sortable headers, search input, and
+// pagination come for free. Adding a new kind means adding one config here.
 
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import * as api from '../api';
-import { useResource, usePagedList } from '../hooks';
-import { Dash, IdLink, LayerPill, LoadBalancerAddresses, Empty, NamespaceLink, Paginator } from '../components';
-import { useEntityTable } from '../components/column_filters';
+import { useResource } from '../hooks';
+import { Dash, IdLink, LayerPill, LoadBalancerAddresses, NamespaceLink } from '../components';
 import { EntityListPage } from '../components/EntityListPage';
 import {
   ClusterIcon, NodeIcon, NamespaceIcon, WorkloadIcon, PodIcon,
@@ -291,282 +289,189 @@ export function Pods() {
 }
 
 export function Services() {
-  const list = usePagedList<api.Service>(
-    (cursor, limit) => api.listServices({ cursor, limit }),
-    [],
-  );
-  const tableRef = useEntityTable('lists.services');
   return (
-    <>
-      <h2><ServiceIcon size={20} /> Services</h2>
-      <Paginator
-        pageSize={list.pageSize}
-        hasPrev={list.hasPrev}
-        hasNext={list.hasNext}
-        onPrev={list.prev}
-        onNext={list.next}
-        onPageSize={list.setPageSize}
-      />
-      {list.loading ? (
-        <p className="loading">Loading…</p>
-      ) : list.error ? (
-        <div className="error">Failed to load: {list.error}</div>
-      ) : list.items.length === 0 ? (
-        <Empty message="No services found. Kubernetes Services are collected automatically." />
-      ) : (
-        <div className="table-wrap">
-          <table className="entities" ref={tableRef}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Namespace</th>
-                <th>Type</th>
-                <th>ClusterIP</th>
-                <th>Ports</th>
-                <th>Load balancer</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((s) => (
-                <tr key={s.id}>
-                  <td>
-                    <Link to={`/services/${s.id}`}>
-                      <strong>{s.name}</strong>
-                    </Link>
-                  </td>
-                  <td>
-                    <NamespaceLink
-                      namespaceId={s.namespace_id}
-                      namespaceName={s.namespace_name}
-                      clusterId={s.cluster_id}
-                      clusterName={s.cluster_name}
-                    />
-                  </td>
-                  <td><span className="pill">{s.type || 'ClusterIP'}</span></td>
-                  <td>{s.cluster_ip ? <code>{s.cluster_ip}</code> : <Dash />}</td>
-                  <td>
-                    {s.ports?.length ? (
-                      <code>{s.ports.map((p) => `${p.port}/${p.protocol || 'TCP'}`).join(', ')}</code>
-                    ) : (
-                      <Dash />
-                    )}
-                  </td>
-                  <td><LoadBalancerAddresses entries={s.load_balancer} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
+    <EntityListPage<api.Service>
+      title="Services"
+      icon={<ServiceIcon size={20} />}
+      storageKey="lists.services"
+      emptyMessage="No services found. Kubernetes Services are collected automatically."
+      fetchPage={(params, cursor, limit) => api.listServices({ ...params, cursor, limit })}
+      rowKey={(s) => s.id}
+      columns={[
+        {
+          key: 'name',
+          label: 'Name',
+          sortKey: 'name',
+          render: (s) => (
+            <Link to={`/services/${s.id}`}>
+              <strong>{s.name}</strong>
+            </Link>
+          ),
+        },
+        {
+          key: 'namespace',
+          label: 'Namespace',
+          render: (s) => (
+            <NamespaceLink
+              namespaceId={s.namespace_id}
+              namespaceName={s.namespace_name}
+              clusterId={s.cluster_id}
+              clusterName={s.cluster_name}
+            />
+          ),
+        },
+        { key: 'type', label: 'Type', sortKey: 'type', render: (s) => <span className="pill">{s.type || 'ClusterIP'}</span> },
+        { key: 'cluster_ip', label: 'ClusterIP', sortKey: 'cluster_ip', render: (s) => s.cluster_ip ? <code>{s.cluster_ip}</code> : <Dash /> },
+        {
+          key: 'ports',
+          label: 'Ports',
+          render: (s) => (
+            s.ports?.length ? (
+              <code>{s.ports.map((p) => `${p.port}/${p.protocol || 'TCP'}`).join(', ')}</code>
+            ) : (
+              <Dash />
+            )
+          ),
+        },
+        { key: 'load_balancer', label: 'Load balancer', render: (s) => <LoadBalancerAddresses entries={s.load_balancer} /> },
+      ]}
+    />
   );
 }
 
 export function Ingresses() {
-  const list = usePagedList<api.Ingress>(
-    (cursor, limit) => api.listIngresses({ cursor, limit }),
-    [],
-  );
-  const tableRef = useEntityTable('lists.ingresses');
   return (
-    <>
-      <h2><IngressIcon size={20} /> Ingresses</h2>
-      <Paginator
-        pageSize={list.pageSize}
-        hasPrev={list.hasPrev}
-        hasNext={list.hasNext}
-        onPrev={list.prev}
-        onNext={list.next}
-        onPageSize={list.setPageSize}
-      />
-      {list.loading ? (
-        <p className="loading">Loading…</p>
-      ) : list.error ? (
-        <div className="error">Failed to load: {list.error}</div>
-      ) : list.items.length === 0 ? (
-        <Empty message="No ingresses found. Ingress resources are collected from all namespaces." />
-      ) : (
-        <div className="table-wrap">
-          <table className="entities" ref={tableRef}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Namespace</th>
-                <th>Class</th>
-                <th>Hosts</th>
-                <th>Load balancer</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((i) => (
-                <tr key={i.id}>
-                  <td>
-                    <Link to={`/ingresses/${i.id}`}>
-                      <strong>{i.name}</strong>
-                    </Link>
-                  </td>
-                  <td>
-                    <NamespaceLink
-                      namespaceId={i.namespace_id}
-                      namespaceName={i.namespace_name}
-                      clusterId={i.cluster_id}
-                      clusterName={i.cluster_name}
-                    />
-                  </td>
-                  <td>{i.ingress_class_name || <Dash />}</td>
-                  <td>
-                    {i.rules?.length ? (
-                      <code>{i.rules.map((r) => r.host).filter(Boolean).join(', ')}</code>
-                    ) : (
-                      <Dash />
-                    )}
-                  </td>
-                  <td><LoadBalancerAddresses entries={i.load_balancer} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
+    <EntityListPage<api.Ingress>
+      title="Ingresses"
+      icon={<IngressIcon size={20} />}
+      storageKey="lists.ingresses"
+      emptyMessage="No ingresses found. Ingress resources are collected from all namespaces."
+      fetchPage={(params, cursor, limit) => api.listIngresses({ ...params, cursor, limit })}
+      rowKey={(i) => i.id}
+      columns={[
+        {
+          key: 'name',
+          label: 'Name',
+          sortKey: 'name',
+          render: (i) => (
+            <Link to={`/ingresses/${i.id}`}>
+              <strong>{i.name}</strong>
+            </Link>
+          ),
+        },
+        {
+          key: 'namespace',
+          label: 'Namespace',
+          render: (i) => (
+            <NamespaceLink
+              namespaceId={i.namespace_id}
+              namespaceName={i.namespace_name}
+              clusterId={i.cluster_id}
+              clusterName={i.cluster_name}
+            />
+          ),
+        },
+        { key: 'class', label: 'Class', sortKey: 'ingress_class_name', render: (i) => i.ingress_class_name || <Dash /> },
+        {
+          key: 'hosts',
+          label: 'Hosts',
+          render: (i) => (
+            i.rules?.length ? (
+              <code>{i.rules.map((r) => r.host).filter(Boolean).join(', ')}</code>
+            ) : (
+              <Dash />
+            )
+          ),
+        },
+        { key: 'load_balancer', label: 'Load balancer', render: (i) => <LoadBalancerAddresses entries={i.load_balancer} /> },
+      ]}
+    />
   );
 }
 
 export function PersistentVolumes() {
-  const list = usePagedList<api.PersistentVolume>(
-    (cursor, limit) => api.listPersistentVolumes({ cursor, limit }),
-    [],
-  );
-  const clusters = useResource(() => fetchAllClusters(), []);
-  const clustersById =
-    clusters.status === 'ready'
-      ? new Map(clusters.data.map((c) => [c.id, c]))
-      : new Map<string, api.Cluster>();
-  const tableRef = useEntityTable('lists.persistent_volumes');
+  const clustersState = useResource(() => fetchAllClusters(), []);
+  const clustersById = useMemo(() => {
+    if (clustersState.status !== 'ready') return new Map<string, api.Cluster>();
+    return new Map(clustersState.data.map((c) => [c.id, c]));
+  }, [clustersState]);
   return (
-    <>
-      <h2><VolumeIcon size={20} /> Persistent Volumes</h2>
-      <Paginator
-        pageSize={list.pageSize}
-        hasPrev={list.hasPrev}
-        hasNext={list.hasNext}
-        onPrev={list.prev}
-        onNext={list.next}
-        onPageSize={list.setPageSize}
-      />
-      {list.loading ? (
-        <p className="loading">Loading…</p>
-      ) : list.error ? (
-        <div className="error">Failed to load: {list.error}</div>
-      ) : list.items.length === 0 ? (
-        <Empty message="No persistent volumes found. PVs are collected cluster-wide by the collector." />
-      ) : (
-        <div className="table-wrap">
-          <table className="entities" ref={tableRef}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Cluster</th>
-                <th>Capacity</th>
-                <th>Storage class</th>
-                <th>CSI driver</th>
-                <th>Phase</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((pv) => {
-                const cluster = clustersById.get(pv.cluster_id);
-                return (
-                  <tr key={pv.id}>
-                    <td>
-                      <Link to={`/persistentvolumes/${pv.id}`}>
-                        <strong>{pv.name}</strong>
-                      </Link>
-                    </td>
-                    <td>
-                      {cluster ? (
-                        <Link to={`/clusters/${cluster.id}`}>{cluster.name}</Link>
-                      ) : (
-                        <IdLink to={`/clusters/${pv.cluster_id}`} id={pv.cluster_id} />
-                      )}
-                    </td>
-                    <td>{pv.capacity ? <code>{pv.capacity}</code> : <Dash />}</td>
-                    <td>{pv.storage_class_name || <Dash />}</td>
-                    <td>{pv.csi_driver ? <code>{pv.csi_driver}</code> : <Dash />}</td>
-                    <td>{pv.phase || <Dash />}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
+    <EntityListPage<api.PersistentVolume>
+      title="Persistent Volumes"
+      icon={<VolumeIcon size={20} />}
+      storageKey="lists.persistent_volumes"
+      emptyMessage="No persistent volumes found. PVs are collected cluster-wide by the collector."
+      fetchPage={(params, cursor, limit) => api.listPersistentVolumes({ ...params, cursor, limit })}
+      rowKey={(pv) => pv.id}
+      columns={[
+        {
+          key: 'name',
+          label: 'Name',
+          sortKey: 'name',
+          render: (pv) => (
+            <Link to={`/persistentvolumes/${pv.id}`}>
+              <strong>{pv.name}</strong>
+            </Link>
+          ),
+        },
+        {
+          key: 'cluster',
+          label: 'Cluster',
+          render: (pv) => {
+            const cluster = clustersById.get(pv.cluster_id);
+            return cluster ? (
+              <Link to={`/clusters/${cluster.id}`}>{cluster.name}</Link>
+            ) : (
+              <IdLink to={`/clusters/${pv.cluster_id}`} id={pv.cluster_id} />
+            );
+          },
+        },
+        { key: 'capacity', label: 'Capacity', sortKey: 'capacity', render: (pv) => pv.capacity ? <code>{pv.capacity}</code> : <Dash /> },
+        { key: 'storage_class', label: 'Storage class', sortKey: 'storage_class_name', render: (pv) => pv.storage_class_name || <Dash /> },
+        { key: 'csi_driver', label: 'CSI driver', sortKey: 'csi_driver', render: (pv) => pv.csi_driver ? <code>{pv.csi_driver}</code> : <Dash /> },
+        { key: 'phase', label: 'Phase', sortKey: 'phase', render: (pv) => pv.phase || <Dash /> },
+      ]}
+    />
   );
 }
 
 export function PersistentVolumeClaims() {
-  const list = usePagedList<api.PersistentVolumeClaim>(
-    (cursor, limit) => api.listPersistentVolumeClaims({ cursor, limit }),
-    [],
-  );
-  const tableRef = useEntityTable('lists.persistent_volume_claims');
   return (
-    <>
-      <h2><VolumeIcon size={20} /> Persistent Volume Claims</h2>
-      <Paginator
-        pageSize={list.pageSize}
-        hasPrev={list.hasPrev}
-        hasNext={list.hasNext}
-        onPrev={list.prev}
-        onNext={list.next}
-        onPageSize={list.setPageSize}
-      />
-      {list.loading ? (
-        <p className="loading">Loading…</p>
-      ) : list.error ? (
-        <div className="error">Failed to load: {list.error}</div>
-      ) : list.items.length === 0 ? (
-        <Empty message="No persistent volume claims found. PVCs are collected from all namespaces." />
-      ) : (
-        <div className="table-wrap">
-          <table className="entities" ref={tableRef}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Namespace</th>
-                <th>Phase</th>
-                <th>Requested</th>
-                <th>Storage class</th>
-                <th>Bound PV</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((pvc) => (
-                <tr key={pvc.id}>
-                  <td>
-                    <Link to={`/persistentvolumeclaims/${pvc.id}`}>
-                      <strong>{pvc.name}</strong>
-                    </Link>
-                  </td>
-                  <td>
-                    <NamespaceLink
-                      namespaceId={pvc.namespace_id}
-                      namespaceName={pvc.namespace_name}
-                      clusterId={pvc.cluster_id}
-                      clusterName={pvc.cluster_name}
-                    />
-                  </td>
-                  <td>{pvc.phase || <Dash />}</td>
-                  <td>{pvc.requested_storage ? <code>{pvc.requested_storage}</code> : <Dash />}</td>
-                  <td>{pvc.storage_class_name || <Dash />}</td>
-                  <td>{pvc.volume_name ? <code>{pvc.volume_name}</code> : <Dash />}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
+    <EntityListPage<api.PersistentVolumeClaim>
+      title="Persistent Volume Claims"
+      icon={<VolumeIcon size={20} />}
+      storageKey="lists.persistent_volume_claims"
+      emptyMessage="No persistent volume claims found. PVCs are collected from all namespaces."
+      fetchPage={(params, cursor, limit) => api.listPersistentVolumeClaims({ ...params, cursor, limit })}
+      rowKey={(pvc) => pvc.id}
+      columns={[
+        {
+          key: 'name',
+          label: 'Name',
+          sortKey: 'name',
+          render: (pvc) => (
+            <Link to={`/persistentvolumeclaims/${pvc.id}`}>
+              <strong>{pvc.name}</strong>
+            </Link>
+          ),
+        },
+        {
+          key: 'namespace',
+          label: 'Namespace',
+          render: (pvc) => (
+            <NamespaceLink
+              namespaceId={pvc.namespace_id}
+              namespaceName={pvc.namespace_name}
+              clusterId={pvc.cluster_id}
+              clusterName={pvc.cluster_name}
+            />
+          ),
+        },
+        { key: 'phase', label: 'Phase', sortKey: 'phase', render: (pvc) => pvc.phase || <Dash /> },
+        { key: 'requested', label: 'Requested', sortKey: 'requested_storage', render: (pvc) => pvc.requested_storage ? <code>{pvc.requested_storage}</code> : <Dash /> },
+        { key: 'storage_class', label: 'Storage class', sortKey: 'storage_class_name', render: (pvc) => pvc.storage_class_name || <Dash /> },
+        { key: 'bound_pv', label: 'Bound PV', render: (pvc) => pvc.volume_name ? <code>{pvc.volume_name}</code> : <Dash /> },
+      ]}
+    />
   );
 }
