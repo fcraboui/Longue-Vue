@@ -311,6 +311,17 @@ export interface PagedResponse<T> {
   next_cursor?: string | null;
 }
 
+// ListControlParams are the uniform list controls every paginated list
+// endpoint accepts since ADR-0042: `name` is a case-insensitive
+// substring (or anchored glob when it contains `*`), `sort` must be one
+// of the entity's allowlisted keys, `order` defaults to asc and is
+// ignored without `sort`.
+export interface ListControlParams {
+  name?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
+}
+
 export type Layer =
   | 'ecosystem'
   | 'business'
@@ -688,7 +699,7 @@ export interface PersistentVolumeClaim {
 
 // Endpoints ---------------------------------------------------------------
 
-export function listClusters(filter?: { cursor?: string; limit?: number }) {
+export function listClusters(filter?: { cursor?: string; limit?: number } & ListControlParams) {
   return request<PagedResponse<Cluster>>('/v1/clusters' + query({ limit: 200, ...filter }));
 }
 export function getCluster(id: string) {
@@ -698,14 +709,14 @@ export function deleteCluster(id: string) {
   return request<void>(`/v1/clusters/${id}`, { method: 'DELETE' });
 }
 
-export function listNodes(filter?: { cluster_id?: string; cursor?: string; limit?: number }) {
+export function listNodes(filter?: { cluster_id?: string; cursor?: string; limit?: number } & ListControlParams) {
   return request<PagedResponse<Node>>('/v1/nodes' + query({ limit: 200, ...filter }));
 }
 export function getNode(id: string) {
   return request<Node>(`/v1/nodes/${id}`);
 }
 
-export function listNamespaces(filter?: { cluster_id?: string; cursor?: string; limit?: number }) {
+export function listNamespaces(filter?: { cluster_id?: string; cursor?: string; limit?: number } & ListControlParams) {
   return request<PagedResponse<Namespace>>('/v1/namespaces' + query({ limit: 200, ...filter }));
 }
 export function getNamespace(id: string) {
@@ -719,7 +730,7 @@ export function listWorkloads(filter?: {
   cursor?: string;
   limit?: number;
   include?: 'containers_versions';
-}) {
+} & ListControlParams) {
   return request<PagedResponse<Workload>>('/v1/workloads' + query({ limit: 200, ...filter }));
 }
 export function getWorkload(id: string) {
@@ -733,28 +744,28 @@ export function listPods(filter?: {
   image?: string;
   cursor?: string;
   limit?: number;
-}) {
+} & ListControlParams) {
   return request<PagedResponse<Pod>>('/v1/pods' + query({ limit: 200, ...filter }));
 }
 export function getPod(id: string) {
   return request<Pod>(`/v1/pods/${id}`);
 }
 
-export function listServices(filter?: { namespace_id?: string; cursor?: string; limit?: number }) {
+export function listServices(filter?: { namespace_id?: string; cursor?: string; limit?: number } & ListControlParams) {
   return request<PagedResponse<Service>>('/v1/services' + query({ limit: 200, ...filter }));
 }
 export function getService(id: string) {
   return request<Service>(`/v1/services/${id}`);
 }
 
-export function listIngresses(filter?: { namespace_id?: string; cursor?: string; limit?: number }) {
+export function listIngresses(filter?: { namespace_id?: string; cursor?: string; limit?: number } & ListControlParams) {
   return request<PagedResponse<Ingress>>('/v1/ingresses' + query({ limit: 200, ...filter }));
 }
 export function getIngress(id: string) {
   return request<Ingress>(`/v1/ingresses/${id}`);
 }
 
-export function listPersistentVolumes(filter?: { cluster_id?: string; cursor?: string; limit?: number }) {
+export function listPersistentVolumes(filter?: { cluster_id?: string; cursor?: string; limit?: number } & ListControlParams) {
   return request<PagedResponse<PersistentVolume>>(
     '/v1/persistentvolumes' + query({ limit: 200, ...filter }),
   );
@@ -763,7 +774,7 @@ export function getPersistentVolume(id: string) {
   return request<PersistentVolume>(`/v1/persistentvolumes/${id}`);
 }
 
-export function listPersistentVolumeClaims(filter?: { namespace_id?: string; cursor?: string; limit?: number }) {
+export function listPersistentVolumeClaims(filter?: { namespace_id?: string; cursor?: string; limit?: number } & ListControlParams) {
   return request<PagedResponse<PersistentVolumeClaim>>(
     '/v1/persistentvolumeclaims' + query({ limit: 200, ...filter }),
   );
@@ -1042,6 +1053,8 @@ export interface VirtualMachineListFilter {
   image?: string;
   application?: string;
   application_version?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
   cursor?: string;
   limit?: number;
 }
@@ -1082,6 +1095,8 @@ export function listVirtualMachines(filter: VirtualMachineListFilter = {}) {
         image: filter.image,
         application: filter.application,
         application_version: filter.application_version,
+        sort: filter.sort,
+        order: filter.order,
       }),
   );
 }
@@ -1224,6 +1239,8 @@ export interface ApplicationListFilter {
   // ADR-0029 Phase 4.
   has_dict?: boolean;
   dict_min?: number;
+  sort?: string;
+  order?: 'asc' | 'desc';
   cursor?: string;
   limit?: number;
 }
@@ -1231,6 +1248,8 @@ export interface ApplicationListFilter {
 export interface ApplicationBlockListFilter {
   name?: string;
   owner?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
   cursor?: string;
   limit?: number;
 }
@@ -1242,6 +1261,8 @@ export function listApplicationBlocks(filter: ApplicationBlockListFilter = {}) {
         limit: filter.limit ?? 200,
         name: filter.name,
         owner: filter.owner,
+        sort: filter.sort,
+        order: filter.order,
         cursor: filter.cursor,
       }),
   );
@@ -1280,6 +1301,8 @@ export function listApplications(filter: ApplicationListFilter = {}) {
         criticality: filter.criticality,
         has_dict: filter.has_dict !== undefined ? String(filter.has_dict) : undefined,
         dict_min: filter.dict_min,
+        sort: filter.sort,
+        order: filter.order,
         cursor: filter.cursor,
       }),
   );

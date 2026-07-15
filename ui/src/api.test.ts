@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import {
-  ApiError, getCluster, getMe, listClusters, login, logout,
+  ApiError, getCluster, getMe, listClusters, listNodes, listVirtualMachines, listApplications, login, logout,
   updateCluster, updateUser,
 } from './api';
 import { server } from './test/server';
@@ -128,5 +128,57 @@ describe('ApiError', () => {
     expect(e.status).toBe(403);
     expect(e.name).toBe('ApiError');
     expect(e.message).toBe('forbidden');
+  });
+});
+
+describe('list helpers forward uniform search/sort params', () => {
+  it('listClusters serializes name/sort/order', async () => {
+    let search = '';
+    server.use(
+      http.get('/v1/clusters', ({ request }) => {
+        search = new URL(request.url).search;
+        return HttpResponse.json({ items: [], next_cursor: null });
+      }),
+    );
+    await listClusters({ limit: 20, name: 'prod-*', sort: 'name', order: 'desc' });
+    const p = new URLSearchParams(search);
+    expect(p.get('name')).toBe('prod-*');
+    expect(p.get('sort')).toBe('name');
+    expect(p.get('order')).toBe('desc');
+    expect(p.get('limit')).toBe('20');
+  });
+
+  it('listNodes omits empty controls', async () => {
+    let search = '';
+    server.use(
+      http.get('/v1/nodes', ({ request }) => {
+        search = new URL(request.url).search;
+        return HttpResponse.json({ items: [], next_cursor: null });
+      }),
+    );
+    await listNodes({ limit: 20 });
+    const p = new URLSearchParams(search);
+    expect(p.has('name')).toBe(false);
+    expect(p.has('sort')).toBe(false);
+    expect(p.has('order')).toBe(false);
+  });
+
+  it('listVirtualMachines and listApplications forward sort/order', async () => {
+    const seen: Record<string, string> = {};
+    server.use(
+      http.get('/v1/virtual-machines', ({ request }) => {
+        seen.vm = new URL(request.url).search;
+        return HttpResponse.json({ items: [], next_cursor: null });
+      }),
+      http.get('/v1/applications', ({ request }) => {
+        seen.app = new URL(request.url).search;
+        return HttpResponse.json({ items: [], next_cursor: null });
+      }),
+    );
+    await listVirtualMachines({ sort: 'last_seen_at', order: 'desc' });
+    await listApplications({ sort: 'name' });
+    expect(new URLSearchParams(seen.vm).get('sort')).toBe('last_seen_at');
+    expect(new URLSearchParams(seen.vm).get('order')).toBe('desc');
+    expect(new URLSearchParams(seen.app).get('sort')).toBe('name');
   });
 });
