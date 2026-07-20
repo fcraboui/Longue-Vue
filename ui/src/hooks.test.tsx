@@ -3,7 +3,7 @@ import { act, render, renderHook, screen, waitFor } from '@testing-library/react
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { type ReactNode, useState } from 'react';
 import { ApiError } from './api';
-import { useDebouncedValue, useResource, useResources, usePageSize, PAGE_SIZE_OPTIONS, usePagedList } from './hooks';
+import { useDebouncedValue, useResource, useResources, usePageSize, PAGE_SIZE_OPTIONS, usePagedList, useListControls } from './hooks';
 import type { PagedResponse } from './api';
 
 afterEach(() => vi.useRealTimers());
@@ -260,5 +260,52 @@ describe('useDebouncedValue', () => {
       vi.advanceTimersByTime(100);
     });
     expect(screen.getByTestId('value').textContent).toBe('b');
+  });
+});
+
+function wrapper(initial = '/clusters') {
+  return ({ children }: { children: React.ReactNode }) => (
+    <MemoryRouter initialEntries={[initial]}>{children}</MemoryRouter>
+  );
+}
+
+describe('useListControls', () => {
+  it('reads initial state from the URL', () => {
+    const { result } = renderHook(() => useListControls(), {
+      wrapper: wrapper('/clusters?name=prod&sort=name&order=desc'),
+    });
+    expect(result.current.name).toBe('prod');
+    expect(result.current.nameInput).toBe('prod');
+    expect(result.current.sort).toBe('name');
+    expect(result.current.order).toBe('desc');
+    expect(result.current.params).toEqual({ name: 'prod', sort: 'name', order: 'desc' });
+  });
+
+  it('debounces typed input into the URL-synced name', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useListControls(), { wrapper: wrapper() });
+    act(() => result.current.setNameInput('web'));
+    expect(result.current.name).toBe('');           // not yet applied
+    act(() => { vi.advanceTimersByTime(300); });
+    vi.useRealTimers();
+    await waitFor(() => expect(result.current.name).toBe('web'));
+    expect(result.current.deps).toEqual(['web', '', 'asc']);
+  });
+
+  it('toggleSort cycles asc → desc on the same key and resets to asc on a new key', async () => {
+    const { result } = renderHook(() => useListControls(), { wrapper: wrapper() });
+    act(() => result.current.toggleSort('name'));
+    await waitFor(() => expect(result.current.sort).toBe('name'));
+    expect(result.current.order).toBe('asc');
+    act(() => result.current.toggleSort('name'));
+    await waitFor(() => expect(result.current.order).toBe('desc'));
+    act(() => result.current.toggleSort('region'));
+    await waitFor(() => expect(result.current.sort).toBe('region'));
+    expect(result.current.order).toBe('asc');
+  });
+
+  it('omits sort/order from params when no sort is active', () => {
+    const { result } = renderHook(() => useListControls(), { wrapper: wrapper() });
+    expect(result.current.params).toEqual({ name: undefined, sort: undefined, order: undefined });
   });
 });

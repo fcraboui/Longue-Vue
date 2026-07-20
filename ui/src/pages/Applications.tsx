@@ -1,14 +1,16 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import * as api from '../api';
-import { useResource, useDebouncedValue } from '../hooks';
-import { AsyncView, Dash } from '../components';
+import { usePagedList, useListControls, useDebouncedValue } from '../hooks';
+import { Dash, Paginator } from '../components';
+import { SortHeader } from '../components/SortHeader';
+import { SearchInput } from '../components/SearchInput';
 
 // Applications is the top-level list page for the ADR-0029 first-class
 // Application entity. It mirrors the VirtualMachines page shape: a
 // toolbar of filters above a table. The default view groups rows by
 // application_block_name (with an "Unblocked" group last); a toggle
-// flips to a flat alphabetical sort. Cursor pagination via "Load more".
+// flips to a flat alphabetical sort. Standard Paginator replaces "Load more".
 
 // dictMax returns the maximum DICT axis value across the four axes, or
 // null when none are recorded. The list badge renders "DICT max: N".
@@ -34,56 +36,75 @@ function memberSummary(c: api.ApplicationMemberCounts): string {
 const UNBLOCKED = '__unblocked__';
 
 export default function Applications() {
-  // Typed filter inputs — debounced before they reach the fetcher so a
-  // fast typist doesn't fan out a request per keystroke.
-  const [nameInput, setNameInput] = useState('');
-  const [blockInput, setBlockInput] = useState('');
-  const [criticalityInput, setCriticalityInput] = useState('');
-  const [hasDict, setHasDict] = useState<'any' | 'yes' | 'no'>('any');
-  const [dictMin, setDictMin] = useState<number>(0);
+  const controls = useListControls();
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const setParam = (key: string, value: string) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  // Read filter values from URL:
+  const block = searchParams.get('application_block_name') ?? '';
+  const criticality = searchParams.get('criticality') ?? '';
+  const hasDictParam = searchParams.get('has_dict') ?? '';
+  const dictMinParam = searchParams.get('dict_min') ?? '';
+
+  const hasDict: 'any' | 'yes' | 'no' =
+    hasDictParam === 'yes' ? 'yes' : hasDictParam === 'no' ? 'no' : 'any';
+  const dictMin = dictMinParam ? Math.max(0, Math.min(4, Number(dictMinParam))) : 0;
+
+  // Debounced text inputs for block and criticality (VM-page pattern).
+  const [blockInput, setBlockInput] = useState(block);
+  const [criticalityInput, setCriticalityInput] = useState(criticality);
+
+  const debouncedBlock = useDebouncedValue(blockInput.trim(), 300);
+  const debouncedCriticality = useDebouncedValue(criticalityInput.trim(), 300);
+
+  // Debounced input → URL (guarded to avoid loops).
+  useEffect(() => {
+    if (debouncedBlock !== block) setParam('application_block_name', debouncedBlock);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedBlock]);
+
+  useEffect(() => {
+    if (debouncedCriticality !== criticality) setParam('criticality', debouncedCriticality);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedCriticality]);
+
+  // External URL change (back/forward, block-pill link) → input.
+  useEffect(() => {
+    if (block !== debouncedBlock) setBlockInput(block);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [block]);
+
+  useEffect(() => {
+    if (criticality !== debouncedCriticality) setCriticalityInput(criticality);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [criticality]);
+
+  // Display preference — not a filter, stays local.
   const [grouped, setGrouped] = useState(true);
 
-  // Accumulated pages — "Load more" appends rather than replacing so the
-  // operator keeps scroll context. Reset whenever a filter changes.
-  const [extraPages, setExtraPages] = useState<api.Application[]>([]);
-  const [moreCursor, setMoreCursor] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
-
-  const name = useDebouncedValue(nameInput.trim(), 250);
-  const block = useDebouncedValue(blockInput.trim(), 250);
-  const criticality = useDebouncedValue(criticalityInput.trim(), 250);
-
   const filter: api.ApplicationListFilter = {
-    limit: 50,
-    name: name || undefined,
     application_block_name: block || undefined,
     criticality: criticality || undefined,
     has_dict: hasDict === 'any' ? undefined : hasDict === 'yes',
     dict_min: dictMin > 0 ? dictMin : undefined,
   };
 
-  const state = useResource(
-    async () => {
-      // A fresh filter resets any accumulated "Load more" pages.
-      setExtraPages([]);
-      const page = await api.listApplications(filter);
-      setMoreCursor(page.next_cursor ?? null);
-      return page;
-    },
-    [name, block, criticality, hasDict, dictMin],
+  const list = usePagedList<api.Application>(
+    (cursor, limit) =>
+      api.listApplications({ ...filter, ...controls.params, cursor, limit }),
+    [block, criticality, hasDict, dictMin, ...controls.deps],
   );
-
-  const loadMore = async () => {
-    if (!moreCursor) return;
-    setLoadingMore(true);
-    try {
-      const page = await api.listApplications({ ...filter, cursor: moreCursor });
-      setExtraPages((prev) => [...prev, ...page.items]);
-      setMoreCursor(page.next_cursor ?? null);
-    } finally {
-      setLoadingMore(false);
-    }
-  };
 
   return (
     <>
@@ -93,15 +114,7 @@ export default function Applications() {
       </p>
 
       <div className="vm-filters">
-        <label>
-          <span>Name</span>
-          <input
-            type="search"
-            value={nameInput}
-            placeholder="prefix or substring"
-            onChange={(e) => setNameInput(e.target.value)}
-          />
-        </label>
+        <SearchInput value={controls.nameInput} onChange={controls.setNameInput} />
         <label>
           <span>Application block</span>
           <input
@@ -124,7 +137,7 @@ export default function Applications() {
           <span>Has DICT</span>
           <select
             value={hasDict}
-            onChange={(e) => setHasDict(e.target.value as 'any' | 'yes' | 'no')}
+            onChange={(e) => setParam('has_dict', e.target.value === 'any' ? '' : e.target.value)}
           >
             <option value="any">Any</option>
             <option value="yes">Yes</option>
@@ -133,7 +146,12 @@ export default function Applications() {
         </label>
         <label>
           <span>DICT min</span>
-          <select value={dictMin} onChange={(e) => setDictMin(Number(e.target.value))}>
+          <select
+            value={dictMin}
+            onChange={(e) =>
+              setParam('dict_min', e.target.value === '0' ? '' : e.target.value)
+            }
+          >
             {[0, 1, 2, 3, 4].map((n) => (
               <option key={n} value={n}>
                 {n}
@@ -148,45 +166,52 @@ export default function Applications() {
         </label>
       </div>
 
-      <AsyncView state={state}>
-        {(firstPage) => {
-          const all = [...firstPage.items, ...extraPages];
-          if (all.length === 0) {
-            return (
-              <p className="muted empty">
-                No applications yet — create one from a workload or VM detail page.
-              </p>
-            );
-          }
-          return (
-            <>
-              {grouped ? (
-                <GroupedTable apps={all} />
-              ) : (
-                <FlatTable
-                  apps={[...all].sort((a, b) =>
-                    (a.display_name || a.name).toLowerCase().localeCompare(
-                      (b.display_name || b.name).toLowerCase(),
-                    ),
-                  )}
-                />
-              )}
-              {moreCursor && (
-                <div style={{ marginTop: '0.75rem' }}>
-                  <button type="button" onClick={loadMore} disabled={loadingMore}>
-                    {loadingMore ? 'Loading...' : 'Load more'}
-                  </button>
-                </div>
-              )}
-            </>
-          );
-        }}
-      </AsyncView>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <div className="error">Failed to load: {list.error}</div>
+      ) : list.items.length === 0 ? (
+        <p className="muted empty">
+          No applications yet — create one from a workload or VM detail page.
+        </p>
+      ) : grouped ? (
+        <GroupedTable
+          apps={list.items}
+          sort={controls.sort}
+          asc={controls.order === 'asc'}
+          onToggle={controls.toggleSort}
+        />
+      ) : (
+        <FlatTable
+          apps={list.items}
+          sort={controls.sort}
+          asc={controls.order === 'asc'}
+          onToggle={controls.toggleSort}
+        />
+      )}
     </>
   );
 }
 
-function GroupedTable({ apps }: { apps: api.Application[] }) {
+function GroupedTable({
+  apps,
+  sort,
+  asc,
+  onToggle,
+}: {
+  apps: api.Application[];
+  sort: string;
+  asc: boolean;
+  onToggle: (k: string) => void;
+}) {
   // Group case-insensitively on the block name; unblocked apps land in a
   // dedicated bucket keyed by UNBLOCKED so it can sort last.
   const groups = useMemo(() => {
@@ -214,23 +239,51 @@ function GroupedTable({ apps }: { apps: api.Application[] }) {
           <summary>
             {g.label} <span className="muted">({g.apps.length})</span>
           </summary>
-          <FlatTable apps={g.apps} />
+          <FlatTable apps={g.apps} sort={sort} asc={asc} onToggle={onToggle} />
         </details>
       ))}
     </>
   );
 }
 
-function FlatTable({ apps }: { apps: api.Application[] }) {
+function FlatTable({
+  apps,
+  sort,
+  asc,
+  onToggle,
+}: {
+  apps: api.Application[];
+  sort: string;
+  asc: boolean;
+  onToggle: (k: string) => void;
+}) {
   return (
     <div className="table-wrap">
       <table className="entities">
         <thead>
           <tr>
-            <th>Name</th>
+            <SortHeader
+              label="Name"
+              sortKey="name"
+              activeKey={sort}
+              asc={asc}
+              onToggle={onToggle}
+            />
             <th>Block</th>
-            <th>Owner</th>
-            <th>Criticality</th>
+            <SortHeader
+              label="Owner"
+              sortKey="owner"
+              activeKey={sort}
+              asc={asc}
+              onToggle={onToggle}
+            />
+            <SortHeader
+              label="Criticality"
+              sortKey="criticality"
+              activeKey={sort}
+              asc={asc}
+              onToggle={onToggle}
+            />
             <th>DICT</th>
             <th>Members</th>
             <th>Runbook</th>

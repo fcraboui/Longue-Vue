@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError } from './api';
-import type { PagedResponse } from './api';
+import type { ListControlParams, PagedResponse } from './api';
 
 // useDebouncedValue delays propagation of a fast-changing value (typed
 // search input) until it has been stable for `delayMs`. Used by list
@@ -200,5 +200,78 @@ export function usePagedList<T>(
       if (nextCursor) setStack((s) => [...s, nextCursor]);
     },
     prev: () => setStack((s) => s.slice(0, -1)),
+  };
+}
+
+export type ListControls = {
+  nameInput: string;
+  setNameInput: (v: string) => void;
+  name: string;
+  sort: string;
+  order: 'asc' | 'desc';
+  toggleSort: (key: string) => void;
+  params: ListControlParams;
+  deps: unknown[];
+};
+
+// useListControls owns the uniform list controls (ADR-0042 phase 2): a
+// debounced free-text name filter and a sort key/direction, all mirrored
+// into the URL query string so any list view is a shareable link. The URL
+// is the source of truth; typing debounces 300 ms before landing there.
+// Cursors deliberately never reach the URL — a shared link opens page 1.
+export function useListControls(): ListControls {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlName = searchParams.get('name') ?? '';
+  const sort = searchParams.get('sort') ?? '';
+  const order: 'asc' | 'desc' = searchParams.get('order') === 'desc' ? 'desc' : 'asc';
+
+  const [nameInput, setNameInput] = useState(urlName);
+  const debouncedName = useDebouncedValue(nameInput.trim(), 300);
+
+  // Debounced input → URL. replace:true so typing doesn't spam history.
+  useEffect(() => {
+    if (debouncedName === urlName) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (debouncedName) next.set('name', debouncedName);
+        else next.delete('name');
+        return next;
+      },
+      { replace: true },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedName]);
+
+  // External URL change (back/forward, shared link, block-pill link) →
+  // input. Guarded so our own debounced write doesn't loop.
+  useEffect(() => {
+    if (urlName !== debouncedName) setNameInput(urlName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlName]);
+
+  const toggleSort = (key: string) => {
+    // replace: sort clicks shouldn't pile up in browser history.
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('sort', key);
+      next.set('order', sort === key && order === 'asc' ? 'desc' : 'asc');
+      return next;
+    }, { replace: true });
+  };
+
+  return {
+    nameInput,
+    setNameInput,
+    name: urlName,
+    sort,
+    order,
+    toggleSort,
+    params: {
+      name: urlName || undefined,
+      sort: sort || undefined,
+      order: sort ? order : undefined,
+    },
+    deps: [urlName, sort, order],
   };
 }

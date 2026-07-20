@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent } from '@testing-library/react';
 import {
   Clusters,
   Ingresses,
@@ -51,6 +51,26 @@ describe('Clusters list', () => {
     await waitFor(() =>
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument(),
     );
+  });
+
+  it('Name column header is sortable and clicking it sends sort=name&order=asc', async () => {
+    const captured: string[] = [];
+    server.use(
+      http.get('/v1/clusters', ({ request }) => {
+        captured.push(new URL(request.url).search);
+        return HttpResponse.json({ items: [fixtureCluster], next_cursor: null });
+      }),
+    );
+    renderWithRouter(<Clusters />, { initialPath: '/clusters' });
+    await waitFor(() => expect(screen.getByText(fixtureCluster.display_name!)).toBeInTheDocument());
+    const nameHeader = screen.getByRole('columnheader', { name: /^Name/ });
+    expect(nameHeader.className).toContain('sortable');
+    fireEvent.click(nameHeader);
+    await waitFor(() => {
+      const last = captured.at(-1) ?? '';
+      expect(last).toContain('sort=name');
+      expect(last).toContain('order=asc');
+    });
   });
 });
 
@@ -164,6 +184,26 @@ describe('Pods list', () => {
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument(),
     );
   });
+
+  it('Node column header is sortable and clicking it sends sort=node_name&order=asc', async () => {
+    const captured: string[] = [];
+    server.use(
+      http.get('/v1/pods', ({ request }) => {
+        captured.push(new URL(request.url).search);
+        return HttpResponse.json({ items: [fixturePod], next_cursor: null });
+      }),
+    );
+    renderWithRouter(<Pods />, { initialPath: '/pods' });
+    await waitFor(() => expect(screen.getByText(fixturePod.name)).toBeInTheDocument());
+    const nodeHeader = screen.getByRole('columnheader', { name: /^Node/ });
+    expect(nodeHeader.className).toContain('sortable');
+    fireEvent.click(nodeHeader);
+    await waitFor(() => {
+      const last = captured.at(-1) ?? '';
+      expect(last).toContain('sort=node_name');
+      expect(last).toContain('order=asc');
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -247,6 +287,26 @@ describe('PersistentVolumes list', () => {
     await waitFor(() =>
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument(),
     );
+  });
+
+  it('Capacity column header is sortable and clicking it sends sort=capacity&order=asc', async () => {
+    const captured: string[] = [];
+    server.use(
+      http.get('/v1/persistentvolumes', ({ request }) => {
+        captured.push(new URL(request.url).search);
+        return HttpResponse.json({ items: [fixturePV], next_cursor: null });
+      }),
+    );
+    renderWithRouter(<PersistentVolumes />, { initialPath: '/persistent-volumes' });
+    await waitFor(() => expect(screen.getByText(fixturePV.name)).toBeInTheDocument());
+    const capacityHeader = screen.getByRole('columnheader', { name: /^Capacity/ });
+    expect(capacityHeader.className).toContain('sortable');
+    fireEvent.click(capacityHeader);
+    await waitFor(() => {
+      const last = captured.at(-1) ?? '';
+      expect(last).toContain('sort=capacity');
+      expect(last).toContain('order=asc');
+    });
   });
 });
 

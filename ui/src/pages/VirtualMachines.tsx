@@ -1,29 +1,18 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import * as api from '../api';
-import { useResource, usePagedList } from '../hooks';
+import { useResource, usePagedList, useListControls, useDebouncedValue } from '../hooks';
 import { isAdmin, useMe } from '../me';
 import { Dash, Paginator } from '../components';
 import { useEntityTable } from '../components/column_filters';
+import { SortHeader } from '../components/SortHeader';
+import { SearchInput } from '../components/SearchInput';
 import { VirtualMachineIcon } from '../icons';
 
 // VirtualMachines is the top-level list page for ADR-0015 VMs. It mirrors
 // the shape of the EOL Inventory dashboard: filterable summary cards
 // above a sortable table. Power state is the load-bearing column —
 // running / stopped / terminated / error each get a distinct pill.
-
-type SortKey =
-  | 'name'
-  | 'role'
-  | 'cloud_account'
-  | 'region'
-  | 'zone'
-  | 'instance_type'
-  | 'image_name'
-  | 'image_id'
-  | 'private_ip'
-  | 'power_state'
-  | 'last_seen';
 
 type PowerStateGroup = 'running' | 'stopped' | 'terminated' | 'error' | 'other';
 
@@ -79,98 +68,56 @@ function formatTs(ts?: string | null): string {
   }
 }
 
-function compare(a: api.VirtualMachine, b: api.VirtualMachine, key: SortKey, asc: boolean): number {
-  const dir = asc ? 1 : -1;
-  const s = (v?: string | null) => (v ?? '').toLowerCase();
-  switch (key) {
-    case 'name':
-      return s(a.display_name || a.name).localeCompare(s(b.display_name || b.name)) * dir;
-    case 'role':
-      return s(a.role).localeCompare(s(b.role)) * dir;
-    case 'cloud_account':
-      return s(a.cloud_account_id).localeCompare(s(b.cloud_account_id)) * dir;
-    case 'region':
-      return s(a.region).localeCompare(s(b.region)) * dir;
-    case 'zone':
-      return s(a.zone).localeCompare(s(b.zone)) * dir;
-    case 'instance_type':
-      return s(a.instance_type).localeCompare(s(b.instance_type)) * dir;
-    case 'image_name':
-      return s(a.image_name).localeCompare(s(b.image_name)) * dir;
-    case 'image_id':
-      return s(a.image_id).localeCompare(s(b.image_id)) * dir;
-    case 'private_ip':
-      return s(a.private_ip).localeCompare(s(b.private_ip)) * dir;
-    case 'power_state':
-      return s(a.power_state).localeCompare(s(b.power_state)) * dir;
-    case 'last_seen':
-      return (a.last_seen_at || '').localeCompare(b.last_seen_at || '') * dir;
-  }
-}
-
 export default function VirtualMachines() {
   const me = useMe();
   const showAccountFilter = isAdmin(me);
   const tableRef = useEntityTable('vms.list');
 
-  const [cloudAccountId, setCloudAccountId] = useState<string>('');
-  const [region, setRegion] = useState<string>('');
-  const [role, setRole] = useState<string>('');
-  const [powerState, setPowerState] = useState<string>('');
-  const [includeTerminated, setIncludeTerminated] = useState<boolean>(false);
-  const [groupFilter, setGroupFilter] = useState<PowerStateGroup | null>(null);
-  // Free-text filters (ADR-0019). The *Input states track what the user
-  // has typed; the *Applied states are what the request actually carries.
-  // Submitting the form (button or Enter) copies typed → applied — that's
-  // what triggers a fresh server-side query.
-  const [nameInput, setNameInput] = useState<string>('');
-  const [imageInput, setImageInput] = useState<string>('');
-  const [appliedName, setAppliedName] = useState<string>('');
-  const [appliedImage, setAppliedImage] = useState<string>('');
-  const [application, setApplication] = useState<string>('');
-  // applicationVersion is only honoured server-side when application is
-  // also set (see api/cloud_types.go). The UI mirrors the same coupling:
-  // the dropdown is disabled until a product is selected, and changing
-  // the product resets the version to "any".
-  const [applicationVersion, setApplicationVersion] = useState<string>('');
+  const controls = useListControls();
 
-  const handleSearchSubmit = (e?: { preventDefault?: () => void }) => {
-    e?.preventDefault?.();
-    setAppliedName(nameInput.trim());
-    setAppliedImage(imageInput.trim());
+  const [searchParams, setSearchParams] = useSearchParams();
+  const setParam = (key: string, value: string) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
   };
 
-  const handleClearSearch = () => {
-    setNameInput('');
-    setImageInput('');
-    setAppliedName('');
-    setAppliedImage('');
-  };
+  // Read all filters from the URL:
+  const cloudAccountId = searchParams.get('cloud_account_id') ?? '';
+  const region = searchParams.get('region') ?? '';
+  const powerState = searchParams.get('power_state') ?? '';
+  const includeTerminated = searchParams.get('include_terminated') === 'true';
+  const application = searchParams.get('application') ?? '';
+  const applicationVersion = searchParams.get('application_version') ?? '';
 
-  const dirty = nameInput.trim() !== appliedName || imageInput.trim() !== appliedImage;
-
-  const [sortKey, setSortKey] = useState<SortKey>('name');
-  const [sortAsc, setSortAsc] = useState<boolean>(true);
-
-  const handleSort = (k: SortKey) => {
-    if (k === sortKey) setSortAsc(!sortAsc);
-    else {
-      setSortKey(k);
-      setSortAsc(true);
-    }
-  };
+  // Image: debounced free-text like name, but page-local (not part of
+  // useListControls — it is a VM-specific filter).
+  const [imageInput, setImageInput] = useState(searchParams.get('image') ?? '');
+  const debouncedImage = useDebouncedValue(imageInput.trim(), 300);
+  useEffect(() => {
+    if (debouncedImage !== (searchParams.get('image') ?? '')) setParam('image', debouncedImage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedImage]);
 
   // Role filter is applied client-side (after splitting comma-joined
   // role strings) so that a filter on `dns` matches a VM tagged
   // `ansible_group=dns,primary_dns`. Region / cloud_account / power_state
   // remain server-side filters.
+  const [role, setRole] = useState<string>('');
+  const [groupFilter, setGroupFilter] = useState<PowerStateGroup | null>(null);
+
   const filter: api.VirtualMachineListFilter = {
     cloud_account_id: cloudAccountId || undefined,
     region: region || undefined,
     power_state: powerState || undefined,
     include_terminated: includeTerminated,
-    name: appliedName || undefined,
-    image: appliedImage || undefined,
+    image: debouncedImage || undefined,
     application: application || undefined,
     application_version: application && applicationVersion ? applicationVersion : undefined,
   };
@@ -188,16 +135,11 @@ export default function VirtualMachines() {
   const appsState = useResource(() => api.listDistinctVMApplications(), []);
 
   const vmsList = usePagedList<api.VirtualMachine>(
-    (cursor, limit) => api.listVirtualMachines({ ...filter, cursor, limit }),
+    (cursor, limit) => api.listVirtualMachines({ ...filter, ...controls.params, cursor, limit }),
     [
-      cloudAccountId,
-      region,
-      powerState,
-      includeTerminated,
-      appliedName,
-      appliedImage,
-      application,
-      applicationVersion,
+      cloudAccountId, region, powerState, includeTerminated,
+      debouncedImage, application, applicationVersion,
+      ...controls.deps,
     ],
   );
 
@@ -246,7 +188,7 @@ export default function VirtualMachines() {
           if (groupFilter && classify(vm.power_state) !== groupFilter) return false;
           return true;
         });
-        const sorted = [...visible].sort((a, b) => compare(a, b, sortKey, sortAsc));
+        const sorted = visible;
 
         // Region dropdown options: union of regions from cloud_accounts
         // (admins only) and the currently-loaded VMs, plus the
@@ -319,7 +261,7 @@ export default function VirtualMachines() {
                     <span>Cloud account</span>
                     <select
                       value={cloudAccountId}
-                      onChange={(e) => setCloudAccountId(e.target.value)}
+                      onChange={(e) => setParam('cloud_account_id', e.target.value)}
                     >
                       <option value="">All accounts</option>
                       {accountList.map((a) => (
@@ -334,7 +276,7 @@ export default function VirtualMachines() {
                   <span>Region</span>
                   <select
                     value={region}
-                    onChange={(e) => setRegion(e.target.value)}
+                    onChange={(e) => setParam('region', e.target.value)}
                     disabled={regions.length === 0}
                   >
                     <option value="">All regions</option>
@@ -362,7 +304,7 @@ export default function VirtualMachines() {
                 </label>
                 <label>
                   <span>Power state</span>
-                  <select value={powerState} onChange={(e) => setPowerState(e.target.value)}>
+                  <select value={powerState} onChange={(e) => setParam('power_state', e.target.value)}>
                     <option value="">Any</option>
                     <option value="running">running</option>
                     <option value="stopped">stopped</option>
@@ -378,10 +320,10 @@ export default function VirtualMachines() {
                   <select
                     value={application}
                     onChange={(e) => {
-                      setApplication(e.target.value);
+                      setParam('application', e.target.value);
                       // Reset version when the product changes — the
                       // option list belongs to the previous product.
-                      setApplicationVersion('');
+                      setParam('application_version', '');
                     }}
                     disabled={
                       appsState.status !== 'ready' ||
@@ -401,7 +343,7 @@ export default function VirtualMachines() {
                   <span>App version</span>
                   <select
                     value={applicationVersion}
-                    onChange={(e) => setApplicationVersion(e.target.value)}
+                    onChange={(e) => setParam('application_version', e.target.value)}
                     disabled={!application || appsState.status !== 'ready'}
                   >
                     <option value="">Any</option>
@@ -420,25 +362,17 @@ export default function VirtualMachines() {
                   <input
                     type="checkbox"
                     checked={includeTerminated}
-                    onChange={(e) => setIncludeTerminated(e.target.checked)}
+                    onChange={(e) => setParam('include_terminated', e.target.checked ? 'true' : '')}
                   />
                   <span>Include terminated</span>
                 </label>
               </div>
 
               <div className="vm-search">
-                <label>
-                  <span>Name</span>
-                  <input
-                    type="search"
-                    value={nameInput}
-                    placeholder="prefix or substring"
-                    onChange={(e) => setNameInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSearchSubmit(e);
-                    }}
-                  />
-                </label>
+                <SearchInput
+                  value={controls.nameInput}
+                  onChange={controls.setNameInput}
+                />
                 <label>
                   <span>Image</span>
                   <input
@@ -446,26 +380,8 @@ export default function VirtualMachines() {
                     value={imageInput}
                     placeholder="ami-… or name fragment"
                     onChange={(e) => setImageInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSearchSubmit(e);
-                    }}
                   />
                 </label>
-                <div className="vm-filter-actions">
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={handleSearchSubmit}
-                    disabled={!dirty && !appliedName && !appliedImage}
-                  >
-                    Search
-                  </button>
-                  {(appliedName || appliedImage || nameInput || imageInput) && (
-                    <button type="button" onClick={handleClearSearch}>
-                      Clear
-                    </button>
-                  )}
-                </div>
               </div>
 
               <Paginator
@@ -490,79 +406,61 @@ export default function VirtualMachines() {
                       <SortHeader
                         label="Name"
                         sortKey="name"
-                        currentKey={sortKey}
-                        asc={sortAsc}
-                        onClick={handleSort}
+                        activeKey={controls.sort}
+                        asc={controls.order === 'asc'}
+                        onToggle={controls.toggleSort}
                       />
                       <SortHeader
                         label="Role"
                         sortKey="role"
-                        currentKey={sortKey}
-                        asc={sortAsc}
-                        onClick={handleSort}
+                        activeKey={controls.sort}
+                        asc={controls.order === 'asc'}
+                        onToggle={controls.toggleSort}
                       />
-                      <SortHeader
-                        label="Cloud account"
-                        sortKey="cloud_account"
-                        currentKey={sortKey}
-                        asc={sortAsc}
-                        onClick={handleSort}
-                      />
+                      <th>Cloud account</th>
                       <SortHeader
                         label="Region"
                         sortKey="region"
-                        currentKey={sortKey}
-                        asc={sortAsc}
-                        onClick={handleSort}
+                        activeKey={controls.sort}
+                        asc={controls.order === 'asc'}
+                        onToggle={controls.toggleSort}
                       />
                       <SortHeader
                         label="Zone"
                         sortKey="zone"
-                        currentKey={sortKey}
-                        asc={sortAsc}
-                        onClick={handleSort}
+                        activeKey={controls.sort}
+                        asc={controls.order === 'asc'}
+                        onToggle={controls.toggleSort}
                       />
                       <SortHeader
                         label="Instance type"
                         sortKey="instance_type"
-                        currentKey={sortKey}
-                        asc={sortAsc}
-                        onClick={handleSort}
+                        activeKey={controls.sort}
+                        asc={controls.order === 'asc'}
+                        onToggle={controls.toggleSort}
                       />
                       <SortHeader
                         label="Image"
                         sortKey="image_name"
-                        currentKey={sortKey}
-                        asc={sortAsc}
-                        onClick={handleSort}
+                        activeKey={controls.sort}
+                        asc={controls.order === 'asc'}
+                        onToggle={controls.toggleSort}
                       />
-                      <SortHeader
-                        label="Image ID"
-                        sortKey="image_id"
-                        currentKey={sortKey}
-                        asc={sortAsc}
-                        onClick={handleSort}
-                      />
-                      <SortHeader
-                        label="Private IP"
-                        sortKey="private_ip"
-                        currentKey={sortKey}
-                        asc={sortAsc}
-                        onClick={handleSort}
-                      />
+                      <th>Image ID</th>
+                      <th>Private IP</th>
                       <SortHeader
                         label="Power state"
                         sortKey="power_state"
-                        currentKey={sortKey}
-                        asc={sortAsc}
-                        onClick={handleSort}
+                        activeKey={controls.sort}
+                        asc={controls.order === 'asc'}
+                        onToggle={controls.toggleSort}
                       />
                       <SortHeader
                         label="Last seen"
-                        sortKey="last_seen"
-                        currentKey={sortKey}
-                        asc={sortAsc}
-                        onClick={handleSort}
+                        sortKey="last_seen_at"
+                        activeKey={controls.sort}
+                        asc={controls.order === 'asc'}
+                        onToggle={controls.toggleSort}
                       />
                     </tr>
                   </thead>
@@ -670,27 +568,5 @@ function SummaryCard({
       <span className="eol-summary-count">{count}</span>
       <span className="eol-summary-label">{label}</span>
     </div>
-  );
-}
-
-function SortHeader({
-  label,
-  sortKey,
-  currentKey,
-  asc,
-  onClick,
-}: {
-  label: string;
-  sortKey: SortKey;
-  currentKey: SortKey;
-  asc: boolean;
-  onClick: (key: SortKey) => void;
-}) {
-  const arrow = currentKey === sortKey ? (asc ? ' \u25b2' : ' \u25bc') : '';
-  return (
-    <th className="sortable" onClick={() => onClick(sortKey)}>
-      {label}
-      {arrow}
-    </th>
   );
 }
