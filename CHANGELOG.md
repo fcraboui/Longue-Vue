@@ -6,6 +6,25 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.11.0](https://github.com/sthalbert/Longue-Vue/compare/v1.10.0...v1.11.0) (2026-07-20)
+
+
+### Features
+
+* **ui:** generic EntityListPage with uniform search/sort; clusters pilot ([3404305](https://github.com/sthalbert/Longue-Vue/commit/3404305d6f066c42fb672a2027368402b0a42045))
+* **ui:** server sort, standard pagination and URL filters on applications list ([cf336b3](https://github.com/sthalbert/Longue-Vue/commit/cf336b38c4f78b06d638e7b832defd94d3601e67))
+* **ui:** server-side sort and URL-synced filters on the VM list ([54f12fb](https://github.com/sthalbert/Longue-Vue/commit/54f12fb227d9b11578a7c01df3bfb04d93f67378))
+* **ui:** uniform name/sort/order params on list API helpers ([468e225](https://github.com/sthalbert/Longue-Vue/commit/468e22517ba23746ed6ffb0a76322c416be47604))
+* **ui:** uniform search & server-side sort on all main list pages (phase 2) ([37c1182](https://github.com/sthalbert/Longue-Vue/commit/37c1182ad6e096d1641199a5a01fbd2fb76cd6a5))
+* **ui:** uniform search/sort on nodes, namespaces, workloads, pods lists ([4f8e4a1](https://github.com/sthalbert/Longue-Vue/commit/4f8e4a1f890553a1acd349d5e3516739850cd7b7))
+* **ui:** uniform search/sort on services, ingresses, PV, PVC lists ([5a8669d](https://github.com/sthalbert/Longue-Vue/commit/5a8669dfdc11d2181dae5df18e85d6cf609f8f9e))
+* **ui:** url-synced useListControls hook and shared SearchInput ([1922a3d](https://github.com/sthalbert/Longue-Vue/commit/1922a3d8651cb601c684d3a1f1745a9e98a86726))
+
+
+### Bug Fixes
+
+* **ui:** sort-header clicks replace history instead of pushing ([07faa48](https://github.com/sthalbert/Longue-Vue/commit/07faa483521825aae297c7ee6edda7b3bd62af2b))
+
 ## [1.10.0](https://github.com/sthalbert/Longue-Vue/compare/v1.9.0...v1.10.0) (2026-07-15)
 
 
