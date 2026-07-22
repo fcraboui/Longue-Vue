@@ -301,9 +301,123 @@ post /v1/persistentvolumeclaims "{
 }" >/dev/null
 echo "pv/pvc seeded"
 
+echo "=== policies (enable + seed via SQL) ==="
+# Kyverno cluster-policies and policy-reports are collector-seeded tables
+# with no REST POST endpoints. Insert directly via psql.
+DB="${LONGUE_VUE_DATABASE_URL:-}"
+if [ -z "$DB" ]; then
+    echo "LONGUE_VUE_DATABASE_URL not set — skipping policy seed" >&2
+else
+    # Enable policies in settings so the API endpoints return data.
+    STATUS=$(curl -sS -o /dev/null -w '%{http_code}' "${AUTH_ARGS[@]}" \
+        -X PATCH -H "$CT" \
+        -d '{"policies_enabled":true}' \
+        "${BASE}/v1/admin/settings")
+    echo "policies_enabled → $STATUS"
+
+    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+    psql "$DB" >/dev/null <<SQL
+-- Cluster-scoped ClusterPolicies (prod)
+INSERT INTO cluster_policies (cluster_id, name, resource_type, scope, description, category, severity, action, failure_policy, background, rule_types, rules_count, target_resources, ready, spec_raw, reconcile_seen_at)
+VALUES
+  ('${PROD_ID}', 'disallow-latest-tag',       'ClusterPolicy', 'cluster', 'Disallow the latest tag on container images',      'Best Practices', 'medium', 'enforce', 'Fail',    true,  ARRAY['validate'], 1,  ARRAY['Deployment','StatefulSet','DaemonSet'], true,  '{"rules":[{"name":"disallow-latest-tag","match":{"resources":{"kinds":["Deployment","StatefulSet","DaemonSet"]}},"validate":{"pattern":{"spec":{"template":{"spec":{"containers":[{"image":"!*:latest"}]}}}}}}]}', '${NOW}'),
+  ('${PROD_ID}', 'require-resource-requests',  'ClusterPolicy', 'cluster', 'Require CPU and memory requests on every pod',       'Best Practices', 'high',   'enforce', 'Fail',    true,  ARRAY['validate'], 2,  ARRAY['Deployment','StatefulSet','DaemonSet','Job'], true,  '{"rules":[{"name":"cpu-requests","match":{"resources":{"kinds":["Deployment","StatefulSet","DaemonSet","Job"]}},"validate":{"pattern":{"spec":{"template":{"spec":{"containers":[{"resources":{"requests":{"cpu":"?*"}}}]}}}}}}, {"name":"memory-requests","match":{"resources":{"kinds":["Deployment","StatefulSet","DaemonSet","Job"]}},"validate":{"pattern":{"spec":{"template":{"spec":{"containers":[{"resources":{"requests":{"memory":"?*"}}}]}}}}}}]}', '${NOW}'),
+  ('${PROD_ID}', 'restrict-nodeport',          'ClusterPolicy', 'cluster', 'Disallow NodePort services in production',            'Security',       'high',   'enforce', 'Ignore', true,  ARRAY['validate'], 1,  ARRAY['Service'], true,  '{"rules":[{"name":"restrict-nodeport","match":{"resources":{"kinds":["Service"]}},"validate":{"message":"NodePort services are forbidden in production","pattern":{"spec":{"type":"!NodePort"}}}}]}', '${NOW}'),
+  ('${PROD_ID}', 'check-secrets',              'ClusterPolicy', 'cluster', 'Ensure secrets are mounted as volumes, not env vars', 'Security',       'critical','enforce','Fail',   true,  ARRAY['validate'], 1,  ARRAY['Deployment','StatefulSet','DaemonSet'], true,  '{"rules":[{"name":"secrets-as-volumes","match":{"resources":{"kinds":["Deployment","StatefulSet","DaemonSet"]}},"validate":{"message":"Secrets must be mounted as volumes, not as environment variables","pattern":{"spec":{"template":{"spec":{"containers":[{"envFrom":[{"secretRef":null}]}]}}}}}}]}', '${NOW}'),
+  ('${PROD_ID}', 'add-safe-to-evict',          'ClusterPolicy', 'cluster', 'Annotate pods without PDB as safe-to-evict',         'Best Practices', 'low',    'audit',   'Ignore', true,  ARRAY['mutate'],   1,  ARRAY['Deployment','StatefulSet','DaemonSet'], true,  '{"rules":[{"name":"add-safe-to-evict","match":{"resources":{"kinds":["Deployment","StatefulSet","DaemonSet"]}},"mutate":{"patchStrategicMerge":{"metadata":{"annotations":{"cluster-autoscaler.kubernetes.io/safe-to-evict":"true"}}}}}]}', '${NOW}')
+ON CONFLICT (cluster_id, COALESCE(namespace_id, '00000000-0000-0000-0000-000000000000'), name)
+DO UPDATE SET description      = EXCLUDED.description,
+              category         = EXCLUDED.category,
+              severity         = EXCLUDED.severity,
+              action           = EXCLUDED.action,
+              failure_policy   = EXCLUDED.failure_policy,
+              background       = EXCLUDED.background,
+              rule_types       = EXCLUDED.rule_types,
+              rules_count      = EXCLUDED.rules_count,
+              target_resources = EXCLUDED.target_resources,
+              ready            = EXCLUDED.ready,
+              spec_raw         = EXCLUDED.spec_raw,
+              reconcile_seen_at= EXCLUDED.reconcile_seen_at;
+
+-- Namespaced Policies (prod / shop)
+INSERT INTO cluster_policies (cluster_id, namespace_id, name, resource_type, scope, description, category, severity, action, failure_policy, background, rule_types, rules_count, target_resources, ready, spec_raw, reconcile_seen_at)
+VALUES
+  ('${PROD_ID}', '${SHOP_PROD}', 'require-shop-labels', 'Policy', 'namespace', 'Require app and tier labels on shop resources', 'Best Practices', 'medium', 'enforce', 'Fail', true, ARRAY['validate'], 2, ARRAY['Deployment','StatefulSet'], true, '{"rules":[{"name":"require-app-label","match":{"resources":{"kinds":["Deployment","StatefulSet"]}},"validate":{"message":"app label is required","pattern":{"metadata":{"labels":{"app":"?*"}}}}}, {"name":"require-tier-label","match":{"resources":{"kinds":["Deployment","StatefulSet"]}},"validate":{"message":"tier label is required","pattern":{"metadata":{"labels":{"tier":"?*"}}}}}]}', '${NOW}'),
+  ('${PROD_ID}', '${PLATFORM_PROD}', 'restrict-platform-ns', 'Policy', 'namespace', 'Restrict privileged containers in platform namespace', 'Security', 'high', 'audit', 'Ignore', true, ARRAY['validate'], 1, ARRAY['Deployment'], true, '{"rules":[{"name":"restrict-privileged","match":{"resources":{"kinds":["Deployment"]}},"validate":{"message":"Privileged containers are forbidden","pattern":{"spec":{"template":{"spec":{"containers":[{"securityContext":{"privileged":false}}]}}}}}}]}', '${NOW}')
+ON CONFLICT (cluster_id, COALESCE(namespace_id, '00000000-0000-0000-0000-000000000000'), name)
+DO UPDATE SET description      = EXCLUDED.description,
+              category         = EXCLUDED.category,
+              severity         = EXCLUDED.severity,
+              action           = EXCLUDED.action,
+              failure_policy   = EXCLUDED.failure_policy,
+              background       = EXCLUDED.background,
+              rule_types       = EXCLUDED.rule_types,
+              rules_count      = EXCLUDED.rules_count,
+              target_resources = EXCLUDED.target_resources,
+              ready            = EXCLUDED.ready,
+              spec_raw         = EXCLUDED.spec_raw,
+              reconcile_seen_at= EXCLUDED.reconcile_seen_at;
+
+-- Cluster-scoped ClusterPolicyReports (prod)
+INSERT INTO policy_reports (cluster_id, name, scope_kind, scope_name, summary_pass, summary_fail, summary_warn, summary_error, summary_skip, results_raw, reconcile_seen_at)
+VALUES
+  ('${PROD_ID}', 'clusterpolicyreport', 'ClusterPolicyReport', '', 3, 2, 0, 0, 0, '[
+    {"policy":"disallow-latest-tag","rule":"disallow-latest-tag","resource":{"kind":"Deployment","namespace":"shop","name":"web"},"result":"pass","severity":"medium","timestamp":"${NOW}"},
+    {"policy":"require-resource-requests","rule":"cpu-requests","resource":{"kind":"Deployment","namespace":"shop","name":"api"},"result":"fail","severity":"high","message":"cpu requests missing","timestamp":"${NOW}"},
+    {"policy":"require-resource-requests","rule":"memory-requests","resource":{"kind":"StatefulSet","namespace":"shop","name":"postgres"},"result":"pass","severity":"high","timestamp":"${NOW}"},
+    {"policy":"restrict-nodeport","rule":"restrict-nodeport","resource":{"kind":"Service","namespace":"kube-system","name":"ingress-nginx-controller"},"result":"pass","severity":"high","timestamp":"${NOW}"},
+    {"policy":"check-secrets","rule":"secrets-as-volumes","resource":{"kind":"Deployment","namespace":"shop","name":"api"},"result":"fail","severity":"critical","message":"secret referenced in env","timestamp":"${NOW}"},
+    {"policy":"check-secrets","rule":"secrets-as-volumes","resource":{"kind":"StatefulSet","namespace":"monitoring","name":"prometheus"},"result":"pass","severity":"critical","timestamp":"${NOW}"}
+  ]'::jsonb, '${NOW}')
+ON CONFLICT (cluster_id, COALESCE(namespace_id, '00000000-0000-0000-0000-000000000000'), name)
+DO UPDATE SET summary_pass     = EXCLUDED.summary_pass,
+              summary_fail     = EXCLUDED.summary_fail,
+              summary_warn     = EXCLUDED.summary_warn,
+              summary_error    = EXCLUDED.summary_error,
+              summary_skip     = EXCLUDED.summary_skip,
+              results_raw      = EXCLUDED.results_raw,
+              scope_kind       = EXCLUDED.scope_kind,
+              scope_name       = EXCLUDED.scope_name,
+              reconcile_seen_at= EXCLUDED.reconcile_seen_at;
+
+-- Namespaced PolicyReports (prod / shop)
+INSERT INTO policy_reports (cluster_id, namespace_id, name, scope_kind, scope_name, summary_pass, summary_fail, summary_warn, summary_error, summary_skip, results_raw, reconcile_seen_at)
+VALUES
+  ('${PROD_ID}', '${SHOP_PROD}', 'policyreport', 'PolicyReport', 'shop', 2, 2, 0, 0, 1, '[
+    {"policy":"require-shop-labels","rule":"require-app-label","resource":{"kind":"Deployment","namespace":"shop","name":"web"},"result":"pass","severity":"medium","timestamp":"${NOW}"},
+    {"policy":"require-shop-labels","rule":"require-tier-label","resource":{"kind":"Deployment","namespace":"shop","name":"web"},"result":"pass","severity":"medium","timestamp":"${NOW}"},
+    {"policy":"require-shop-labels","rule":"require-app-label","resource":{"kind":"StatefulSet","namespace":"shop","name":"postgres"},"result":"fail","severity":"medium","message":"app label missing","timestamp":"${NOW}"},
+    {"policy":"require-shop-labels","rule":"require-tier-label","resource":{"kind":"Deployment","namespace":"shop","name":"api"},"result":"fail","severity":"medium","message":"tier label missing","timestamp":"${NOW}"},
+    {"policy":"disallow-latest-tag","rule":"disallow-latest-tag","resource":{"kind":"Deployment","namespace":"shop","name":"web"},"result":"skip","severity":"medium","timestamp":"${NOW}"}
+  ]'::jsonb, '${NOW}'),
+  ('${PROD_ID}', '${PLATFORM_PROD}', 'policyreport', 'PolicyReport', 'platform', 0, 0, 1, 0, 0, '[
+    {"policy":"restrict-platform-ns","rule":"restrict-privileged","resource":{"kind":"Deployment","namespace":"platform","name":"cert-manager"},"result":"warn","severity":"high","message":"review privileged setting","timestamp":"${NOW}"}
+  ]'::jsonb, '${NOW}')
+ON CONFLICT (cluster_id, COALESCE(namespace_id, '00000000-0000-0000-0000-000000000000'), name)
+DO UPDATE SET summary_pass     = EXCLUDED.summary_pass,
+              summary_fail     = EXCLUDED.summary_fail,
+              summary_warn     = EXCLUDED.summary_warn,
+              summary_error    = EXCLUDED.summary_error,
+              summary_skip     = EXCLUDED.summary_skip,
+              results_raw      = EXCLUDED.results_raw,
+              scope_kind       = EXCLUDED.scope_kind,
+              scope_name       = EXCLUDED.scope_name,
+              reconcile_seen_at= EXCLUDED.reconcile_seen_at;
+SQL
+    echo "policies seeded"
+fi
+
 echo
 echo "=== summary ==="
 for kind in clusters nodes namespaces workloads pods services ingresses persistentvolumes persistentvolumeclaims; do
     count=$(curl -sS "${AUTH_ARGS[@]}" "${BASE}/v1/${kind}?limit=200" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['items']))")
     printf "  %-25s %s\n" "$kind" "$count"
 done
+
+if [ -n "$DB" ]; then
+    for kind in cluster_policies policy_reports; do
+        count=$(psql "$DB" -t -A -c "SELECT COUNT(*) FROM ${kind}")
+        printf "  %-25s %s\n" "$kind" "$(echo $count)"
+    done
+fi
