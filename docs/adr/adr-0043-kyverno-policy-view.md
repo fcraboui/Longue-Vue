@@ -12,7 +12,7 @@ superseded_by: ""
 
 ## Status
 
-**Proposed** | Accepted | Rejected | Superseded | Deprecated
+**Accepted** | Proposed | Rejected | Superseded | Deprecated
 
 - **Date:** 2026-07-21
 - **Supersedes:** none
@@ -84,10 +84,10 @@ predates this ADR's review); it stores both `ClusterPolicy` and
 | `failure_policy`    | TEXT                                         | `Fail` or `Ignore` — from `spec.failurePolicy` (Kyverno ≤1.12) or `spec.webhookConfiguration.failurePolicy` (Kyverno ≥1.13); normalised to title-case at ingestion                                                                                                                    |
 | `background`        | BOOLEAN                                      | from `spec.background` (default true)                                                                                                                                                                                                                                                 |
 | `rule_types`        | TEXT[]                                       | distinct rule types across `spec.rules[]`: subset of `{validate, mutate, generate, verifyImages}`                                                                                                                                                                                     |
-| `rules_count`       | INTEGER                                      | `len(spec.rules)`                                                                                                                                                                                                                                                                     |
+| `rules_count`       | INTEGER                                      | `len(spec.rules)`; NULL when 0 (absent spec.rules)                                                                                                                                                                                                                                    |
 | `target_resources`  | TEXT[]                                       | distinct union of `spec.rules[].match.any[].resources.kinds[]` and `spec.rules[].match.all[].resources.kinds[]` — e.g. `{Pod, Deployment, Namespace}`                                                                                                                                 |
 | `key_exclusions`    | TEXT[]                                       | distinct union of `spec.rules[].exclude.any[].resources.kinds[]`, `spec.rules[].exclude.all[].resources.kinds[]`, `spec.rules[].exclude.any[].resources.namespaces[]`, and `spec.rules[].exclude.all[].resources.namespaces[]` (capped at 10; prefixed: `kind:Pod`, `ns:kube-system`) |
-| `ready`             | BOOLEAN                                      | from `status.conditions[?(@.type=="Ready")].status == "True"`                                                                                                                                                                                                                         |
+| `ready`             | BOOLEAN                                      | tri-state: `true`/`false` from `status.conditions[type=="Ready"].status`; NULL when status or Ready condition absent                                                                                                                                                                  |
 | `annotations`       | JSONB                                        | full annotations for drill-down (subject, scored, minversion, …)                                                                                                                                                                                                                      |
 | `spec_raw`          | JSONB                                        | full spec for forensic access (mirrors `network_policies.spec_raw`)                                                                                                                                                                                                                   |
 | `reconcile_seen_at` | TIMESTAMPTZ                                  | standard reconcile timestamp                                                                                                                                                                                                                                                          |
@@ -103,18 +103,18 @@ namespace — they have no meaning without their owning namespace.
 UNIQUE on `(cluster_id, namespace_id, name)` — same composite key as
 other namespaced entities; NULL `namespace_id` for cluster-scoped
 policies. Because PostgreSQL treats NULL ≠ NULL in UNIQUE constraints
-by default, two cluster-scoped policies with the same name in the same
-cluster would **not** violate this constraint. To close that gap, two
-partial unique indexes are used:
+by default, a single expression-based unique index using COALESCE is
+used to close that gap:
 
 ```sql
-CREATE UNIQUE INDEX uq_cluster_policies_cluster
-  ON cluster_policies (cluster_id, name)
-  WHERE namespace_id IS NULL;
-CREATE UNIQUE INDEX uq_cluster_policies_ns
-  ON cluster_policies (cluster_id, namespace_id, name)
-  WHERE namespace_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_cluster_policies_scope
+  ON cluster_policies (cluster_id, COALESCE(namespace_id, '00000000-0000-0000-0000-000000000000'), name);
 ```
+
+This treats NULL `namespace_id` as a sentinel UUID, ensuring that two
+cluster-scoped policies with the same name in the same cluster violate
+the constraint. Expression indexes can serve as `ON CONFLICT` arbiters
+(unlike partial indexes with `WHERE`, which cannot).
 
 **`policy_reports`** — one row per collected `PolicyReport` or
 `ClusterPolicyReport`, carrying the summary counts and the results
@@ -136,17 +136,13 @@ array.
 | `results_raw`       | JSONB                                        | full `results[]` array for drill-down                 |
 | `reconcile_seen_at` | TIMESTAMPTZ                                  |                                                       |
 
-`policy_reports` uses the same partial unique index pattern as
+`policy_reports` uses the same COALESCE expression index pattern as
 `cluster_policies` to handle NULL `namespace_id` for
 ClusterPolicyReports:
 
 ```sql
-CREATE UNIQUE INDEX uq_policy_reports_cluster
-  ON policy_reports (cluster_id, name)
-  WHERE namespace_id IS NULL;
-CREATE UNIQUE INDEX uq_policy_reports_ns
-  ON policy_reports (cluster_id, namespace_id, name)
-  WHERE namespace_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_policy_reports_scope
+  ON policy_reports (cluster_id, COALESCE(namespace_id, '00000000-0000-0000-0000-000000000000'), name);
 ```
 
 ### 2. Collector changes
@@ -163,9 +159,12 @@ ClusterPolicyReport     → policy_reports     (cluster-wide list call; namespac
 ```
 
 Collection is gated by a new setting `policies_enabled` (default
-`false`), seeded from `LONGUE_VUE_POLICIES_ENABLED`. Rationale:
-clusters without Kyverno should not pay the API-round-trip cost; the
-setting also lets operators opt in gradually. The setting is exposed at
+`false`), seeded from `LONGUE_VUE_POLICIES_ENABLED`. The gate is
+checked **per tick** — the collector reads `GetSettings()` at the start
+of each Kyverno ingestion cycle; when the setting is off, the tick is a
+no-op and no Kubernetes API calls are made. Rationale: clusters without
+Kyverno should not pay the API-round-trip cost; the setting also lets
+operators opt in gradually. The setting is exposed at
 `GET /v1/admin/settings` (same as all other feature toggles).
 
 RBAC: add `clusterpolicies`, `policies`, `policyreports`,
@@ -175,17 +174,14 @@ The push-collector ClusterRole (`charts/longue-vue-collector`) is **not**
 modified — v1 is in-process-only per the constraint above. This avoids
 the ADR-0038 anti-pattern (RBAC granted without write path).
 
-Reconcile follows the established pattern (ADR-0009) with
-scope-appropriate granularity:
-
-- **Cluster-scoped policies** (`namespace_id IS NULL`):
-  `DeleteClusterPoliciesNotIn(cluster_id, seen_cluster_scoped_ids)` after
-  the cluster-wide ClusterPolicy list completes.
-- **Namespace-scoped policies** (`namespace_id IS NOT NULL`):
-  `DeleteClusterPoliciesNotInNamespaces(cluster_id, namespace_id, seen_ns_scoped_ids)`
-  per namespace after processing. This prevents a failed list for one
-  namespace from deleting another namespace's policies.
-- Same two-level reconcile pattern for policy reports.
+Reconcile follows the established pattern (ADR-0009). After each
+cluster-wide list call, `DeleteClusterPoliciesNotIn(cluster_id, seen_ids)`
+sweeps rows not present in the latest tick. The reconcile is
+cluster-level: both cluster-scoped and namespace-scoped policies are
+swept together, matching the cluster-wide collection model. If a
+namespace-level reconcile is needed in the future (e.g., per-namespace
+list calls), a `DeleteClusterPoliciesNotInNamespaces` method can be
+added. Same pattern for policy reports.
 
 ### 3. REST API
 
@@ -201,26 +197,28 @@ New list and detail endpoints:
 
 Query parameters follow ADR-0042 (uniform list contract):
 
-| Param            | Type   | Notes                                                                                                                |
-| ---------------- | ------ | -------------------------------------------------------------------------------------------------------------------- |
-| `limit`          | int    | cursor page size                                                                                                     |
-| `cursor`         | string | tagged base64-JSON cursor                                                                                            |
-| `name`           | string | substring / glob filter on policy name (LIKE metacharacters literal per ADR-0042)                                    |
-| `sort`           | string | allowlist: `name`, `action`, `background`, `severity`, `rules_count`, `failure_policy`, `category`, `ready`, `scope` |
-| `order`          | string | `asc` (default) / `desc`                                                                                             |
-| `cluster_id`     | UUID   | filter by cluster                                                                                                    |
-| `namespace_id`   | UUID   | filter by namespace                                                                                                  |
-| `resource_type`  | string | `ClusterPolicy` / `Policy`                                                                                           |
-| `action`         | string | `Enforce` / `Audit` (case-insensitive; values normalised at ingestion)                                               |
-| `failure_policy` | string | `Fail` / `Ignore`                                                                                                    |
-| `severity`       | string | `critical` / `high` / `medium` / `low` / `info` (substring filter; values normalised to lowercase at ingestion)      |
-| `category`       | string | substring filter on category                                                                                         |
+| Param            | Type   | Notes                                                                                                                       |
+| ---------------- | ------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `limit`          | int    | cursor page size                                                                                                            |
+| `cursor`         | string | tagged base64-JSON cursor                                                                                                   |
+| `name`           | string | substring / glob filter on policy name (LIKE metacharacters literal per ADR-0042)                                           |
+| `sort`           | string | allowlist: `name`, `action`, `background`, `severity`, `rules_count`, `failure_policy`, `category`, `ready`, `scope`        |
+| `order`          | string | `asc` (default) / `desc`                                                                                                    |
+| `cluster_id`     | UUID   | filter by cluster                                                                                                           |
+| `namespace_id`   | UUID   | filter by namespace                                                                                                         |
+| `resource_type`  | string | `ClusterPolicy` / `Policy`                                                                                                  |
+| `action`         | string | `Enforce` / `Audit` (case-insensitive exact match; values normalised at ingestion)                                          |
+| `failure_policy` | string | `Fail` / `Ignore` (case-insensitive exact match)                                                                            |
+| `severity`       | string | `critical` / `high` / `medium` / `low` / `info` (case-insensitive exact match; values normalised to lowercase at ingestion) |
+| `category`       | string | substring filter on category                                                                                                |
 
 **Sort infrastructure notes:** `background`, `ready`, and
 `rules_count` require extending the sort infrastructure beyond the
-current `sortText` / `sortTime` cursor types. `severity` as TEXT sorts
+current `sortText` / `sortTime` cursor types. A new `sortInt` cursor
+type handles boolean columns (via `::int` cast: 0/1) and integer
+columns (`rules_count`). `severity` as TEXT sorts
 alphabetically (`critical < high < low < medium`); a CASE-based rank
-mapping in the sort helper is required to sort by severity level.
+mapping in the sort helper (using `sortInt`) sorts by severity level.
 
 Response: `{items: [...], next_cursor: "..." | null}` per ADR-0042.
 
@@ -229,6 +227,8 @@ sort/filter allowlist. The `cluster_policy_name` filter is removed —
 since Kyverno 1.11, PolicyReports are named after the evaluated
 resource's UID, not the policy name. To find reports for a specific
 policy, use `GET /v1/policy-reports?cluster_id=<id>` and filter client-side on `results_raw`, or query the non-conformity sub-endpoint (§7).
+Additional filters for policy-reports: `scope_kind` (exact match, e.g.
+`ClusterPolicyReport`) and `scope_name` (substring/ILIKE match).
 
 ### 4. UI — Policies view
 
@@ -311,8 +311,15 @@ Per-tick retrieval (all cluster-wide):
    - GET /apis/wgpolicyk8s.io/v1alpha2/policyreports
      → map each item to a policy_reports row (namespace_id set from .metadata.namespace)
 
-3. Upsert each row; reconcile after successful list (cluster-scoped and
-   namespace-scoped separately, per §2).
+ 3. Upsert each row; reconcile after successful list (cluster-scoped and
+    namespace-scoped separately, per §2).
+
+    Collector metrics: `longue_vue_collector_upserted_total`,
+    `longue_vue_collector_reconciled_total`,
+    `longue_vue_collector_errors_total`, and
+    `longue_vue_collector_last_poll_timestamp_seconds` are emitted per
+    (cluster, resource) with resource labels `cluster_policies` and
+    `policy_reports` — matching the existing collector metric pattern.
 ```
 
 **Note on PolicyReport volume:** Since Kyverno 1.11, PolicyReports are
@@ -336,10 +343,10 @@ Field extraction from a `ClusterPolicy` / `Policy` object:
 | `failure_policy`   | `.spec.failurePolicy` (Kyverno ≤1.12, primary source) or `.spec.webhookConfiguration.failurePolicy` (Kyverno ≥1.13); normalised to title-case (`Fail` / `Ignore`) at ingestion                                                                                                                                        |
 | `background`       | `.spec.background` (boolean, default true when absent)                                                                                                                                                                                                                                                                |
 | `rule_types`       | distinct set of rule types present in `.spec.rules[]`: keys `validate`, `mutate`, `generate`, `verifyImages` — stored as TEXT[]                                                                                                                                                                                       |
-| `rules_count`      | `len(.spec.rules)`                                                                                                                                                                                                                                                                                                    |
+| `rules_count`      | `len(.spec.rules)`; NULL when 0 (absent spec.rules)                                                                                                                                                                                                                                                                   |
 | `target_resources` | distinct union of `.spec.rules[].match.any[].resources.kinds[]` and `.spec.rules[].match.all[].resources.kinds[]`                                                                                                                                                                                                     |
 | `key_exclusions`   | distinct union of `spec.rules[].exclude.any[].resources.kinds[]` (prefixed `kind:`), `spec.rules[].exclude.all[].resources.kinds[]` (prefixed `kind:`), `spec.rules[].exclude.any[].resources.namespaces[]` (prefixed `ns:`), and `spec.rules[].exclude.all[].resources.namespaces[]` (prefixed `ns:`) — capped at 10 |
-| `ready`            | `true` if `status.conditions[type=="Ready"].status == "True"`; `false` otherwise; `NULL` if status is absent                                                                                                                                                                                                          |
+| `ready`            | tri-state: `true` if `status.conditions[type=="Ready"].status == "True"`; `false` if Ready condition exists with non-"True" status; `NULL` if status or Ready condition absent                                                                                                                                        |
 | `annotations`      | `.metadata.annotations` (full map as JSONB)                                                                                                                                                                                                                                                                           |
 | `spec_raw`         | `.spec` (full spec as JSONB)                                                                                                                                                                                                                                                                                          |
 
@@ -422,7 +429,7 @@ named after the evaluated resource's UID (not the policy name), and
 given policy is computed by:
 
 ```sql
-SELECT COALESCE(SUM(r->>'result' = 'fail'::text)::int), 0)
+SELECT COALESCE(SUM(CASE WHEN r->>'result' = 'fail' THEN 1 ELSE 0 END), 0)
 FROM policy_reports pr,
      jsonb_array_elements(pr.results_raw) AS r
 WHERE pr.cluster_id = $1
@@ -681,17 +688,14 @@ histograms).
   Use paginated list calls (`limit` + `continue`) for PolicyReports.
 - **IMP-005**: Store: `internal/store/pg_cluster_policies.go` —
   `UpsertClusterPolicy`, `DeleteClusterPoliciesNotIn`,
-  `DeleteClusterPoliciesNotInNamespaces`,
   `ListClusterPolicies` (with ADR-0042 sort/filter/pagination),
   `GetClusterPolicy` (detail endpoint).
   `internal/store/pg_policy_reports.go` — same pattern for reports,
   with `GetPolicyReport` detail endpoint. `ListPolicyReports` omits
   `results_raw` from the SELECT to bound response size.
-  Add filter support for `rule_types` (array overlap `&&`) and
-  `target_resources` (array overlap `&&`).
-  Extend sort infrastructure: add `sortBool`, `sortInt` cursor types
-  for `background`, `ready`, `rules_count`; add CASE-based severity
-  rank mapping.
+  Extend sort infrastructure: add `sortInt` cursor type
+  for `background` (via `::int` cast), `ready` (via `::int` cast),
+  `rules_count`, and CASE-based severity rank mapping.
 - **IMP-006**: OpenAPI: add `/v1/cluster-policies`, `/v1/cluster-policies/{id}`,
   `/v1/policy-reports`, `/v1/policy-reports/{id}` endpoints to
   `api/openapi/openapi.yaml` with the shared params (Limit, Cursor,
@@ -725,9 +729,12 @@ histograms).
 - **IMP-011**: MCP follow-up: add `list_cluster_policies`,
   `get_cluster_policy`, `list_policy_reports` tools to
   `internal/mcp/` — separate PR after the UI lands.
-- **IMP-012**: Reconcile: implement two-level reconcile —
-  cluster-scoped policies/reports swept after the cluster-wide list;
-  namespace-scoped policies/reports swept per-namespace after processing
+- **IMP-012**: Reconcile: implement cluster-level reconcile —
+  cluster-scoped and namespace-scoped policies/reports swept together
+  after the cluster-wide list via `DeleteClusterPoliciesNotIn` /
+  `DeletePolicyReportsNotIn`. The `seen` slice is initialised as
+  `make([]uuid.UUID, 0)` so that a successful but empty tick sweeps
+  all rows (consistent with the established sweep contract).
   each namespace's entries from the cluster-wide result.
 - **IMP-013**: Tests: unit tests for action derivation logic (case
   normalisation, mixed enforce/audit aggregation), store integration
