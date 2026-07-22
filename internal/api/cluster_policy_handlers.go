@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,39 @@ import (
 )
 
 const cpListNameMaxLen = 100
+
+func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireScope(w, r, auth.ScopeWrite) {
+			return
+		}
+		var cp ClusterPolicyRow
+		if err := json.NewDecoder(r.Body).Decode(&cp); err != nil {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
+			return
+		}
+		if cp.Name == "" {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "name required")
+			return
+		}
+		if cp.ClusterID == uuid.Nil {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "cluster_id required")
+			return
+		}
+		id, err := store.UpsertClusterPolicy(r.Context(), cp)
+		if err != nil {
+			slog.Error("create cluster policy", slog.Any("error", err))
+			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+		created, err := store.GetClusterPolicy(r.Context(), id)
+		if err != nil {
+			writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+			return
+		}
+		writeJSON(w, http.StatusCreated, created)
+	}
+}
 
 func HandleListClusterPolicies(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,39 @@ import (
 )
 
 const prListNameMaxLen = 100
+
+func HandleCreatePolicyReport(store Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireScope(w, r, auth.ScopeWrite) {
+			return
+		}
+		var pr PolicyReportRow
+		if err := json.NewDecoder(r.Body).Decode(&pr); err != nil {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
+			return
+		}
+		if pr.Name == "" {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "name required")
+			return
+		}
+		if pr.ClusterID == uuid.Nil {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "cluster_id required")
+			return
+		}
+		id, err := store.UpsertPolicyReport(r.Context(), pr)
+		if err != nil {
+			slog.Error("create policy report", slog.Any("error", err))
+			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+		created, err := store.GetPolicyReport(r.Context(), id)
+		if err != nil {
+			writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+			return
+		}
+		writeJSON(w, http.StatusCreated, created)
+	}
+}
 
 func HandleListPolicyReports(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

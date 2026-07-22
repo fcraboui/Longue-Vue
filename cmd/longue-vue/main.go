@@ -616,10 +616,14 @@ func buildHTTPServer(
 
 	// Kyverno policies — read endpoints (ADR-0043). v1 in-process-only;
 	// no push-collector routes (see ADR-0038 anti-pattern).
+	mux.Handle("POST /v1/cluster-policies",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleCreateClusterPolicy(pg)))))
 	mux.Handle("GET /v1/cluster-policies",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListClusterPolicies(pg)))))
 	mux.Handle("GET /v1/cluster-policies/{id}",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetClusterPolicy(pg)))))
+	mux.Handle("POST /v1/policy-reports",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleCreatePolicyReport(pg)))))
 	mux.Handle("GET /v1/policy-reports",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListPolicyReports(pg)))))
 	mux.Handle("GET /v1/policy-reports/{id}",

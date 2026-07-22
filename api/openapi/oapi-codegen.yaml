@@ -123,8 +123,10 @@ output-options:
     # in Swagger UI; excluded from the strict-server interface to avoid
     # double registration and duplicate-type conflicts.
     - listClusterPolicies
+    - createClusterPolicy
     - getClusterPolicy
     - listPolicyReports
+    - createPolicyReport
     - getPolicyReport
 generate:
   models: true

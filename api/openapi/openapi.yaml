@@ -4229,6 +4229,36 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+    post:
+      tags: [cluster-policies]
+      operationId: createClusterPolicy
+      summary: Create or update a Kyverno ClusterPolicy
+      description: |
+        Upserts a ClusterPolicy row by (cluster_id, namespace_id, name).
+        Idempotent — re-inserting an existing key updates the row.
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClusterPolicy"
+      responses:
+        "201":
+          description: ClusterPolicy created or updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /v1/cluster-policies/{id}:
     get:
       tags: [cluster-policies]
@@ -4342,6 +4372,36 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
+
+    post:
+      tags: [policy-reports]
+      operationId: createPolicyReport
+      summary: Create or update a Kyverno PolicyReport
+      description: |
+        Upserts a PolicyReport row by (cluster_id, namespace_id, name).
+        Idempotent — re-inserting an existing key updates the row.
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PolicyReport"
+      responses:
+        "201":
+          description: PolicyReport created or updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /v1/policy-reports/{id}:
     get:
