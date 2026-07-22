@@ -348,6 +348,10 @@ func run() error { //nolint:gocyclo // daemon bootstrap; flat structure is clear
 		return fmt.Errorf("flow matrix setting: %w", err)
 	}
 
+	if err := seedPoliciesSetting(rootCtx, pg); err != nil {
+		return fmt.Errorf("policies setting: %w", err)
+	}
+
 	drainMCP, err := maybeStartMCPServer(rootCtx, pg)
 	if err != nil {
 		return err
@@ -1442,6 +1446,24 @@ func seedFlowMatrixSetting(ctx context.Context, s api.Store) error {
 	}
 	if _, err := s.UpdateSettings(ctx, api.SettingsPatch{FlowMatrixEnabled: &enabled}); err != nil {
 		slog.Warn("flow matrix: failed to seed settings from env", slog.Any("error", err))
+	}
+	return nil
+}
+
+// seedPoliciesSetting seeds the `policies_enabled` DB setting from the
+// LONGUE_VUE_POLICIES_ENABLED env var when explicitly set, mirroring the
+// seed-once semantics of the flow-matrix / EOL / MCP toggles (ADR-0043 IMP-002).
+func seedPoliciesSetting(ctx context.Context, s api.Store) error {
+	envVal := os.Getenv("LONGUE_VUE_POLICIES_ENABLED")
+	if envVal == "" {
+		return nil
+	}
+	enabled, err := strconv.ParseBool(envVal)
+	if err != nil {
+		return fmt.Errorf("parse LONGUE_VUE_POLICIES_ENABLED=%q: %w", envVal, err)
+	}
+	if _, err := s.UpdateSettings(ctx, api.SettingsPatch{PoliciesEnabled: &enabled}); err != nil {
+		slog.Warn("policies: failed to seed settings from env", slog.Any("error", err))
 	}
 	return nil
 }

@@ -331,8 +331,8 @@ func TestSortVals(t *testing.T) {
 	if got := boolToIntPtr(&fBool); got == nil || *got != 0 {
 		t.Errorf("boolToIntPtr(false) = %v, want 0", got)
 	}
-	if got := severityRank(nil); got != nil {
-		t.Errorf("severityRank(nil) = %v, want nil", got)
+	if got := severityRank(nil); got == nil || *got != -1 {
+		t.Errorf("severityRank(nil) = %v, want -1", got)
 	}
 	for _, tc := range []struct {
 		in   string

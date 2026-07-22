@@ -845,9 +845,6 @@ export function listClusterPolicies(filter?: {
     '/v1/cluster-policies' + query({ limit: 200, ...filter }),
   );
 }
-export function getClusterPolicy(id: string) {
-  return request<ClusterPolicy>(`/v1/cluster-policies/${id}`);
-}
 
 export function listPolicyReports(filter?: {
   cluster_id?: string;
@@ -859,9 +856,6 @@ export function listPolicyReports(filter?: {
   return request<PagedResponse<PolicyReport>>(
     '/v1/policy-reports' + query({ limit: 200, ...filter }),
   );
-}
-export function getPolicyReport(id: string) {
-  return request<PolicyReport>(`/v1/policy-reports/${id}`);
 }
 
 export interface Health {

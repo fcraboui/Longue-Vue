@@ -155,6 +155,7 @@ function Chrome({ me, children }: { me: api.Me; children: React.ReactNode }) {
           {link('/workloads', 'Workloads', WorkloadIcon)}
           {link('/pods', 'Pods', PodIcon)}
           {link('/cluster-policies', 'Policies', PolicyIcon)}
+          {link('/policy-reports', 'Policy Reports', PolicyIcon)}
           {link('/services', 'Services', ServiceIcon)}
           {link('/ingresses', 'Ingresses', IngressIcon)}
           {link('/persistentvolumes', 'PVs', VolumeIcon)}

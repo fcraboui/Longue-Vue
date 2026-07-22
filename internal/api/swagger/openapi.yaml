@@ -81,13 +81,11 @@ tags:
   - name: cluster-policies
     description: |
       Kyverno ClusterPolicy and namespaced Policy resources — read-only view
-      collected from Kubernetes clusters (ADR-0043). Gated behind
-      settings.policies_enabled.
+      gated behind settings.policies_enabled.
   - name: policy-reports
     description: |
       Kyverno PolicyReport and ClusterPolicyReport resources — read-only view
-      collected from Kubernetes clusters (ADR-0043). Gated behind
-      settings.policies_enabled.
+      gated behind settings.policies_enabled.
 
 security:
   - BearerAuth: []
@@ -4203,7 +4201,7 @@ paths:
             in: query,
             name: limit,
             required: false,
-            schema: { type: integer, default: 50, maximum: 500 },
+            schema: { type: integer, default: 50, maximum: 200 },
           }
         - { in: query, name: cursor, required: false, schema: { type: string } }
         - $ref: "#/components/parameters/SortKey"
@@ -4229,7 +4227,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: policies_enabled is off
+          $ref: "#/components/responses/Conflict"
 
   /v1/cluster-policies/{id}:
     get:
@@ -4253,6 +4251,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ClusterPolicy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -4260,7 +4260,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: policies_enabled is off
+          $ref: "#/components/responses/Conflict"
 
   /v1/policy-reports:
     get:
@@ -4297,21 +4297,25 @@ paths:
             schema:
               {
                 type: string,
-                description: "Exact match (ClusterPolicyReport, PolicyReport)",
+                description: "Exact match on .scope.kind of the evaluated resource (e.g. Namespace, Pod, Deployment)",
               },
           }
         - {
             in: query,
             name: scope_name,
             required: false,
-            schema: { type: string, description: "Substring/ILIKE match" },
+            schema:
+              {
+                type: string,
+                description: "Substring/ILIKE match on .scope.name",
+              },
           }
         - $ref: "#/components/parameters/NameFilter"
         - {
             in: query,
             name: limit,
             required: false,
-            schema: { type: integer, default: 50, maximum: 500 },
+            schema: { type: integer, default: 50, maximum: 200 },
           }
         - { in: query, name: cursor, required: false, schema: { type: string } }
         - $ref: "#/components/parameters/SortKey"
@@ -4337,7 +4341,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: policies_enabled is off
+          $ref: "#/components/responses/Conflict"
 
   /v1/policy-reports/{id}:
     get:
@@ -4361,6 +4365,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PolicyReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -4368,7 +4374,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: policies_enabled is off
+          $ref: "#/components/responses/Conflict"
 
 components:
   securitySchemes:
@@ -5641,7 +5647,7 @@ components:
           {
             type: string,
             nullable: true,
-            enum: [ClusterPolicyReport, PolicyReport],
+            description: "Kind of the evaluated resource per .scope.kind (e.g. Namespace, Pod, Deployment). Free-form — not limited to report types.",
           }
         scope_name: { type: string, nullable: true }
         summary_pass: { type: integer }

@@ -19,12 +19,13 @@ const prSelect = `
 	id, cluster_id, namespace_id, name,
 	scope_kind, scope_name,
 	summary_pass, summary_fail, summary_warn, summary_error, summary_skip,
-	results_raw`
+	results_raw, reconcile_seen_at`
 
 const prListSelect = `
 	id, cluster_id, namespace_id, name,
 	scope_kind, scope_name,
-	summary_pass, summary_fail, summary_warn, summary_error, summary_skip`
+	summary_pass, summary_fail, summary_warn, summary_error, summary_skip,
+	reconcile_seen_at`
 
 func (p *PG) GetPolicyReport(ctx context.Context, id uuid.UUID) (api.PolicyReportRow, error) {
 	const q = `SELECT ` + prSelect + ` FROM policy_reports WHERE id = $1`
@@ -34,6 +35,7 @@ func (p *PG) GetPolicyReport(ctx context.Context, id uuid.UUID) (api.PolicyRepor
 		&pr.ScopeKind, &pr.ScopeName,
 		&pr.SummaryPass, &pr.SummaryFail, &pr.SummaryWarn, &pr.SummaryError, &pr.SummarySkip,
 		&pr.ResultsRaw,
+		&pr.ReconcileSeenAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return api.PolicyReportRow{}, api.ErrNotFound
@@ -132,7 +134,7 @@ func (p *PG) ListPolicyReports(
 	filter api.PolicyReportListFilter,
 	page api.ListPage,
 ) ([]api.PolicyReportRow, string, error) {
-	limit := clampLimit(page.Limit, 500)
+	limit := clampLimit(page.Limit, 200)
 	key, col, dir, err := policyReportSortSpec.resolve(page)
 	if err != nil {
 		return nil, "", err
@@ -141,7 +143,7 @@ func (p *PG) ListPolicyReports(
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT `)
 	sb.WriteString(prListSelect)
-	sb.WriteString(`, reconcile_seen_at FROM policy_reports`)
+	sb.WriteString(` FROM policy_reports`)
 
 	conds := make([]string, 0, 4)
 	args := make([]any, 0, 5)

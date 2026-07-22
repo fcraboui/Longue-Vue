@@ -7,22 +7,53 @@ function ReadyDot({ ready }: { ready?: boolean | null }) {
   if (ready === null || ready === undefined)
     return <span className="muted" title="Unknown">—</span>;
   return ready ? (
-    <span className="pill pill-green" title="Ready">Ready</span>
+    <span className="pill status-ok" title="Ready">Ready</span>
   ) : (
-    <span className="pill pill-red" title="Not ready">Not ready</span>
+    <span className="pill status-bad" title="Not ready">Not ready</span>
   );
 }
 
 function SeverityPill({ severity }: { severity?: string | null }) {
   if (!severity) return <Dash />;
   const cls: Record<string, string> = {
-    critical: 'pill-red',
-    high: 'pill-orange',
-    medium: 'pill-yellow',
-    low: 'pill-blue',
-    info: 'pill-green',
+    critical: 'status-bad',
+    high: 'status-bad',
+    medium: 'status-warn',
+    low: 'status-ok',
+    info: 'status-ok',
   };
   return <span className={`pill ${cls[severity.toLowerCase()] || ''}`}>{severity}</span>;
+}
+
+function withDisabledCatch<T>(
+  fetcher: (params: api.ListControlParams, cursor: string | undefined, limit: number) => Promise<api.PagedResponse<T>>,
+): (params: api.ListControlParams, cursor: string | undefined, limit: number) => Promise<api.PagedResponse<T>> {
+  return async (params, cursor, limit) => {
+    try {
+      return await fetcher(params, cursor, limit);
+    } catch (err) {
+      if (err instanceof api.ApiError && err.status === 409) {
+        throw Object.assign(new Error(err.message), { isFeatureDisabled: true });
+      }
+      throw err;
+    }
+  };
+}
+
+function isFeatureDisabledError(err: unknown): boolean {
+  return err instanceof Error && 'isFeatureDisabled' in err && (err as any).isFeatureDisabled === true;
+}
+
+function FeatureDisabledBanner() {
+  return (
+    <div className="banner banner-warn">
+      <span>
+        The Kyverno policies feature is disabled. Enable{' '}
+        <strong>policies_enabled</strong> in <strong>Admin &gt; Settings</strong>{' '}
+        to use this tool.
+      </span>
+    </div>
+  );
 }
 
 export function ClusterPolicies() {
@@ -32,9 +63,9 @@ export function ClusterPolicies() {
       icon={<PolicyIcon size={20} />}
       storageKey="lists.cluster-policies"
       emptyMessage="No Kyverno policies found. Ensure the collector is running and policies_enabled is on."
-      fetchPage={(params, cursor, limit) =>
+      fetchPage={withDisabledCatch((params, cursor, limit) =>
         api.listClusterPolicies({ ...params, cursor, limit })
-      }
+      )}
       rowKey={(c) => c.id}
       columns={[
         {
@@ -46,7 +77,7 @@ export function ClusterPolicies() {
         {
           key: 'resource_type',
           label: 'Kind',
-          sortKey: 'scope',
+          sortKey: 'resource_type',
           render: (c) => <code>{c.resource_type}</code>,
         },
         {
@@ -94,6 +125,9 @@ export function ClusterPolicies() {
           render: (c) => <ReadyDot ready={c.ready} />,
         },
       ]}
+      errorRenderer={(err) =>
+        isFeatureDisabledError(err) ? <FeatureDisabledBanner /> : undefined
+      }
     />
   );
 }
@@ -105,9 +139,9 @@ export function PolicyReports() {
       icon={<PolicyIcon size={20} />}
       storageKey="lists.policy-reports"
       emptyMessage="No policy reports found. Ensure the collector is running and policies_enabled is on."
-      fetchPage={(params, cursor, limit) =>
+      fetchPage={withDisabledCatch((params, cursor, limit) =>
         api.listPolicyReports({ ...params, cursor, limit })
-      }
+      )}
       rowKey={(r) => r.id}
       columns={[
         {
@@ -119,26 +153,26 @@ export function PolicyReports() {
         {
           key: 'scope_kind',
           label: 'Scope Kind',
-          sortKey: 'scope_kind',
           render: (r) => r.scope_kind || <Dash />,
         },
         {
           key: 'scope_name',
           label: 'Scope Name',
-          sortKey: 'scope_name',
           render: (r) => r.scope_name || <Dash />,
         },
         {
           key: 'pass',
           label: 'Pass',
+          sortKey: 'summary_pass',
           render: (r) => r.summary_pass ?? 0,
         },
         {
           key: 'fail',
           label: 'Fail',
+          sortKey: 'summary_fail',
           render: (r) =>
             r.summary_fail ? (
-              <span className="pill pill-red">{r.summary_fail}</span>
+              <span className="pill status-bad">{r.summary_fail}</span>
             ) : (
               0
             ),
@@ -146,9 +180,10 @@ export function PolicyReports() {
         {
           key: 'warn',
           label: 'Warn',
+          sortKey: 'summary_warn',
           render: (r) =>
             r.summary_warn ? (
-              <span className="pill pill-yellow">{r.summary_warn}</span>
+              <span className="pill status-warn">{r.summary_warn}</span>
             ) : (
               0
             ),
@@ -156,9 +191,10 @@ export function PolicyReports() {
         {
           key: 'error',
           label: 'Error',
+          sortKey: 'summary_error',
           render: (r) =>
             r.summary_error ? (
-              <span className="pill pill-orange">{r.summary_error}</span>
+              <span className="pill status-bad">{r.summary_error}</span>
             ) : (
               0
             ),
@@ -166,9 +202,13 @@ export function PolicyReports() {
         {
           key: 'skip',
           label: 'Skip',
+          sortKey: 'summary_skip',
           render: (r) => r.summary_skip ?? 0,
         },
       ]}
+      errorRenderer={(err) =>
+        isFeatureDisabledError(err) ? <FeatureDisabledBanner /> : undefined
+      }
     />
   );
 }

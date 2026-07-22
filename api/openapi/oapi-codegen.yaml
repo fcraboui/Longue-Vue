@@ -117,6 +117,15 @@ output-options:
     - importFlowReferences
     - updateFlowReference
     - deleteFlowReference
+    # ADR-0043: Kyverno policy-view endpoints are hand-written handlers
+    # (cluster_policy_handlers.go, policy_report_handlers.go) gated on
+    # settings.policies_enabled. Documented in openapi.yaml so they appear
+    # in Swagger UI; excluded from the strict-server interface to avoid
+    # double registration and duplicate-type conflicts.
+    - listClusterPolicies
+    - getClusterPolicy
+    - listPolicyReports
+    - getPolicyReport
 generate:
   models: true
   std-http-server: true

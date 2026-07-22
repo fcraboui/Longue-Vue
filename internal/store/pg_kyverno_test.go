@@ -56,8 +56,8 @@ func makeCP(clusterID, nsID uuid.UUID, name string) api.ClusterPolicyRow {
 }
 
 func makePR(clusterID, nsID uuid.UUID, name string) api.PolicyReportRow {
-	sk := "ClusterPolicyReport"
-	sn := "cluster"
+	sk := "Namespace"
+	sn := "default"
 	return api.PolicyReportRow{
 		ClusterID:   clusterID,
 		NamespaceID: &nsID,
@@ -71,7 +71,7 @@ func makePR(clusterID, nsID uuid.UUID, name string) api.PolicyReportRow {
 	}
 }
 
-func TestUpsertClusterPolicy_Idempotent(t *testing.T) {
+func TestKyverno_UpsertClusterPolicy_Idempotent(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
@@ -100,7 +100,7 @@ func TestUpsertClusterPolicy_Idempotent(t *testing.T) {
 	}
 }
 
-func TestGetClusterPolicy_NotFound(t *testing.T) {
+func TestKyverno_GetClusterPolicy_NotFound(t *testing.T) {
 	pg := newTestPG(t)
 	_, err := pg.GetClusterPolicy(context.Background(), uuid.New())
 	if !errors.Is(err, api.ErrNotFound) {
@@ -108,7 +108,7 @@ func TestGetClusterPolicy_NotFound(t *testing.T) {
 	}
 }
 
-func TestListClusterPolicies_Filters(t *testing.T) {
+func TestKyverno_ListClusterPolicies_Filters(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
@@ -171,7 +171,7 @@ func TestListClusterPolicies_Filters(t *testing.T) {
 	}
 }
 
-func TestSweepClusterPolicies_DeletesUnseen(t *testing.T) {
+func TestKyverno_SweepClusterPolicies_DeletesUnseen(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
@@ -202,7 +202,7 @@ func TestSweepClusterPolicies_DeletesUnseen(t *testing.T) {
 	}
 }
 
-func TestListClusterPolicies_Pagination(t *testing.T) {
+func TestKyverno_ListClusterPolicies_Pagination(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
@@ -242,7 +242,7 @@ func TestListClusterPolicies_Pagination(t *testing.T) {
 	}
 }
 
-func TestUpsertPolicyReport_Idempotent(t *testing.T) {
+func TestKyverno_UpsertPolicyReport_Idempotent(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
@@ -271,7 +271,7 @@ func TestUpsertPolicyReport_Idempotent(t *testing.T) {
 	}
 }
 
-func TestGetPolicyReport_NotFound(t *testing.T) {
+func TestKyverno_GetPolicyReport_NotFound(t *testing.T) {
 	pg := newTestPG(t)
 	_, err := pg.GetPolicyReport(context.Background(), uuid.New())
 	if !errors.Is(err, api.ErrNotFound) {
@@ -279,7 +279,7 @@ func TestGetPolicyReport_NotFound(t *testing.T) {
 	}
 }
 
-func TestListPolicyReports_ScopeFilters(t *testing.T) {
+func TestKyverno_ListPolicyReports_ScopeFilters(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
@@ -289,7 +289,7 @@ func TestListPolicyReports_ScopeFilters(t *testing.T) {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	sk := "ClusterPolicyReport"
+	sk := "Namespace"
 	items, _, err := pg.ListPolicyReports(ctx,
 		api.PolicyReportListFilter{ScopeKind: &sk},
 		api.ListPage{Limit: 50},
@@ -314,7 +314,7 @@ func TestListPolicyReports_ScopeFilters(t *testing.T) {
 	}
 }
 
-func TestSweepPolicyReports_DeletesUnseen(t *testing.T) {
+func TestKyverno_SweepPolicyReports_DeletesUnseen(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
@@ -349,3 +349,50 @@ func TestSweepPolicyReports_DeletesUnseen(t *testing.T) {
 }
 
 func ptrStr(s string) *string { return &s }
+
+func TestKyverno_ListClusterPolicies_SeverityPagination_NullSeverity(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	cid, nsID := seedClusterForKyverno(t, pg)
+
+	withSev := makeCP(cid, nsID, "has-severity")
+	withoutSev := makeCP(cid, nsID, "no-severity")
+	withoutSev.Severity = nil
+	withoutSev2 := makeCP(cid, nsID, "also-no-severity")
+	withoutSev2.Severity = nil
+
+	for _, cp := range []api.ClusterPolicyRow{withSev, withoutSev, withoutSev2} {
+		if _, err := pg.UpsertClusterPolicy(ctx, cp); err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+	}
+
+	seen := make(map[uuid.UUID]bool)
+	var cursor string
+	total := 0
+
+	for {
+		items, next, err := pg.ListClusterPolicies(ctx,
+			api.ClusterPolicyListFilter{ClusterID: &cid},
+			api.ListPage{Limit: 2, Cursor: cursor, Sort: "severity", Order: "asc"},
+		)
+		if err != nil {
+			t.Fatalf("list page: %v", err)
+		}
+		for _, it := range items {
+			if seen[it.ID] {
+				t.Fatalf("duplicate %s", it.ID)
+			}
+			seen[it.ID] = true
+		}
+		total += len(items)
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+
+	if total != 3 {
+		t.Fatalf("want 3 total across pages, got %d", total)
+	}
+}

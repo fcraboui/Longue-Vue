@@ -58,6 +58,8 @@ func CollectKyvernoPolicies(
 			slog.String("cluster", clusterID.String()),
 			slog.Any("err", err))
 		policyFailures++
+	} else {
+		metrics.MarkPoll(clusterName, "cluster_policies")
 	}
 
 	if cpIDs != nil {
@@ -70,7 +72,6 @@ func CollectKyvernoPolicies(
 			policyFailures++
 		} else {
 			metrics.ObserveReconciled(clusterName, "cluster_policies", deleted)
-			metrics.MarkPoll(clusterName, "cluster_policies")
 		}
 	}
 
@@ -80,6 +81,8 @@ func CollectKyvernoPolicies(
 			slog.String("cluster", clusterID.String()),
 			slog.Any("err", err))
 		reportFailures++
+	} else {
+		metrics.MarkPoll(clusterName, "policy_reports")
 	}
 
 	if prIDs != nil {
@@ -92,7 +95,6 @@ func CollectKyvernoPolicies(
 			reportFailures++
 		} else {
 			metrics.ObserveReconciled(clusterName, "policy_reports", deleted)
-			metrics.MarkPoll(clusterName, "policy_reports")
 		}
 	}
 
@@ -149,6 +151,8 @@ func collectClusterPolicies(
 				slog.String("policy", p.Name),
 				slog.String("namespace", p.Namespace),
 				slog.String("cluster", clusterID.String()))
+			metrics.ObserveError(clusterName, "cluster_policies", "namespace_unknown")
+			listErrors++
 			continue
 		}
 		row := kyvernoPolicyToRow(p, clusterID, &nsID)
@@ -220,6 +224,8 @@ func collectPolicyReports(
 				slog.String("report", r.Name),
 				slog.String("namespace", r.Namespace),
 				slog.String("cluster", clusterID.String()))
+			metrics.ObserveError(clusterName, "policy_reports", "namespace_unknown")
+			listErrors++
 			continue
 		}
 		row := kyvernoReportToRow(r, clusterID, &nsID)

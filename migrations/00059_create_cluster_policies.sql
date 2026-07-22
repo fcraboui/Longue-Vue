@@ -42,10 +42,6 @@ CREATE INDEX cluster_policies_resource_type_idx ON cluster_policies(resource_typ
 CREATE INDEX cluster_policies_action_idx       ON cluster_policies(action);
 CREATE INDEX cluster_policies_severity_idx     ON cluster_policies(severity);
 
--- GIN indexes for array containment/overlap queries (rule_types, target_resources).
-CREATE INDEX cluster_policies_rule_types_gin        ON cluster_policies USING GIN (rule_types);
-CREATE INDEX cluster_policies_target_resources_gin   ON cluster_policies USING GIN (target_resources);
-
 -- policy_reports: one row per collected PolicyReport or ClusterPolicyReport.
 CREATE TABLE policy_reports (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -70,9 +66,6 @@ CREATE UNIQUE INDEX uq_policy_reports_scope
 
 CREATE INDEX policy_reports_cluster_id_idx   ON policy_reports(cluster_id);
 CREATE INDEX policy_reports_namespace_id_idx ON policy_reports(namespace_id);
-
--- GIN index on results_raw for jsonb path queries.
-CREATE INDEX policy_reports_results_raw_gin ON policy_reports USING GIN (results_raw jsonb_path_ops);
 
 -- +goose StatementEnd
 

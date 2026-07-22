@@ -20,7 +20,7 @@ const cpSelect = `
 	resource_type, scope, description, category, severity,
 	action, failure_policy, background,
 	rule_types, rules_count, target_resources, key_exclusions,
-	ready, annotations, spec_raw`
+	ready, annotations, spec_raw, reconcile_seen_at`
 
 func (p *PG) GetClusterPolicy(ctx context.Context, id uuid.UUID) (api.ClusterPolicyRow, error) {
 	const q = `SELECT ` + cpSelect + ` FROM cluster_policies WHERE id = $1`
@@ -31,6 +31,7 @@ func (p *PG) GetClusterPolicy(ctx context.Context, id uuid.UUID) (api.ClusterPol
 		&cp.Action, &cp.FailurePolicy, &cp.Background,
 		&cp.RuleTypes, &cp.RulesCount, &cp.TargetResources, &cp.KeyExclusions,
 		&cp.Ready, &cp.Annotations, &cp.SpecRaw,
+		&cp.ReconcileSeenAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return api.ClusterPolicyRow{}, api.ErrNotFound
@@ -116,9 +117,8 @@ var clusterPolicySortSpec = sortSpec{
 			nullable: true,
 		},
 		sortKeySeverity: {
-			// NULL severity falls through to ELSE -1 in SQL, but the
-			// nullable=true flag ensures NULL rows are placed in the
-			// NULLS LAST region — beyond even rank -1.
+			// SQL CASE returns -1 for NULL or unknown severity values,
+			// so the expression is effectively non-nullable.
 			expr: `CASE LOWER(severity) ` +
 				`WHEN 'critical' THEN 4 ` +
 				`WHEN 'high' THEN 3 ` +
@@ -127,7 +127,7 @@ var clusterPolicySortSpec = sortSpec{
 				`WHEN 'info' THEN 0 ` +
 				`ELSE -1 END`,
 			kind:     sortInt,
-			nullable: true,
+			nullable: false,
 		},
 		sortKeyRulesCount: {
 			expr:     "rules_count",
@@ -185,7 +185,7 @@ func clusterPolicySortVal(r *api.ClusterPolicyRow, key string) *string {
 
 func severityRank(s *string) *int {
 	if s == nil {
-		return nil
+		return intPtr(-1)
 	}
 	switch strings.ToLower(*s) {
 	case "critical":
@@ -208,7 +208,7 @@ func (p *PG) ListClusterPolicies(
 	filter api.ClusterPolicyListFilter,
 	page api.ListPage,
 ) ([]api.ClusterPolicyRow, string, error) {
-	limit := clampLimit(page.Limit, 500)
+	limit := clampLimit(page.Limit, 200)
 	key, col, dir, err := clusterPolicySortSpec.resolve(page)
 	if err != nil {
 		return nil, "", err
@@ -217,7 +217,7 @@ func (p *PG) ListClusterPolicies(
 	sb := strings.Builder{}
 	sb.WriteString(`SELECT `)
 	sb.WriteString(cpSelect)
-	sb.WriteString(`, reconcile_seen_at FROM cluster_policies`)
+	sb.WriteString(` FROM cluster_policies`)
 
 	conds := make([]string, 0, 8)
 	args := make([]any, 0, 9)

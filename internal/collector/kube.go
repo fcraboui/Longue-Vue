@@ -1003,7 +1003,8 @@ func convertKyvernoPolicy(obj *unstructured.Unstructured, resourceType, scope st
 	}
 
 	if v, ok := ann["policies.kyverno.io/severity"]; ok && v != "" {
-		info.Severity = &v
+		l := strings.ToLower(v)
+		info.Severity = &l
 	}
 
 	info.Action = kyvernoAction(obj)
@@ -1023,9 +1024,11 @@ func convertKyvernoPolicy(obj *unstructured.Unstructured, resourceType, scope st
 }
 
 // kyvernoAction extracts spec.validationFailureAction (always a string in
-// Kyverno >=1.10: "enforce" or "audit"). If any rule overrides to "enforce",
-// the policy-level action is promoted to "enforce" (most restrictive wins).
-// Result is lowercased. ADR-0043 §5.
+// Kyverno >=1.10: "enforce" or "audit"). If any rule overrides to "enforce"
+// (via validationFailureActionOverrides or per-rule
+// spec.rules[].validate.failureAction in Kyverno >=1.13), the policy-level
+// action is promoted to "enforce" (most restrictive wins). Result is
+// lowercased. ADR-0043 §5.
 func kyvernoAction(obj *unstructured.Unstructured) *string {
 	spec, ok := obj.Object["spec"].(map[string]interface{})
 	if !ok {
@@ -1037,6 +1040,10 @@ func kyvernoAction(obj *unstructured.Unstructured) *string {
 	}
 	action := strings.ToLower(vfa)
 
+	if action == "enforce" {
+		return &action
+	}
+
 	overrides, _ := spec["validationFailureActionOverrides"].([]interface{})
 	for _, o := range overrides {
 		om, ok := o.(map[string]interface{})
@@ -1044,12 +1051,32 @@ func kyvernoAction(obj *unstructured.Unstructured) *string {
 			continue
 		}
 		if a, ok := om["action"].(string); ok && strings.ToLower(a) == "enforce" {
-			action = "enforce"
-			break
+			return ptrLower("enforce")
+		}
+	}
+
+	rules, _ := spec["rules"].([]interface{})
+	for _, r := range rules {
+		rm, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		v, ok := rm["validate"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		fa, ok := v["failureAction"].(string)
+		if ok && strings.ToLower(fa) == "enforce" {
+			return ptrLower("enforce")
 		}
 	}
 
 	return &action
+}
+
+func ptrLower(s string) *string {
+	l := strings.ToLower(s)
+	return &l
 }
 
 // kyvernoFailurePolicy extracts spec.webhookConfiguration.failurePolicy,
