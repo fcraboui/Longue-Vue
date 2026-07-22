@@ -15,28 +15,32 @@ import (
 
 // fakeSource implements KubeSource with fixed results.
 type fakeSource struct {
-	version          string
-	versionErr       error
-	nodes            []NodeInfo
-	listNodeErr      error
-	namespaces       []NamespaceInfo
-	listNamespaceErr error
-	pods             []PodInfo
-	listPodErr       error
-	workloads        []WorkloadInfo
-	listWorkloadErr  error
-	services         []ServiceInfo
-	listServiceErr   error
-	ingresses        []IngressInfo
-	listIngressErr   error
-	replicaSets      []ReplicaSetOwner
-	listRSErr        error
-	pvs              []PVInfo
-	listPVErr        error
-	pvcs             []PVCInfo
-	listPVCErr       error
-	netpols          []NetworkPolicyInfo
-	listNetpolErr    error
+	version                string
+	versionErr             error
+	nodes                  []NodeInfo
+	listNodeErr            error
+	namespaces             []NamespaceInfo
+	listNamespaceErr       error
+	pods                   []PodInfo
+	listPodErr             error
+	workloads              []WorkloadInfo
+	listWorkloadErr        error
+	services               []ServiceInfo
+	listServiceErr         error
+	ingresses              []IngressInfo
+	listIngressErr         error
+	replicaSets            []ReplicaSetOwner
+	listRSErr              error
+	pvs                    []PVInfo
+	listPVErr              error
+	pvcs                   []PVCInfo
+	listPVCErr             error
+	netpols                []NetworkPolicyInfo
+	listNetpolErr          error
+	kyvernoClusterPolicies []KyvernoClusterPolicyInfo
+	kyvernoPolicies        []KyvernoClusterPolicyInfo
+	kyvernoPolicyReports   []KyvernoPolicyReportInfo
+	kyvernoClusterReports  []KyvernoPolicyReportInfo
 }
 
 func (f *fakeSource) ServerVersion(_ context.Context) (string, error) {
@@ -84,6 +88,22 @@ func (f *fakeSource) ListAllNetworkPolicies(_ context.Context) ([]NetworkPolicyI
 		return nil, f.listNetpolErr
 	}
 	return f.netpols, nil
+}
+
+func (f *fakeSource) ListKyvernoClusterPolicies(_ context.Context) ([]KyvernoClusterPolicyInfo, error) {
+	return f.kyvernoClusterPolicies, nil
+}
+
+func (f *fakeSource) ListKyvernoPolicies(_ context.Context) ([]KyvernoClusterPolicyInfo, error) {
+	return f.kyvernoPolicies, nil
+}
+
+func (f *fakeSource) ListKyvernoPolicyReports(_ context.Context) ([]KyvernoPolicyReportInfo, error) {
+	return f.kyvernoPolicyReports, nil
+}
+
+func (f *fakeSource) ListKyvernoClusterPolicyReports(_ context.Context) ([]KyvernoPolicyReportInfo, error) {
+	return f.kyvernoClusterReports, nil
 }
 
 type recordedUpdate struct {

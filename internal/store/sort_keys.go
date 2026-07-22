@@ -46,4 +46,20 @@ const (
 
 	// Shared reconcile sort key (security groups, network policies).
 	sortKeyReconcileSeenAt = "reconcile_seen_at"
+
+	// Kyverno cluster policy sort keys (sortKeyAction and sortKeyResourceType
+	// already declared under Audit above — they share the same string value).
+	sortKeyBackground    = "background"
+	sortKeySeverity      = "severity"
+	sortKeyRulesCount    = "rules_count"
+	sortKeyFailurePolicy = "failure_policy"
+	sortKeyCategory      = "category"
+	sortKeyReady         = "ready"
+
+	// Policy report sort keys.
+	sortKeySummaryPass  = "summary_pass"
+	sortKeySummaryFail  = "summary_fail"
+	sortKeySummaryWarn  = "summary_warn"
+	sortKeySummaryError = "summary_error"
+	sortKeySummarySkip  = "summary_skip"
 )

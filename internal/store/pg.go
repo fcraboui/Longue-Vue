@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -445,6 +446,26 @@ func sortValTime(t *time.Time) *string {
 		return nil
 	}
 	v := t.UTC().Format(time.RFC3339Nano)
+	return &v
+}
+
+func sortValBool(b *bool) *string {
+	if b == nil {
+		return nil
+	}
+	if *b {
+		v := "true"
+		return &v
+	}
+	v := "false"
+	return &v
+}
+
+func sortValInt(i *int) *string {
+	if i == nil {
+		return nil
+	}
+	v := strconv.Itoa(*i)
 	return &v
 }
 

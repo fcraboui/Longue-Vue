@@ -269,6 +269,69 @@ type AllNetworkPolicyLister interface {
 	ListAllNetworkPolicies(ctx context.Context) ([]NetworkPolicyInfo, error)
 }
 
+// KyvernoClusterPolicyInfo is the subset of a Kyverno ClusterPolicy or
+// namespaced Policy the collector consumes. Lives in this package (not
+// in api) so KubeSource stays decoupled from the CMDB wire types.
+// ADR-0043.
+type KyvernoClusterPolicyInfo struct {
+	Name            string
+	Namespace       string // empty for ClusterPolicy (cluster-scoped)
+	ResourceType    string // "ClusterPolicy" or "Policy"
+	Scope           string // "cluster" or "namespace"
+	Description     *string
+	Category        *string
+	Severity        *string
+	Action          *string
+	FailurePolicy   *string
+	Background      *bool
+	RuleTypes       []string
+	RulesCount      int
+	TargetResources []string
+	KeyExclusions   []string
+	Ready           *bool
+	Annotations     []byte // JSON-encoded annotations
+	SpecRaw         []byte // JSON-encoded spec
+}
+
+// KyvernoPolicyReportInfo is the subset of a Kyverno PolicyReport or
+// ClusterPolicyReport the collector consumes. ADR-0043.
+type KyvernoPolicyReportInfo struct {
+	Name         string
+	Namespace    string // empty for ClusterPolicyReport (cluster-scoped)
+	ScopeKind    *string
+	ScopeName    *string
+	SummaryPass  int
+	SummaryFail  int
+	SummaryWarn  int
+	SummaryError int
+	SummarySkip  int
+	ResultsRaw   []byte // JSON-encoded results array
+}
+
+// KyvernoClusterPolicyLister returns every Kyverno ClusterPolicy
+// (cluster-scoped) visible through the configured kubeconfig.
+type KyvernoClusterPolicyLister interface {
+	ListKyvernoClusterPolicies(ctx context.Context) ([]KyvernoClusterPolicyInfo, error)
+}
+
+// KyvernoPolicyLister returns every Kyverno Policy (namespaced) visible
+// through the configured kubeconfig, across all namespaces.
+type KyvernoPolicyLister interface {
+	ListKyvernoPolicies(ctx context.Context) ([]KyvernoClusterPolicyInfo, error)
+}
+
+// KyvernoPolicyReportLister returns every PolicyReport (namespaced) visible
+// through the configured kubeconfig, across all namespaces.
+type KyvernoPolicyReportLister interface {
+	ListKyvernoPolicyReports(ctx context.Context) ([]KyvernoPolicyReportInfo, error)
+}
+
+// KyvernoClusterPolicyReportLister returns every ClusterPolicyReport
+// (cluster-scoped) visible through the configured kubeconfig.
+type KyvernoClusterPolicyReportLister interface {
+	ListKyvernoClusterPolicyReports(ctx context.Context) ([]KyvernoPolicyReportInfo, error)
+}
+
 // KubeSource is the composite contract the Collector consumes.
 type KubeSource interface {
 	VersionFetcher
@@ -282,6 +345,10 @@ type KubeSource interface {
 	PersistentVolumeLister
 	PersistentVolumeClaimLister
 	AllNetworkPolicyLister
+	KyvernoClusterPolicyLister
+	KyvernoPolicyLister
+	KyvernoPolicyReportLister
+	KyvernoClusterPolicyReportLister
 }
 
 // CmdbStore is the subset of api.Store the collector consumes. Exported so
@@ -319,7 +386,8 @@ type CmdbStore interface {
 // a single tick are logged and the loop continues to the next tick.
 type Collector struct {
 	store        CmdbStore
-	netpolStore  NetPolStore // nil when the store doesn't implement netpol ops
+	netpolStore  NetPolStore  // nil when the store doesn't implement netpol ops
+	kyvernoStore KyvernoStore // nil when the store doesn't implement kyverno ops
 	source       KubeSource
 	clusterName  string
 	interval     time.Duration
@@ -336,6 +404,9 @@ type Collector struct {
 // If the supplied store also implements NetPolStore (both *store.PG
 // in-process and apiclient.Store push-mode satisfy it — ADR-0038),
 // NetworkPolicy reconciliation is enabled automatically.
+//
+// If the supplied store also implements KyvernoStore (ADR-0043),
+// Kyverno policy reconciliation is enabled automatically.
 func New(st CmdbStore, source KubeSource, clusterName string, interval, fetchTimeout time.Duration, reconcile bool) *Collector {
 	c := &Collector{
 		store:        st,
@@ -347,6 +418,9 @@ func New(st CmdbStore, source KubeSource, clusterName string, interval, fetchTim
 	}
 	if nps, ok := st.(NetPolStore); ok {
 		c.netpolStore = nps
+	}
+	if kys, ok := st.(KyvernoStore); ok {
+		c.kyvernoStore = kys
 	}
 	return c
 }
@@ -432,6 +506,7 @@ func (c *Collector) poll(parent context.Context) {
 		c.ingestIngresses(ctx, namespaceIDsByName)
 		c.ingestPersistentVolumeClaims(ctx, namespaceIDsByName, pvIDsByName)
 		c.ingestNetworkPolicies(ctx, *cluster.Id, namespaceIDsByName)
+		c.ingestKyvernoPolicies(ctx, *cluster.Id, namespaceIDsByName)
 	}
 }
 
@@ -1179,6 +1254,26 @@ func (c *Collector) ingestNetworkPolicies(ctx context.Context, clusterID uuid.UU
 	}
 	if err := CollectNetworkPolicies(ctx, c.source, c.netpolStore, clusterID, namespaceIDsByName); err != nil {
 		slog.Warn("collector: netpol tick failed",
+			slog.String("cluster", clusterID.String()),
+			slog.Any("err", err),
+			slog.String("cluster_name", c.clusterName))
+	}
+}
+
+// ingestKyvernoPolicies runs one tick of Kyverno policy + policy-report
+// reconciliation for the local cluster. ADR-0043. The c.kyvernoStore ==
+// nil guard exists for tests that inject a stub store without kyverno
+// support.
+//
+// Note: settings.policies_enabled is intentionally NOT checked here — the
+// collector always reconciles so the inventory stays fresh. The setting
+// controls API/UI visibility only (feature gate for the Policies view).
+func (c *Collector) ingestKyvernoPolicies(ctx context.Context, clusterID uuid.UUID, namespaceIDsByName map[string]uuid.UUID) {
+	if c.kyvernoStore == nil {
+		return
+	}
+	if err := CollectKyvernoPolicies(ctx, c.source, c.kyvernoStore, clusterID, namespaceIDsByName); err != nil {
+		slog.Warn("collector: kyverno tick failed",
 			slog.String("cluster", clusterID.String()),
 			slog.Any("err", err),
 			slog.String("cluster_name", c.clusterName))
