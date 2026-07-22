@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -58,7 +56,7 @@ func (p *PG) UpsertPolicyReport(ctx context.Context, pr PolicyReport) (uuid.UUID
 		       $4, $5,
 		       $6, $7, $8, $9, $10,
 		       $11, NOW())
-		ON CONFLICT ON CONSTRAINT uq_policy_reports_scope DO UPDATE SET
+		ON CONFLICT (cluster_id, COALESCE(namespace_id, '00000000-0000-0000-0000-000000000000'), name) DO UPDATE SET
 			scope_kind        = EXCLUDED.scope_kind,
 			scope_name        = EXCLUDED.scope_name,
 			summary_pass      = EXCLUDED.summary_pass,
@@ -100,43 +98,33 @@ func (p *PG) DeletePolicyReportsNotIn(ctx context.Context, clusterID uuid.UUID, 
 var policyReportSortSpec = sortSpec{
 	columns: map[string]sortColumn{
 		sortKeyName:            {expr: "LOWER(name)", kind: sortText},
-		sortKeySummaryPass:     {expr: "summary_pass::text", kind: sortText},
-		sortKeySummaryFail:     {expr: "summary_fail::text", kind: sortText},
-		sortKeySummaryWarn:     {expr: "summary_warn::text", kind: sortText},
-		sortKeySummaryError:    {expr: "summary_error::text", kind: sortText},
-		sortKeySummarySkip:     {expr: "summary_skip::text", kind: sortText},
+		sortKeySummaryPass:     {expr: "summary_pass", kind: sortInt},
+		sortKeySummaryFail:     {expr: "summary_fail", kind: sortInt},
+		sortKeySummaryWarn:     {expr: "summary_warn", kind: sortInt},
+		sortKeySummaryError:    {expr: "summary_error", kind: sortInt},
+		sortKeySummarySkip:     {expr: "summary_skip", kind: sortInt},
 		sortKeyReconcileSeenAt: {expr: "reconcile_seen_at", kind: sortTime},
 	},
 	defaultKey: sortKeyName,
 }
 
-type prWithSeenAt struct {
-	pr     api.PolicyReportRow
-	seenAt time.Time
-}
-
-func policyReportSortVal(r *prWithSeenAt, key string) *string {
+func policyReportSortVal(r *api.PolicyReportRow, key string) *string {
 	switch key {
 	case sortKeyName:
-		return sortValText(&r.pr.Name)
+		return sortValText(&r.Name)
 	case sortKeySummaryPass:
-		return sortValIntVal(r.pr.SummaryPass)
+		return sortValInt(intPtr(r.SummaryPass))
 	case sortKeySummaryFail:
-		return sortValIntVal(r.pr.SummaryFail)
+		return sortValInt(intPtr(r.SummaryFail))
 	case sortKeySummaryWarn:
-		return sortValIntVal(r.pr.SummaryWarn)
+		return sortValInt(intPtr(r.SummaryWarn))
 	case sortKeySummaryError:
-		return sortValIntVal(r.pr.SummaryError)
+		return sortValInt(intPtr(r.SummaryError))
 	case sortKeySummarySkip:
-		return sortValIntVal(r.pr.SummarySkip)
+		return sortValInt(intPtr(r.SummarySkip))
 	default:
-		return sortValTime(&r.seenAt)
+		return sortValTime(&r.ReconcileSeenAt)
 	}
-}
-
-func sortValIntVal(n int) *string {
-	v := strconv.Itoa(n)
-	return &v
 }
 
 func (p *PG) ListPolicyReports(
@@ -173,6 +161,16 @@ func (p *PG) ListPolicyReports(
 		conds = append(conds, fmt.Sprintf("LOWER(name) LIKE $%d ESCAPE '\\'", len(args)))
 	}
 
+	if filter.ScopeKind != nil {
+		args = append(args, *filter.ScopeKind)
+		conds = append(conds, fmt.Sprintf("scope_kind = $%d", len(args)))
+	}
+
+	if filter.ScopeName != nil {
+		args = append(args, namePattern(*filter.ScopeName))
+		conds = append(conds, fmt.Sprintf("LOWER(scope_name) LIKE $%d ESCAPE '\\'", len(args)))
+	}
+
 	if page.Cursor != "" {
 		val, cid, curErr := decodeListCursor(page.Cursor, key, dir)
 		if curErr != nil {
@@ -196,14 +194,14 @@ func (p *PG) ListPolicyReports(
 	}
 	defer rows.Close()
 
-	raw := make([]prWithSeenAt, 0, limit+1)
+	raw := make([]api.PolicyReportRow, 0, limit+1)
 	for rows.Next() {
-		var r prWithSeenAt
+		var r api.PolicyReportRow
 		if err := rows.Scan(
-			&r.pr.ID, &r.pr.ClusterID, &r.pr.NamespaceID, &r.pr.Name,
-			&r.pr.ScopeKind, &r.pr.ScopeName,
-			&r.pr.SummaryPass, &r.pr.SummaryFail, &r.pr.SummaryWarn, &r.pr.SummaryError, &r.pr.SummarySkip,
-			&r.seenAt,
+			&r.ID, &r.ClusterID, &r.NamespaceID, &r.Name,
+			&r.ScopeKind, &r.ScopeName,
+			&r.SummaryPass, &r.SummaryFail, &r.SummaryWarn, &r.SummaryError, &r.SummarySkip,
+			&r.ReconcileSeenAt,
 		); err != nil {
 			return nil, "", fmt.Errorf("scan policy_report: %w", err)
 		}
@@ -216,12 +214,8 @@ func (p *PG) ListPolicyReports(
 	var next string
 	if len(raw) > limit {
 		last := &raw[limit-1]
-		next = encodeListCursor(key, policyReportSortVal(last, key), last.pr.ID, dir)
+		next = encodeListCursor(key, policyReportSortVal(last, key), last.ID, dir)
 		raw = raw[:limit]
 	}
-	items := make([]api.PolicyReportRow, len(raw))
-	for i, r := range raw {
-		items[i] = r.pr
-	}
-	return items, next, nil
+	return raw, next, nil
 }

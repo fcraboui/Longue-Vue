@@ -55,6 +55,7 @@ const (
 	sortKeyFailurePolicy = "failure_policy"
 	sortKeyCategory      = "category"
 	sortKeyReady         = "ready"
+	sortKeyScope         = "scope"
 
 	// Policy report sort keys.
 	sortKeySummaryPass  = "summary_pass"

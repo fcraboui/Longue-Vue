@@ -308,6 +308,7 @@ type sortKind int
 const (
 	sortTime sortKind = iota
 	sortText
+	sortInt
 )
 
 // dirAsc / dirDesc are the two order= directions accepted by list
@@ -398,6 +399,12 @@ func keysetCond(col sortColumn, idExpr, dir string, val *string, id uuid.UUID, c
 		arg = ts
 	case sortText:
 		arg = *val
+	case sortInt:
+		n, err := strconv.Atoi(*val)
+		if err != nil {
+			return fmt.Errorf("%w: cursor int: %v", api.ErrInvalidCursor, err)
+		}
+		arg = n
 	}
 	*args = append(*args, arg)
 	vIdx := len(*args)
@@ -449,24 +456,24 @@ func sortValTime(t *time.Time) *string {
 	return &v
 }
 
-func sortValBool(b *bool) *string {
-	if b == nil {
-		return nil
-	}
-	if *b {
-		v := "true"
-		return &v
-	}
-	v := "false"
-	return &v
-}
-
 func sortValInt(i *int) *string {
 	if i == nil {
 		return nil
 	}
 	v := strconv.Itoa(*i)
 	return &v
+}
+
+func intPtr(v int) *int { return &v }
+
+func boolToIntPtr(b *bool) *int {
+	if b == nil {
+		return nil
+	}
+	if *b {
+		return intPtr(1)
+	}
+	return intPtr(0)
 }
 
 // isUniqueViolation reports whether err is a PostgreSQL unique-constraint

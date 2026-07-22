@@ -54,6 +54,12 @@ func HandleListPolicyReports(store Store) http.HandlerFunc {
 			}
 			filter.Name = &v
 		}
+		if v := q.Get("scope_kind"); v != "" {
+			filter.ScopeKind = &v
+		}
+		if v := q.Get("scope_name"); v != "" {
+			filter.ScopeName = &v
+		}
 
 		page := parseListPage(r)
 		items, next, err := store.ListPolicyReports(r.Context(), filter, page)

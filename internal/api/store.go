@@ -1381,13 +1381,14 @@ type PolicyReportRow struct {
 
 // ClusterPolicyListFilter — nil fields are ignored; set fields AND-combine.
 type ClusterPolicyListFilter struct {
-	ClusterID    *uuid.UUID
-	NamespaceID  *uuid.UUID
-	Name         *string
-	ResourceType *string
-	Action       *string
-	Severity     *string
-	Category     *string
+	ClusterID     *uuid.UUID
+	NamespaceID   *uuid.UUID
+	Name          *string
+	ResourceType  *string
+	Action        *string
+	Severity      *string
+	FailurePolicy *string
+	Category      *string
 }
 
 // PolicyReportListFilter — nil fields are ignored; set fields AND-combine.
@@ -1395,6 +1396,8 @@ type PolicyReportListFilter struct {
 	ClusterID   *uuid.UUID
 	NamespaceID *uuid.UUID
 	Name        *string
+	ScopeKind   *string
+	ScopeName   *string
 }
 
 // KyvernoStore covers Kyverno ClusterPolicy and PolicyReport rows

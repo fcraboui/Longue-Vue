@@ -28,9 +28,11 @@ CREATE TABLE cluster_policies (
 
 -- COALESCE-based expression unique index so ON CONFLICT can use it as an
 -- arbiter. A plain UNIQUE(cluster_id, namespace_id, name) fails for
--- cluster-scoped rows because NULL ≠ NULL in PostgreSQL; partial indexes
--- cannot serve as ON CONFLICT arbiters. The COALESCE turns NULL into a
--- sentinel UUID so the index covers both scopes in one index.
+-- cluster-scoped rows because NULL ≠ NULL in PostgreSQL. Partial indexes
+-- (with WHERE) cannot serve as ON CONFLICT arbiters, but expression
+-- indexes can — the COALESCE turns NULL into a sentinel UUID so the
+-- index covers both scopes in one index and ON CONFLICT (cluster_id,
+-- COALESCE(namespace_id, ...), name) matches the index definition.
 CREATE UNIQUE INDEX uq_cluster_policies_scope
     ON cluster_policies (cluster_id, COALESCE(namespace_id, '00000000-0000-0000-0000-000000000000'), name);
 

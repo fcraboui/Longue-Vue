@@ -385,14 +385,15 @@ type CmdbStore interface {
 // store against a cluster record matched by name. Errors encountered during
 // a single tick are logged and the loop continues to the next tick.
 type Collector struct {
-	store        CmdbStore
-	netpolStore  NetPolStore  // nil when the store doesn't implement netpol ops
-	kyvernoStore KyvernoStore // nil when the store doesn't implement kyverno ops
-	source       KubeSource
-	clusterName  string
-	interval     time.Duration
-	fetchTimeout time.Duration
-	reconcile    bool
+	store          CmdbStore
+	netpolStore    NetPolStore    // nil when the store doesn't implement netpol ops
+	kyvernoStore   KyvernoStore   // nil when the store doesn't implement kyverno ops
+	settingsGetter SettingsGetter // nil when the store doesn't implement GetSettings
+	source         KubeSource
+	clusterName    string
+	interval       time.Duration
+	fetchTimeout   time.Duration
+	reconcile      bool
 }
 
 // New returns a Collector. fetchTimeout bounds each poll; interval is the
@@ -421,6 +422,9 @@ func New(st CmdbStore, source KubeSource, clusterName string, interval, fetchTim
 	}
 	if kys, ok := st.(KyvernoStore); ok {
 		c.kyvernoStore = kys
+	}
+	if sg, ok := st.(SettingsGetter); ok {
+		c.settingsGetter = sg
 	}
 	return c
 }
@@ -1265,14 +1269,27 @@ func (c *Collector) ingestNetworkPolicies(ctx context.Context, clusterID uuid.UU
 // nil guard exists for tests that inject a stub store without kyverno
 // support.
 //
-// Note: settings.policies_enabled is intentionally NOT checked here — the
-// collector always reconciles so the inventory stays fresh. The setting
-// controls API/UI visibility only (feature gate for the Policies view).
+// The collector is gated behind settings.policies_enabled — when the
+// feature is disabled, the tick is a no-op and no API calls are made
+// against the Kubernetes cluster.
 func (c *Collector) ingestKyvernoPolicies(ctx context.Context, clusterID uuid.UUID, namespaceIDsByName map[string]uuid.UUID) {
 	if c.kyvernoStore == nil {
 		return
 	}
-	if err := CollectKyvernoPolicies(ctx, c.source, c.kyvernoStore, clusterID, namespaceIDsByName); err != nil {
+	if c.settingsGetter != nil {
+		settings, err := c.settingsGetter.GetSettings(ctx)
+		if err != nil {
+			slog.Warn("collector: kyverno settings check failed; skipping tick",
+				slog.String("cluster", clusterID.String()),
+				slog.Any("err", err),
+				slog.String("cluster_name", c.clusterName))
+			return
+		}
+		if !settings.PoliciesEnabled {
+			return
+		}
+	}
+	if err := CollectKyvernoPolicies(ctx, c.source, c.kyvernoStore, clusterID, c.clusterName, namespaceIDsByName); err != nil {
 		slog.Warn("collector: kyverno tick failed",
 			slog.String("cluster", clusterID.String()),
 			slog.Any("err", err),

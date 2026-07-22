@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -863,6 +866,11 @@ func (k *KubeClient) ListKyvernoClusterPolicies(ctx context.Context) ([]KyvernoC
 	for {
 		list, err := k.dynamicClient.Resource(gvrClusterPolicy).List(ctx, opts)
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				slog.Debug("collector: kyverno clusterpolicies CRD not found; skipping",
+					slog.String("gvr", gvrClusterPolicy.String()))
+				return out, nil
+			}
 			return nil, fmt.Errorf("list kyverno clusterpolicies: %w", err)
 		}
 		for i := range list.Items {
@@ -888,6 +896,11 @@ func (k *KubeClient) ListKyvernoPolicies(ctx context.Context) ([]KyvernoClusterP
 	for {
 		list, err := k.dynamicClient.Resource(gvrPolicy).List(ctx, opts)
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				slog.Debug("collector: kyverno policies CRD not found; skipping",
+					slog.String("gvr", gvrPolicy.String()))
+				return out, nil
+			}
 			return nil, fmt.Errorf("list kyverno policies: %w", err)
 		}
 		for i := range list.Items {
@@ -913,6 +926,11 @@ func (k *KubeClient) ListKyvernoPolicyReports(ctx context.Context) ([]KyvernoPol
 	for {
 		list, err := k.dynamicClient.Resource(gvrPolicyReport).List(ctx, opts)
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				slog.Debug("collector: kyverno policyreports CRD not found; skipping",
+					slog.String("gvr", gvrPolicyReport.String()))
+				return out, nil
+			}
 			return nil, fmt.Errorf("list kyverno policyreports: %w", err)
 		}
 		for i := range list.Items {
@@ -938,6 +956,11 @@ func (k *KubeClient) ListKyvernoClusterPolicyReports(ctx context.Context) ([]Kyv
 	for {
 		list, err := k.dynamicClient.Resource(gvrClusterPolicyReport).List(ctx, opts)
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				slog.Debug("collector: kyverno clusterpolicyreports CRD not found; skipping",
+					slog.String("gvr", gvrClusterPolicyReport.String()))
+				return out, nil
+			}
 			return nil, fmt.Errorf("list kyverno clusterpolicyreports: %w", err)
 		}
 		for i := range list.Items {
@@ -999,24 +1022,34 @@ func convertKyvernoPolicy(obj *unstructured.Unstructured, resourceType, scope st
 	return info, nil
 }
 
-// kyvernoAction extracts spec.validationFailureAction — string directly, or
-// object's .action sub-field (Kyverno >=1.10). ADR-0043 §5.
+// kyvernoAction extracts spec.validationFailureAction (always a string in
+// Kyverno >=1.10: "enforce" or "audit"). If any rule overrides to "enforce",
+// the policy-level action is promoted to "enforce" (most restrictive wins).
+// Result is lowercased. ADR-0043 §5.
 func kyvernoAction(obj *unstructured.Unstructured) *string {
 	spec, ok := obj.Object["spec"].(map[string]interface{})
 	if !ok {
 		return nil
 	}
-	switch v := spec["validationFailureAction"].(type) {
-	case string:
-		if v != "" {
-			return &v
+	vfa, _ := spec["validationFailureAction"].(string)
+	if vfa == "" {
+		return nil
+	}
+	action := strings.ToLower(vfa)
+
+	overrides, _ := spec["validationFailureActionOverrides"].([]interface{})
+	for _, o := range overrides {
+		om, ok := o.(map[string]interface{})
+		if !ok {
+			continue
 		}
-	case map[string]interface{}:
-		if action, ok := v["action"].(string); ok && action != "" {
-			return &action
+		if a, ok := om["action"].(string); ok && strings.ToLower(a) == "enforce" {
+			action = "enforce"
+			break
 		}
 	}
-	return nil
+
+	return &action
 }
 
 // kyvernoFailurePolicy extracts spec.webhookConfiguration.failurePolicy,
@@ -1237,8 +1270,7 @@ func kyvernoReady(obj *unstructured.Unstructured) *bool {
 			return &v
 		}
 	}
-	b := false
-	return &b
+	return nil
 }
 
 // kyvernoDescriptionFallback extracts the first non-empty line of

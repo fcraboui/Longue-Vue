@@ -63,6 +63,9 @@ func HandleListClusterPolicies(store Store) http.HandlerFunc {
 		if v := q.Get("severity"); v != "" {
 			filter.Severity = &v
 		}
+		if v := q.Get("failure_policy"); v != "" {
+			filter.FailurePolicy = &v
+		}
 		if v := q.Get("category"); v != "" {
 			filter.Category = &v
 		}

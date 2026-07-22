@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -56,7 +55,7 @@ func (p *PG) UpsertClusterPolicy(ctx context.Context, cp ClusterPolicy) (uuid.UU
 		        $9, $10, $11,
 		        $12, $13, $14, $15,
 		        $16, $17, $18, NOW())
-		ON CONFLICT ON CONSTRAINT uq_cluster_policies_scope DO UPDATE SET
+		ON CONFLICT (cluster_id, COALESCE(namespace_id, '00000000-0000-0000-0000-000000000000'), name) DO UPDATE SET
 			resource_type      = EXCLUDED.resource_type,
 			scope              = EXCLUDED.scope,
 			description        = EXCLUDED.description,
@@ -105,47 +104,102 @@ func (p *PG) DeleteClusterPoliciesNotIn(ctx context.Context, clusterID uuid.UUID
 
 var clusterPolicySortSpec = sortSpec{
 	columns: map[string]sortColumn{
-		sortKeyName:            {expr: "LOWER(name)", kind: sortText},
-		sortKeyAction:          {expr: "LOWER(action)", kind: sortText, nullable: true},
-		sortKeyBackground:      {expr: "background::text", kind: sortText, nullable: true},
-		sortKeySeverity:        {expr: "LOWER(severity)", kind: sortText, nullable: true},
-		sortKeyRulesCount:      {expr: "rules_count::text", kind: sortText, nullable: true},
-		sortKeyFailurePolicy:   {expr: "LOWER(failure_policy)", kind: sortText, nullable: true},
-		sortKeyCategory:        {expr: "LOWER(category)", kind: sortText, nullable: true},
-		sortKeyReady:           {expr: "ready::text", kind: sortText, nullable: true},
+		sortKeyName: {expr: "LOWER(name)", kind: sortText},
+		sortKeyAction: {
+			expr:     "LOWER(action)",
+			kind:     sortText,
+			nullable: true,
+		},
+		sortKeyBackground: {
+			expr:     "background::int",
+			kind:     sortInt,
+			nullable: true,
+		},
+		sortKeySeverity: {
+			// NULL severity falls through to ELSE -1 in SQL, but the
+			// nullable=true flag ensures NULL rows are placed in the
+			// NULLS LAST region — beyond even rank -1.
+			expr: `CASE LOWER(severity) ` +
+				`WHEN 'critical' THEN 4 ` +
+				`WHEN 'high' THEN 3 ` +
+				`WHEN 'medium' THEN 2 ` +
+				`WHEN 'low' THEN 1 ` +
+				`WHEN 'info' THEN 0 ` +
+				`ELSE -1 END`,
+			kind:     sortInt,
+			nullable: true,
+		},
+		sortKeyRulesCount: {
+			expr:     "rules_count",
+			kind:     sortInt,
+			nullable: true,
+		},
+		sortKeyFailurePolicy: {
+			expr:     "LOWER(failure_policy)",
+			kind:     sortText,
+			nullable: true,
+		},
+		sortKeyCategory: {
+			expr:     "LOWER(category)",
+			kind:     sortText,
+			nullable: true,
+		},
+		sortKeyReady: {
+			expr:     "ready::int",
+			kind:     sortInt,
+			nullable: true,
+		},
 		sortKeyResourceType:    {expr: "LOWER(resource_type)", kind: sortText},
+		sortKeyScope:           {expr: "LOWER(scope)", kind: sortText},
 		sortKeyReconcileSeenAt: {expr: "reconcile_seen_at", kind: sortTime},
 	},
 	defaultKey: sortKeyName,
 }
 
-type cpWithSeenAt struct {
-	cp     api.ClusterPolicyRow
-	seenAt time.Time
-}
-
-func clusterPolicySortVal(r *cpWithSeenAt, key string) *string {
+func clusterPolicySortVal(r *api.ClusterPolicyRow, key string) *string {
 	switch key {
 	case sortKeyName:
-		return sortValText(&r.cp.Name)
+		return sortValText(&r.Name)
 	case sortKeyResourceType:
-		return sortValText(&r.cp.ResourceType)
+		return sortValText(&r.ResourceType)
+	case sortKeyScope:
+		return sortValText(&r.Scope)
 	case sortKeyAction:
-		return sortValText(r.cp.Action)
+		return sortValText(r.Action)
 	case sortKeySeverity:
-		return sortValText(r.cp.Severity)
+		return sortValInt(severityRank(r.Severity))
 	case sortKeyFailurePolicy:
-		return sortValText(r.cp.FailurePolicy)
+		return sortValText(r.FailurePolicy)
 	case sortKeyCategory:
-		return sortValText(r.cp.Category)
+		return sortValText(r.Category)
 	case sortKeyBackground:
-		return sortValBool(r.cp.Background)
+		return sortValInt(boolToIntPtr(r.Background))
 	case sortKeyReady:
-		return sortValBool(r.cp.Ready)
+		return sortValInt(boolToIntPtr(r.Ready))
 	case sortKeyRulesCount:
-		return sortValInt(r.cp.RulesCount)
+		return sortValInt(r.RulesCount)
 	default:
-		return sortValTime(&r.seenAt)
+		return sortValTime(&r.ReconcileSeenAt)
+	}
+}
+
+func severityRank(s *string) *int {
+	if s == nil {
+		return nil
+	}
+	switch strings.ToLower(*s) {
+	case "critical":
+		return intPtr(4)
+	case "high":
+		return intPtr(3)
+	case "medium":
+		return intPtr(2)
+	case "low":
+		return intPtr(1)
+	case "info":
+		return intPtr(0)
+	default:
+		return intPtr(-1)
 	}
 }
 
@@ -189,13 +243,18 @@ func (p *PG) ListClusterPolicies(
 	}
 
 	if filter.Action != nil {
-		args = append(args, *filter.Action)
-		conds = append(conds, fmt.Sprintf("action = $%d", len(args)))
+		args = append(args, strings.ToLower(*filter.Action))
+		conds = append(conds, fmt.Sprintf("LOWER(action) = $%d", len(args)))
 	}
 
 	if filter.Severity != nil {
-		args = append(args, *filter.Severity)
-		conds = append(conds, fmt.Sprintf("severity = $%d", len(args)))
+		args = append(args, strings.ToLower(*filter.Severity))
+		conds = append(conds, fmt.Sprintf("LOWER(severity) = $%d", len(args)))
+	}
+
+	if filter.FailurePolicy != nil {
+		args = append(args, strings.ToLower(*filter.FailurePolicy))
+		conds = append(conds, fmt.Sprintf("LOWER(failure_policy) = $%d", len(args)))
 	}
 
 	if filter.Category != nil {
@@ -226,16 +285,16 @@ func (p *PG) ListClusterPolicies(
 	}
 	defer rows.Close()
 
-	raw := make([]cpWithSeenAt, 0, limit+1)
+	raw := make([]api.ClusterPolicyRow, 0, limit+1)
 	for rows.Next() {
-		var r cpWithSeenAt
+		var r api.ClusterPolicyRow
 		if err := rows.Scan(
-			&r.cp.ID, &r.cp.ClusterID, &r.cp.NamespaceID, &r.cp.Name,
-			&r.cp.ResourceType, &r.cp.Scope, &r.cp.Description, &r.cp.Category, &r.cp.Severity,
-			&r.cp.Action, &r.cp.FailurePolicy, &r.cp.Background,
-			&r.cp.RuleTypes, &r.cp.RulesCount, &r.cp.TargetResources, &r.cp.KeyExclusions,
-			&r.cp.Ready, &r.cp.Annotations, &r.cp.SpecRaw,
-			&r.seenAt,
+			&r.ID, &r.ClusterID, &r.NamespaceID, &r.Name,
+			&r.ResourceType, &r.Scope, &r.Description, &r.Category, &r.Severity,
+			&r.Action, &r.FailurePolicy, &r.Background,
+			&r.RuleTypes, &r.RulesCount, &r.TargetResources, &r.KeyExclusions,
+			&r.Ready, &r.Annotations, &r.SpecRaw,
+			&r.ReconcileSeenAt,
 		); err != nil {
 			return nil, "", fmt.Errorf("scan cluster_policy: %w", err)
 		}
@@ -248,12 +307,8 @@ func (p *PG) ListClusterPolicies(
 	var next string
 	if len(raw) > limit {
 		last := &raw[limit-1]
-		next = encodeListCursor(key, clusterPolicySortVal(last, key), last.cp.ID, dir)
+		next = encodeListCursor(key, clusterPolicySortVal(last, key), last.ID, dir)
 		raw = raw[:limit]
 	}
-	items := make([]api.ClusterPolicyRow, len(raw))
-	for i, r := range raw {
-		items[i] = r.cp
-	}
-	return items, next, nil
+	return raw, next, nil
 }

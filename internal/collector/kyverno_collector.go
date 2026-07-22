@@ -11,9 +11,17 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sthalbert/longue-vue/internal/api"
+	"github.com/sthalbert/longue-vue/internal/metrics"
 )
 
 var errKyvernoSweepFailed = errors.New("sweep kyverno policies: one or more operations failed")
+
+// SettingsGetter is the minimal settings interface the Kyverno collector
+// needs to gate itself behind policies_enabled. Both *store.PG and
+// apiclient.Store can satisfy it.
+type SettingsGetter interface {
+	GetSettings(ctx context.Context) (api.Settings, error)
+}
 
 // KyvernoStore is the slice of the store interface the Kyverno collector
 // uses. Both *store.PG (direct, in-process) and apiclient.Store (HTTP
@@ -39,11 +47,12 @@ func CollectKyvernoPolicies(
 	src KubeSource,
 	st KyvernoStore,
 	clusterID uuid.UUID,
+	clusterName string,
 	namespaceIDsByName map[string]uuid.UUID,
 ) error {
 	var policyFailures, reportFailures int
 
-	cpIDs, err := collectClusterPolicies(ctx, src, st, clusterID, namespaceIDsByName)
+	cpIDs, err := collectClusterPolicies(ctx, src, st, clusterID, clusterName, namespaceIDsByName)
 	if err != nil {
 		slog.Warn("collector: kyverno cluster-policies tick failed",
 			slog.String("cluster", clusterID.String()),
@@ -57,15 +66,15 @@ func CollectKyvernoPolicies(
 			slog.Warn("collector: sweep kyverno cluster-policies failed",
 				slog.String("cluster", clusterID.String()),
 				slog.Any("err", err))
+			metrics.ObserveError(clusterName, "cluster_policies", "reconcile")
 			policyFailures++
-		} else if deleted > 0 {
-			slog.Info("collector: swept kyverno cluster-policies",
-				slog.String("cluster", clusterID.String()),
-				slog.Int64("deleted", deleted))
+		} else {
+			metrics.ObserveReconciled(clusterName, "cluster_policies", deleted)
+			metrics.MarkPoll(clusterName, "cluster_policies")
 		}
 	}
 
-	prIDs, err := collectPolicyReports(ctx, src, st, clusterID, namespaceIDsByName)
+	prIDs, err := collectPolicyReports(ctx, src, st, clusterID, clusterName, namespaceIDsByName)
 	if err != nil {
 		slog.Warn("collector: kyverno policy-reports tick failed",
 			slog.String("cluster", clusterID.String()),
@@ -79,11 +88,11 @@ func CollectKyvernoPolicies(
 			slog.Warn("collector: sweep kyverno policy-reports failed",
 				slog.String("cluster", clusterID.String()),
 				slog.Any("err", err))
+			metrics.ObserveError(clusterName, "policy_reports", "reconcile")
 			reportFailures++
-		} else if deleted > 0 {
-			slog.Info("collector: swept kyverno policy-reports",
-				slog.String("cluster", clusterID.String()),
-				slog.Int64("deleted", deleted))
+		} else {
+			metrics.ObserveReconciled(clusterName, "policy_reports", deleted)
+			metrics.MarkPoll(clusterName, "policy_reports")
 		}
 	}
 
@@ -100,13 +109,15 @@ func collectClusterPolicies(
 	src KubeSource,
 	st KyvernoStore,
 	clusterID uuid.UUID,
+	clusterName string,
 	namespaceIDsByName map[string]uuid.UUID,
 ) ([]uuid.UUID, error) {
-	var seen []uuid.UUID
+	seen := make([]uuid.UUID, 0)
 	var listErrors int
 
 	clusterPol, err := src.ListKyvernoClusterPolicies(ctx)
 	if err != nil {
+		metrics.ObserveError(clusterName, "cluster_policies", "list")
 		return nil, fmt.Errorf("list kyverno clusterpolicies: %w", err)
 	}
 	for i := range clusterPol {
@@ -118,6 +129,7 @@ func collectClusterPolicies(
 				slog.String("policy", cp.Name),
 				slog.String("cluster", clusterID.String()),
 				slog.Any("err", err))
+			metrics.ObserveError(clusterName, "cluster_policies", "upsert")
 			listErrors++
 			continue
 		}
@@ -126,6 +138,7 @@ func collectClusterPolicies(
 
 	namespacedPol, err := src.ListKyvernoPolicies(ctx)
 	if err != nil {
+		metrics.ObserveError(clusterName, "cluster_policies", "list")
 		return nil, fmt.Errorf("list kyverno policies: %w", err)
 	}
 	for i := range namespacedPol {
@@ -146,14 +159,16 @@ func collectClusterPolicies(
 				slog.String("namespace", p.Namespace),
 				slog.String("cluster", clusterID.String()),
 				slog.Any("err", err))
+			metrics.ObserveError(clusterName, "cluster_policies", "upsert")
 			listErrors++
 			continue
 		}
 		seen = append(seen, id)
 	}
 
+	metrics.ObserveUpserts(clusterName, "cluster_policies", len(seen))
 	if listErrors > 0 {
-		return seen, fmt.Errorf("%d cluster-policy upsert errors", listErrors)
+		return nil, fmt.Errorf("%d cluster-policy upsert errors", listErrors)
 	}
 	return seen, nil
 }
@@ -165,13 +180,15 @@ func collectPolicyReports(
 	src KubeSource,
 	st KyvernoStore,
 	clusterID uuid.UUID,
+	clusterName string,
 	namespaceIDsByName map[string]uuid.UUID,
 ) ([]uuid.UUID, error) {
-	var seen []uuid.UUID
+	seen := make([]uuid.UUID, 0)
 	var listErrors int
 
 	clusterReports, err := src.ListKyvernoClusterPolicyReports(ctx)
 	if err != nil {
+		metrics.ObserveError(clusterName, "policy_reports", "list")
 		return nil, fmt.Errorf("list kyverno clusterpolicyreports: %w", err)
 	}
 	for i := range clusterReports {
@@ -183,6 +200,7 @@ func collectPolicyReports(
 				slog.String("report", r.Name),
 				slog.String("cluster", clusterID.String()),
 				slog.Any("err", err))
+			metrics.ObserveError(clusterName, "policy_reports", "upsert")
 			listErrors++
 			continue
 		}
@@ -191,6 +209,7 @@ func collectPolicyReports(
 
 	namespacedReports, err := src.ListKyvernoPolicyReports(ctx)
 	if err != nil {
+		metrics.ObserveError(clusterName, "policy_reports", "list")
 		return nil, fmt.Errorf("list kyverno policyreports: %w", err)
 	}
 	for i := range namespacedReports {
@@ -211,14 +230,16 @@ func collectPolicyReports(
 				slog.String("namespace", r.Namespace),
 				slog.String("cluster", clusterID.String()),
 				slog.Any("err", err))
+			metrics.ObserveError(clusterName, "policy_reports", "upsert")
 			listErrors++
 			continue
 		}
 		seen = append(seen, id)
 	}
 
+	metrics.ObserveUpserts(clusterName, "policy_reports", len(seen))
 	if listErrors > 0 {
-		return seen, fmt.Errorf("%d policy-report upsert errors", listErrors)
+		return nil, fmt.Errorf("%d policy-report upsert errors", listErrors)
 	}
 	return seen, nil
 }
