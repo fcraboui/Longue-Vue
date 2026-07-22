@@ -307,13 +307,19 @@ echo "=== policies (enable + seed via SQL) ==="
 DB="${LONGUE_VUE_DATABASE_URL:-}"
 if [ -z "$DB" ]; then
     echo "LONGUE_VUE_DATABASE_URL not set — skipping policy seed" >&2
+elif ! command -v psql >/dev/null 2>&1; then
+    echo "psql not found — skipping policy seed (install postgresql client)" >&2
 else
     # Enable policies in settings so the API endpoints return data.
     STATUS=$(curl -sS -o /dev/null -w '%{http_code}' "${AUTH_ARGS[@]}" \
         -X PATCH -H "$CT" \
         -d '{"policies_enabled":true}' \
         "${BASE}/v1/admin/settings")
-    echo "policies_enabled → $STATUS"
+    if [ "$STATUS" = "403" ]; then
+        echo "policies_enabled → 403 (admin role required; set LONGUE_VUE_POLICIES_ENABLED=true at boot, or use an admin token)" >&2
+    else
+        echo "policies_enabled → $STATUS"
+    fi
 
     NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -415,7 +421,7 @@ for kind in clusters nodes namespaces workloads pods services ingresses persiste
     printf "  %-25s %s\n" "$kind" "$count"
 done
 
-if [ -n "$DB" ]; then
+if [ -n "$DB" ] && command -v psql >/dev/null 2>&1; then
     for kind in cluster_policies policy_reports; do
         count=$(psql "$DB" -t -A -c "SELECT COUNT(*) FROM ${kind}")
         printf "  %-25s %s\n" "$kind" "$(echo $count)"

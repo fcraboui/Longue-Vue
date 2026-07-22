@@ -1,6 +1,6 @@
 ---
 title: "ADR-0043: Kyverno policy inventory and Policies view"
-status: "Proposed"
+status: "Accepted"
 date: "2026-07-21"
 authors: "Frederic CRABOUILLET"
 tags: ["architecture", "decision", "collector", "ui", "kyverno", "policy"]
@@ -227,8 +227,9 @@ sort/filter allowlist. The `cluster_policy_name` filter is removed —
 since Kyverno 1.11, PolicyReports are named after the evaluated
 resource's UID, not the policy name. To find reports for a specific
 policy, use `GET /v1/policy-reports?cluster_id=<id>` and filter client-side on `results_raw`, or query the non-conformity sub-endpoint (§7).
-Additional filters for policy-reports: `scope_kind` (exact match, e.g.
-`ClusterPolicyReport`) and `scope_name` (substring/ILIKE match).
+Additional filters for policy-reports: `scope_kind` (exact match on the
+evaluated resource kind, e.g. `Namespace`, `Pod`, `Deployment`) and
+`scope_name` (substring/ILIKE match).
 
 ### 4. UI — Policies view
 
@@ -241,25 +242,25 @@ computed columns are not sortable per ADR-0042 §4; column reorder via
 drag-and-drop does not exist in the current UI infrastructure — only
 resize via `resizable_columns.ts`):
 
-| Column                  | Source                                                    | Link / rendering                                                                                                                   |
-| ----------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Name**                | `cluster_policies.name`                                   | Plain text (policy name)                                                                                                           |
-| **Resource Type**       | `cluster_policies.resource_type`                          | Badge (`ClusterPolicy` / `Policy`)                                                                                                 |
-| **Env**                 | `clusters.environment` (JOIN)                             | Plain text                                                                                                                         |
-| **Cluster**             | `clusters.id` + `clusters.name` (JOIN)                    | Link to `/ui/clusters/${cluster_id}` (relative route; no hardcoded hostname)                                                       |
-| **Zone**                | Derived from cluster (§6)                                 | Plain text                                                                                                                         |
-| **Category / Severity** | `cluster_policies.category` + `cluster_policies.severity` | Colour-coded badge: critical=red, high=orange, medium=yellow, low=green, info=grey; category as prefix                             |
-| **Rule Types**          | `cluster_policies.rule_types`                             | Pill badges: `validate`, `mutate`, `generate`, `verifyImages` — colour per type                                                    |
-| **Action**              | `cluster_policies.action`                                 | Colour-coded badge: red = `Enforce`, blue = `Audit`                                                                                |
-| **Failure Policy**      | `cluster_policies.failure_policy`                         | Badge: red = `Fail` (request rejected on webhook error), grey = `Ignore`                                                           |
-| **Target Resources**    | `cluster_policies.target_resources`                       | Comma-separated list with overflow tooltip (e.g. `Pod, Deployment, Namespace`)                                                     |
-| **Key Exclusions**      | `cluster_policies.key_exclusions`                         | Comma-separated list with overflow tooltip; muted style (e.g. `ns:kube-system`); hover shows full list from `spec_raw` when capped |
-| **Background Scan**     | `cluster_policies.background`                             | Boolean icon (checkmark / dash)                                                                                                    |
-| **Ready**               | `cluster_policies.ready`                                  | Status dot: green = `true`, red = `false`, grey = unknown                                                                          |
-| **P99 Latency**         | Prometheus proxy (§7)                                     | Numeric with ms unit; async cell populated via server-side proxy                                                                   |
-| **Block Rate**          | Prometheus proxy (§7)                                     | Requests/min blocked in Enforce mode; async cell                                                                                   |
-| **Error Rate**          | Prometheus proxy (§7)                                     | Errors/min during rule evaluation; async cell                                                                                      |
-| **Non-Conformity**      | PolicyReport (§7)                                         | Failing resources count from PolicyReport results; async cell                                                                      |
+| Column                  | Source                                                    | Link / rendering                                                                                                                                    |
+| ----------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Name**                | `cluster_policies.name`                                   | Plain text (policy name)                                                                                                                            |
+| **Resource Type**       | `cluster_policies.resource_type`                          | Badge (`ClusterPolicy` / `Policy`)                                                                                                                  |
+| **Env**                 | `clusters.environment` (JOIN)                             | Plain text                                                                                                                                          |
+| **Cluster**             | `clusters.id` + `clusters.name` (JOIN)                    | Link to `/ui/clusters/${cluster_id}` (relative route; no hardcoded hostname)                                                                        |
+| **Zone**                | Derived from cluster (§6)                                 | Plain text                                                                                                                                          |
+| **Category / Severity** | `cluster_policies.category` + `cluster_policies.severity` | Colour-coded badge using shared `status-ok`/`status-warn`/`status-bad` CSS classes: critical/high=bad, medium=warn, low/info=ok; category as prefix |
+| **Rule Types**          | `cluster_policies.rule_types`                             | Pill badges: `validate`, `mutate`, `generate`, `verifyImages` — colour per type                                                                     |
+| **Action**              | `cluster_policies.action`                                 | Pill badge (`Enforce` / `Audit`)                                                                                                                    |
+| **Failure Policy**      | `cluster_policies.failure_policy`                         | Badge: red = `Fail` (request rejected on webhook error), grey = `Ignore`                                                                            |
+| **Target Resources**    | `cluster_policies.target_resources`                       | Comma-separated list with overflow tooltip (e.g. `Pod, Deployment, Namespace`)                                                                      |
+| **Key Exclusions**      | `cluster_policies.key_exclusions`                         | Comma-separated list with overflow tooltip; muted style (e.g. `ns:kube-system`); hover shows full list from `spec_raw` when capped                  |
+| **Background Scan**     | `cluster_policies.background`                             | Boolean icon (checkmark / dash)                                                                                                                     |
+| **Ready**               | `cluster_policies.ready`                                  | Status dot: green = `true`, red = `false`, grey = unknown                                                                                           |
+| **P99 Latency**         | Prometheus proxy (§7)                                     | Numeric with ms unit; async cell populated via server-side proxy                                                                                    |
+| **Block Rate**          | Prometheus proxy (§7)                                     | Requests/min blocked in Enforce mode; async cell                                                                                                    |
+| **Error Rate**          | Prometheus proxy (§7)                                     | Errors/min during rule evaluation; async cell                                                                                                       |
+| **Non-Conformity**      | PolicyReport (§7)                                         | Failing resources count from PolicyReport results; async cell                                                                                       |
 
 **PolicyReport toggle:** a toggle button (show/hide) in the table
 toolbar. When enabled, a nested row or expandable section under each
@@ -436,10 +437,11 @@ WHERE pr.cluster_id = $1
   AND r->>'policy' = $2;
 ```
 
-A GIN index on `results_raw` (via `jsonb_path_ops`) supports this query.
-Alternatively, a precomputed `policy_report_policy_summary` table can be
-populated at ingestion time to avoid the JSONB scan at read time; this
-optimisation is deferred based on measured performance.
+A sequential scan over `results_raw` satisfies this query at read time.
+If measured performance warrants, a GIN index on `results_raw` (via
+`jsonb_path_ops`) or a precomputed `policy_report_policy_summary` table
+can be added at ingestion time to avoid the JSONB scan at read time;
+this optimisation is deferred.
 
 **Key design decisions:**
 
@@ -566,9 +568,11 @@ histograms).
   and coexist without collision. For duplicate cluster-scoped names
   (same name, same cluster, both with `namespace_id = NULL`), the
   standard UNIQUE constraint would not catch the violation because
-  PostgreSQL treats NULL ≠ NULL. The two partial unique indexes
-  (`uq_cluster_policies_cluster` and `uq_cluster_policies_ns`) close
-  this gap and enforce uniqueness correctly for both scopes.
+  PostgreSQL treats NULL ≠ NULL. A single COALESCE expression-based
+  unique index (`uq_cluster_policies_scope`) closes this gap by mapping
+  NULL `namespace_id` to a sentinel UUID, enforcing uniqueness correctly
+  for both scopes. The same pattern applies to `policy_reports`
+  (`uq_policy_reports_scope`).
 - **NEG-004**: The `description` field relies on a Kyverno annotation
   convention (`policies.kyverno.io/description`). Policies that omit
   this annotation fall back to the first non-empty line of
@@ -666,12 +670,16 @@ histograms).
 
 - **IMP-001**: Migration `00059_create_cluster_policies.sql` creates
   `cluster_policies` and `policy_reports` tables with indexes on
-  `(cluster_id)`, `(namespace_id)`, and partial unique indexes
-  on both tables (`uq_cluster_policies_cluster` / `uq_cluster_policies_ns`
-  and `uq_policy_reports_cluster` / `uq_policy_reports_ns`) to correctly
-  enforce uniqueness with NULL semantics. GIN index on `rule_types`,
-  `target_resources` (array containment), and `results_raw`
-  (`jsonb_path_ops` for the non-conformity query).
+  `(cluster_id)`, `(namespace_id)`, and COALESCE expression-based
+  unique indexes on both tables (`uq_cluster_policies_scope` and
+  `uq_policy_reports_scope`) to correctly enforce uniqueness with NULL
+  `namespace_id` semantics. GIN indexes on `rule_types`,
+  `target_resources`, and `results_raw` were initially included but
+  removed — no consumer queries these arrays/JSONB via containment or
+  path operators. The non-conformity query (§7) can be satisfied by a
+  sequential scan over `results_raw` at read time; a GIN index or
+  precomputed summary table can be added when measured performance
+  warrants it.
 - **IMP-002**: Add `policies_enabled` boolean to the `settings` table
   (migration `00060`). Seed from `LONGUE_VUE_POLICIES_ENABLED`. Expose
   at `GET /v1/admin/settings`.
@@ -715,9 +723,15 @@ histograms).
   validated as HTTPS at save time; the proxy does not follow redirects
   (SSRF posture).
 - **IMP-009**: UI: add `PolicyIcon` to `ui/src/icons.tsx`. Add
-  `<NavLink>` between Pods and Services in `ui/src/App.tsx`. Add
-  `Policies()` function in `ui/src/pages/Lists.tsx` with column
-  definitions matching the table spec above. Shared infrastructure work:
+  `<NavLink>` entries for `/cluster-policies` and `/policy-reports` in
+  `ui/src/App.tsx`. Add `ClusterPolicies()` and `PolicyReports()`
+  functions in `ui/src/pages/Policies.tsx` with column definitions
+  matching the table spec above. The Policies page uses the shared
+  `EntityListPage<T>` component with an `errorRenderer` prop that
+  catches 409 (feature disabled) and renders a banner linking to the
+  admin settings page. Shared infrastructure work for v1 is limited
+  to the base table; nested/expandable rows, toolbar slots, and async
+  cells (Prometheus metrics) are deferred to a follow-up:
   (a) nested/expandable rows for the PolicyReport toggle, (b) toolbar
   slot for the toggle button, (c) async cells that populate after the
   metrics proxy responds; they display a spinner while loading and "—"
@@ -735,10 +749,9 @@ histograms).
   `DeletePolicyReportsNotIn`. The `seen` slice is initialised as
   `make([]uuid.UUID, 0)` so that a successful but empty tick sweeps
   all rows (consistent with the established sweep contract).
-  each namespace's entries from the cluster-wide result.
 - **IMP-013**: Tests: unit tests for action derivation logic (case
   normalisation, mixed enforce/audit aggregation), store integration
-  tests for partial unique indexes with NULL namespace_id, and API
+  tests for COALESCE expression indexes with NULL namespace_id, and API
   handler tests for sort/filter allowlist enforcement.
 
 ## References
