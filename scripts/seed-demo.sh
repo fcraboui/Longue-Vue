@@ -302,15 +302,21 @@ post /v1/persistentvolumeclaims "{
 echo "pv/pvc seeded"
 
 echo "=== policies ==="
-# Enable policies in settings so the API endpoints return data.
-STATUS=$(curl -sS -o /dev/null -w '%{http_code}' "${AUTH_ARGS[@]}" \
-    -X PATCH -H "$CT" \
-    -d '{"policies_enabled":true}' \
-    "${BASE}/v1/admin/settings")
-if [ "$STATUS" = "403" ]; then
-    echo "policies_enabled → 403 (admin role required; set LONGUE_VUE_POLICIES_ENABLED=true at boot, or use an admin token)" >&2
+# Check if policies are already enabled; if not, try to enable them.
+PE_STATUS=$(curl -sS -o /dev/null -w '%{http_code}' "${AUTH_ARGS[@]}" \
+    "${BASE}/v1/cluster-policies?limit=1")
+if [ "$PE_STATUS" = "200" ]; then
+    echo "policies_enabled: already on"
 else
-    echo "policies_enabled → $STATUS"
+    STATUS=$(curl -sS -o /dev/null -w '%{http_code}' "${AUTH_ARGS[@]}" \
+        -X PATCH -H "$CT" \
+        -d '{"policies_enabled":true}' \
+        "${BASE}/v1/admin/settings")
+    if [ "$STATUS" = "403" ]; then
+        echo "policies_enabled → 403 (set LONGUE_VUE_POLICIES_ENABLED=true at boot, or use an admin token)" >&2
+    else
+        echo "policies_enabled → $STATUS"
+    fi
 fi
 
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
