@@ -45,9 +45,9 @@ export default function CloudAccountDetail() {
     [id, ...vmControls.deps],
   );
 
-  const onDelete = async (account: api.CloudAccount, vmCount: number) => {
+  const onDelete = async (account: api.CloudAccount) => {
     const typed = prompt(
-      `This will also tombstone all ${vmCount} virtual machines in this account.\n\nType the account name to confirm:`,
+      `This will also tombstone all its virtual machines in this account.\n\nType the account name to confirm:`,
     );
     if (typed === null) return;
     if (typed !== account.name) {
@@ -69,7 +69,6 @@ export default function CloudAccountDetail() {
       </div>
       <AsyncView state={state}>
         {(account) => {
-          const vmCount = vmList.items.length;
           return (
             <>
               <h2>
@@ -165,7 +164,7 @@ export default function CloudAccountDetail() {
                 <Link to={`/admin/tokens?bind=${account.id}`} className="link-btn">
                   Issue collector token
                 </Link>
-                <button className="danger" onClick={() => onDelete(account, vmCount)}>
+                <button className="danger" onClick={() => onDelete(account)}>
                   Delete account
                 </button>
               </div>
