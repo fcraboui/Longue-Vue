@@ -1,10 +1,10 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import * as api from '../../api';
-import { useResource } from '../../hooks';
+import { useResource, usePagedList, useLocalListControls } from '../../hooks';
 import { AsyncView, Dash, KV, SectionTitle } from '../../components';
-import { useEntityTable } from '../../components/column_filters';
 import { CuratedMetadataCard } from '../../components/inventory/CuratedMetadataCard';
+import { ListSection } from '../../components/ListSection';
 import { CloudAccountStatusBadge } from './CloudAccounts';
 
 // CloudAccountDetail — admin-only drill-down for one cloud_account row.
@@ -38,11 +38,12 @@ export default function CloudAccountDetail() {
   const [nonce, setNonce] = useState(0);
   const reload = () => setNonce((n) => n + 1);
   const state = useResource(() => api.getCloudAccount(id), [id, nonce]);
-  const vmsState = useResource(
-    () => api.listVirtualMachines({ cloud_account_id: id }),
-    [id, nonce],
+  const vmControls = useLocalListControls();
+  const vmList = usePagedList<api.VirtualMachine>(
+    (cursor, limit) =>
+      api.listVirtualMachines({ cloud_account_id: id, ...vmControls.params, cursor, limit }),
+    [id, ...vmControls.deps],
   );
-  const tableRef = useEntityTable('admin.cloud_account_detail.vms');
 
   const onDelete = async (account: api.CloudAccount, vmCount: number) => {
     const typed = prompt(
@@ -68,8 +69,7 @@ export default function CloudAccountDetail() {
       </div>
       <AsyncView state={state}>
         {(account) => {
-          const vmCount =
-            vmsState.status === 'ready' ? vmsState.data.items.length : 0;
+          const vmCount = vmList.items.length;
           return (
             <>
               <h2>
@@ -170,54 +170,59 @@ export default function CloudAccountDetail() {
                 </button>
               </div>
 
-              <SectionTitle count={vmCount}>Virtual machines</SectionTitle>
-              <AsyncView state={vmsState}>
-                {(vms) =>
-                  vms.items.length === 0 ? (
-                    <p className="muted empty">
-                      No VMs in this account yet — wait for the collector's next tick.
-                    </p>
-                  ) : (
-                    <table className="entities" ref={tableRef}>
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>Power state</th>
-                          <th>Region / Zone</th>
-                          <th>Instance type</th>
-                          <th>Last seen</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {vms.items.slice(0, 50).map((vm) => (
-                          <tr key={vm.id} className={vm.terminated_at ? 'vm-row-terminated' : ''}>
-                            <td>
-                              <Link to={`/virtual-machines/${vm.id}`}>
-                                <strong>{vm.display_name || vm.name}</strong>
-                              </Link>
-                            </td>
-                            <td>
-                              <span className="pill">{vm.power_state}</span>
-                            </td>
-                            <td>
-                              {vm.region ? <code>{vm.region}</code> : <Dash />}
-                              {vm.zone && (
-                                <span className="muted" style={{ marginLeft: '0.4rem' }}>
-                                  {vm.zone}
-                                </span>
-                              )}
-                            </td>
-                            <td>{vm.instance_type ? <code>{vm.instance_type}</code> : <Dash />}</td>
-                            <td className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
-                              {formatTs(vm.last_seen_at)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )
-                }
-              </AsyncView>
+              <ListSection
+                title="Virtual machines"
+                list={vmList}
+                controls={vmControls}
+                emptyMessage="No VMs in this account yet — wait for the collector's next tick."
+                rowKey={(vm) => vm.id}
+                columns={[
+                  {
+                    key: 'name',
+                    label: 'Name',
+                    sortKey: 'name',
+                    link: (vm) => `/virtual-machines/${vm.id}`,
+                    render: (vm) => vm.display_name || vm.name,
+                  },
+                  {
+                    key: 'power_state',
+                    label: 'Power state',
+                    sortKey: 'power_state',
+                    render: (vm) => <span className="pill">{vm.power_state}</span>,
+                  },
+                  {
+                    key: 'region_zone',
+                    label: 'Region / Zone',
+                    sortKey: 'region',
+                    render: (vm) => (
+                      <>
+                        {vm.region ? <code>{vm.region}</code> : <Dash />}
+                        {vm.zone && (
+                          <span className="muted" style={{ marginLeft: '0.4rem' }}>
+                            {vm.zone}
+                          </span>
+                        )}
+                      </>
+                    ),
+                  },
+                  {
+                    key: 'instance_type',
+                    label: 'Instance type',
+                    sortKey: 'instance_type',
+                    render: (vm) => (vm.instance_type ? <code>{vm.instance_type}</code> : <Dash />),
+                  },
+                  {
+                    key: 'last_seen',
+                    label: 'Last seen',
+                    sortKey: 'last_seen_at',
+                    render: (vm) => (
+                      <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>
+                        {formatTs(vm.last_seen_at)}
+                      </span>
+                    ),
+                  },
+                ]}
+              />
             </>
           );
         }}
