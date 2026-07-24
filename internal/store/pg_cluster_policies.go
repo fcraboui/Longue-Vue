@@ -75,6 +75,7 @@ func (p *PG) UpsertClusterPolicy(ctx context.Context, cp ClusterPolicy) (uuid.UU
 			spec_raw           = EXCLUDED.spec_raw,
 			source             = EXCLUDED.source,
 			reconcile_seen_at  = NOW()
+		WHERE EXCLUDED.source = 'collector' OR cluster_policies.source = 'api'
 		RETURNING id`,
 		cp.ClusterID, cp.NamespaceID, cp.Name,
 		cp.ResourceType, cp.Scope, cp.Description, cp.Category, cp.Severity,
@@ -84,6 +85,9 @@ func (p *PG) UpsertClusterPolicy(ctx context.Context, cp ClusterPolicy) (uuid.UU
 		cp.Source,
 	).Scan(&id)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, api.ErrConflict
+		}
 		if fkErr := classifyClusterPolicyFKError(err, cp.ClusterID, cp.NamespaceID); fkErr != nil {
 			return uuid.Nil, fkErr
 		}
@@ -125,6 +129,19 @@ func (p *PG) DeleteClusterScopedPoliciesNotIn(ctx context.Context, clusterID uui
 		return 0, fmt.Errorf("sweep cluster-scoped policies: %w", err)
 	}
 	return ct.RowsAffected(), nil
+}
+
+func (p *PG) DeleteClusterPolicy(ctx context.Context, id uuid.UUID) error {
+	ct, err := p.pool.Exec(ctx,
+		`DELETE FROM cluster_policies WHERE id = $1 AND source = $2`,
+		id, api.SourceAPI)
+	if err != nil {
+		return fmt.Errorf("delete cluster_policy: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return api.ErrNotFound
+	}
+	return nil
 }
 
 var clusterPolicySortSpec = sortSpec{

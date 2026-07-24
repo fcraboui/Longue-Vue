@@ -1,11 +1,14 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- Add source discriminator: 'collector' (default, set by K8s pull) vs 'api'
--- (set by POST /v1/cluster-policies and POST /v1/policy-reports).
--- The collector sweep (DeleteClusterPoliciesNotIn / DeletePolicyReportsNotIn)
--- only deletes rows where source = 'collector', so API-created rows survive
--- reconcile ticks. ADR-0043 §POS-012.
+-- Add source discriminator: 'collector' (default, set by in-process K8s
+-- pull) vs 'api' (set by POST /v1/cluster-policies and
+-- POST /v1/policy-reports). The collector sweep
+-- (DeleteClusterScopedPoliciesNotIn /
+-- DeleteClusterPoliciesByNamespace / DeleteClusterScopedPolicyReportsNotIn /
+-- DeletePolicyReportsByNamespace) only deletes rows where
+-- source = 'collector', so API-created rows survive reconcile ticks.
+-- ADR-0043 §POS-012.
 
 ALTER TABLE cluster_policies ADD COLUMN source TEXT NOT NULL DEFAULT 'collector'
     CHECK (source IN ('collector', 'api'));

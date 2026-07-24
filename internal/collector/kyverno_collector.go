@@ -57,27 +57,25 @@ func CollectKyvernoPolicies(
 	clusterName string,
 	namespaceIDsByName map[string]uuid.UUID,
 ) error {
-	var policyFailures, reportFailures int
+	var policyCollectErrs, policySweepErrs int
+	var reportCollectErrs, reportSweepErrs int
 
 	cpResult, cpErr := collectClusterPolicies(ctx, src, st, clusterID, clusterName, namespaceIDsByName)
 	if cpErr != nil {
 		slog.Warn("collector: kyverno cluster-policies tick partially failed",
 			slog.String("cluster", clusterID.String()),
 			slog.Any("err", cpErr))
-		policyFailures++
+		policyCollectErrs++
 	}
-
-	if cpResult != nil {
-		deleted, err := sweepClusterPolicies(ctx, st, clusterID, namespaceIDsByName, cpResult)
-		if err != nil {
-			slog.Warn("collector: sweep kyverno cluster-policies failed",
-				slog.String("cluster", clusterID.String()),
-				slog.Any("err", err))
-			metrics.ObserveError(clusterName, "cluster_policies", "reconcile")
-			policyFailures++
-		} else {
-			metrics.ObserveReconciled(clusterName, "cluster_policies", deleted)
-		}
+	deleted, err := sweepClusterPolicies(ctx, st, clusterID, clusterName, namespaceIDsByName, cpResult)
+	if err != nil {
+		slog.Warn("collector: sweep kyverno cluster-policies failed",
+			slog.String("cluster", clusterID.String()),
+			slog.Any("err", err))
+		metrics.ObserveError(clusterName, "cluster_policies", "reconcile")
+		policySweepErrs++
+	} else {
+		metrics.ObserveReconciled(clusterName, "cluster_policies", deleted)
 		metrics.MarkPoll(clusterName, "cluster_policies")
 	}
 
@@ -86,38 +84,41 @@ func CollectKyvernoPolicies(
 		slog.Warn("collector: kyverno policy-reports tick partially failed",
 			slog.String("cluster", clusterID.String()),
 			slog.Any("err", prErr))
-		reportFailures++
+		reportCollectErrs++
 	}
-
-	if prResult != nil {
-		deleted, err := sweepPolicyReports(ctx, st, clusterID, namespaceIDsByName, prResult)
-		if err != nil {
-			slog.Warn("collector: sweep kyverno policy-reports failed",
-				slog.String("cluster", clusterID.String()),
-				slog.Any("err", err))
-			metrics.ObserveError(clusterName, "policy_reports", "reconcile")
-			reportFailures++
-		} else {
-			metrics.ObserveReconciled(clusterName, "policy_reports", deleted)
-		}
+	deleted, err = sweepPolicyReports(ctx, st, clusterID, clusterName, namespaceIDsByName, prResult)
+	if err != nil {
+		slog.Warn("collector: sweep kyverno policy-reports failed",
+			slog.String("cluster", clusterID.String()),
+			slog.Any("err", err))
+		metrics.ObserveError(clusterName, "policy_reports", "reconcile")
+		reportSweepErrs++
+	} else {
+		metrics.ObserveReconciled(clusterName, "policy_reports", deleted)
 		metrics.MarkPoll(clusterName, "policy_reports")
 	}
 
-	if policyFailures+reportFailures > 0 {
-		return fmt.Errorf("%w (%d policy, %d report)", errKyvernoTickFailed, policyFailures, reportFailures)
+	policyTotal := policyCollectErrs + policySweepErrs
+	reportTotal := reportCollectErrs + reportSweepErrs
+	if policyTotal+reportTotal > 0 {
+		return fmt.Errorf("%w (policy: %d collect/%d sweep, report: %d collect/%d sweep)",
+			errKyvernoTickFailed, policyCollectErrs, policySweepErrs, reportCollectErrs, reportSweepErrs)
 	}
 	return nil
 }
 
 type kyvernoSweepResult struct {
-	clusterScoped []uuid.UUID
-	byNamespace   map[uuid.UUID][]uuid.UUID
+	clusterScoped      []uuid.UUID
+	byNamespace        map[uuid.UUID][]uuid.UUID
+	clusterScopedDirty bool
+	dirtyNamespaces    map[uuid.UUID]struct{}
 }
 
 func newKyvernoSweepResult() *kyvernoSweepResult {
 	return &kyvernoSweepResult{
-		clusterScoped: make([]uuid.UUID, 0),
-		byNamespace:   make(map[uuid.UUID][]uuid.UUID),
+		clusterScoped:   make([]uuid.UUID, 0),
+		byNamespace:     make(map[uuid.UUID][]uuid.UUID),
+		dirtyNamespaces: make(map[uuid.UUID]struct{}),
 	}
 }
 
@@ -125,37 +126,58 @@ func (r *kyvernoSweepResult) addClusterScoped(id uuid.UUID) {
 	r.clusterScoped = append(r.clusterScoped, id)
 }
 
+func (r *kyvernoSweepResult) markClusterScopedDirty() {
+	r.clusterScopedDirty = true
+}
+
 func (r *kyvernoSweepResult) addNamespaced(nsID uuid.UUID, id uuid.UUID) {
 	r.byNamespace[nsID] = append(r.byNamespace[nsID], id)
+}
+
+func (r *kyvernoSweepResult) markNamespaceDirty(nsID uuid.UUID) {
+	r.dirtyNamespaces[nsID] = struct{}{}
 }
 
 func sweepClusterPolicies(
 	ctx context.Context,
 	st KyvernoStore,
 	clusterID uuid.UUID,
+	clusterName string,
 	namespaceIDsByName map[string]uuid.UUID,
 	result *kyvernoSweepResult,
 ) (int64, error) {
 	var total int64
 	var sweepErrors int
 
-	n, err := st.DeleteClusterScopedPoliciesNotIn(ctx, clusterID, result.clusterScoped)
-	if err != nil {
-		slog.Error("collector: sweep cluster-scoped policies failed",
-			slog.String("cluster", clusterID.String()),
-			slog.Any("error", err))
-		sweepErrors++
+	if !result.clusterScopedDirty {
+		n, err := st.DeleteClusterScopedPoliciesNotIn(ctx, clusterID, result.clusterScoped)
+		if err != nil {
+			metrics.ObserveError(clusterName, "cluster_policies", "reconcile")
+			slog.Error("collector: sweep cluster-scoped policies failed",
+				slog.String("cluster", clusterID.String()),
+				slog.Any("error", err))
+			sweepErrors++
+		} else {
+			total += n
+		}
 	} else {
-		total += n
+		slog.Warn("collector: skipping cluster-scoped policy sweep due to upsert errors",
+			slog.String("cluster", clusterID.String()))
 	}
 
 	for _, nsID := range namespaceIDsByName {
+		if _, dirty := result.dirtyNamespaces[nsID]; dirty {
+			slog.Warn("collector: skipping namespace policy sweep due to upsert errors",
+				slog.String("cluster", clusterID.String()),
+				slog.String("namespace_id", nsID.String()))
+			continue
+		}
 		keep := result.byNamespace[nsID]
 		n, err := st.DeleteClusterPoliciesByNamespace(ctx, clusterID, nsID, keep)
 		if err != nil {
-			metrics.ObserveError("", "cluster_policies", "reconcile")
+			metrics.ObserveError(clusterName, "cluster_policies", "reconcile")
 			slog.Error("collector: sweep cluster_policies by namespace failed",
-				slog.Any("error", err), slog.String("namespace_id", nsID.String()), slog.String("cluster_name", ""))
+				slog.Any("error", err), slog.String("namespace_id", nsID.String()), slog.String("cluster", clusterName))
 			sweepErrors++
 			continue
 		}
@@ -172,29 +194,42 @@ func sweepPolicyReports(
 	ctx context.Context,
 	st KyvernoStore,
 	clusterID uuid.UUID,
+	clusterName string,
 	namespaceIDsByName map[string]uuid.UUID,
 	result *kyvernoSweepResult,
 ) (int64, error) {
 	var total int64
 	var sweepErrors int
 
-	n, err := st.DeleteClusterScopedPolicyReportsNotIn(ctx, clusterID, result.clusterScoped)
-	if err != nil {
-		slog.Error("collector: sweep cluster-scoped policy_reports failed",
-			slog.String("cluster", clusterID.String()),
-			slog.Any("error", err))
-		sweepErrors++
+	if !result.clusterScopedDirty {
+		n, err := st.DeleteClusterScopedPolicyReportsNotIn(ctx, clusterID, result.clusterScoped)
+		if err != nil {
+			metrics.ObserveError(clusterName, "policy_reports", "reconcile")
+			slog.Error("collector: sweep cluster-scoped policy_reports failed",
+				slog.String("cluster", clusterID.String()),
+				slog.Any("error", err))
+			sweepErrors++
+		} else {
+			total += n
+		}
 	} else {
-		total += n
+		slog.Warn("collector: skipping cluster-scoped policy_report sweep due to upsert errors",
+			slog.String("cluster", clusterID.String()))
 	}
 
 	for _, nsID := range namespaceIDsByName {
+		if _, dirty := result.dirtyNamespaces[nsID]; dirty {
+			slog.Warn("collector: skipping namespace policy_report sweep due to upsert errors",
+				slog.String("cluster", clusterID.String()),
+				slog.String("namespace_id", nsID.String()))
+			continue
+		}
 		keep := result.byNamespace[nsID]
 		n, err := st.DeletePolicyReportsByNamespace(ctx, clusterID, nsID, keep)
 		if err != nil {
-			metrics.ObserveError("", "policy_reports", "reconcile")
+			metrics.ObserveError(clusterName, "policy_reports", "reconcile")
 			slog.Error("collector: sweep policy_reports by namespace failed",
-				slog.Any("error", err), slog.String("namespace_id", nsID.String()), slog.String("cluster_name", ""))
+				slog.Any("error", err), slog.String("namespace_id", nsID.String()), slog.String("cluster", clusterName))
 			sweepErrors++
 			continue
 		}
@@ -236,6 +271,7 @@ func collectClusterPolicies(
 				slog.String("cluster", clusterID.String()),
 				slog.Any("err", err))
 			metrics.ObserveError(clusterName, "cluster_policies", "upsert")
+			result.markClusterScopedDirty()
 			listErrors++
 			continue
 		}
@@ -267,6 +303,7 @@ func collectClusterPolicies(
 				slog.String("cluster", clusterID.String()),
 				slog.Any("err", err))
 			metrics.ObserveError(clusterName, "cluster_policies", "upsert")
+			result.markNamespaceDirty(nsID)
 			listErrors++
 			continue
 		}
@@ -313,6 +350,7 @@ func collectPolicyReports(
 				slog.String("cluster", clusterID.String()),
 				slog.Any("err", err))
 			metrics.ObserveError(clusterName, "policy_reports", "upsert")
+			result.markClusterScopedDirty()
 			listErrors++
 			continue
 		}
@@ -344,6 +382,7 @@ func collectPolicyReports(
 				slog.String("cluster", clusterID.String()),
 				slog.Any("err", err))
 			metrics.ObserveError(clusterName, "policy_reports", "upsert")
+			result.markNamespaceDirty(nsID)
 			listErrors++
 			continue
 		}

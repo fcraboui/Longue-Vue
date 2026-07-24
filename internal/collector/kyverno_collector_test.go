@@ -20,6 +20,10 @@ type fakeKyvernoStore struct {
 	clusterScopedReportSweep []uuid.UUID
 	reportSweepsByNS         map[uuid.UUID][]uuid.UUID
 	sweepClusterIDs          map[string]uuid.UUID
+	failPolicyOnName         string
+	failReportOnName         string
+	clusterScopedPolicySwept bool
+	clusterScopedReportSwept bool
 }
 
 func newFakeKyvernoStore() *fakeKyvernoStore {
@@ -36,6 +40,9 @@ func (f *fakeKyvernoStore) UpsertClusterPolicy(_ context.Context, cp api.Cluster
 	if cp.Source != api.SourceCollector {
 		return uuid.Nil, fmt.Errorf("upsert cluster_policy: unexpected source %q, want %q", cp.Source, api.SourceCollector)
 	}
+	if f.failPolicyOnName != "" && cp.Name == f.failPolicyOnName {
+		return uuid.Nil, fmt.Errorf("injected upsert failure for %q", cp.Name)
+	}
 	id := uuid.New()
 	f.upsertedPolicies = append(f.upsertedPolicies, cp)
 	return id, nil
@@ -47,6 +54,7 @@ func (f *fakeKyvernoStore) DeleteClusterScopedPoliciesNotIn(_ context.Context, c
 	cp := make([]uuid.UUID, len(keepIDs))
 	copy(cp, keepIDs)
 	f.clusterScopedPolicySweep = cp
+	f.clusterScopedPolicySwept = true
 	f.sweepClusterIDs["cp_cluster"] = clusterID
 	return 0, nil
 }
@@ -66,11 +74,22 @@ func (f *fakeKyvernoStore) DeleteClusterPoliciesByNamespace(
 	return 0, nil
 }
 
+func (f *fakeKyvernoStore) DeleteClusterPolicy(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
+func (f *fakeKyvernoStore) DeletePolicyReport(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+
 func (f *fakeKyvernoStore) UpsertPolicyReport(_ context.Context, pr api.PolicyReportRow) (uuid.UUID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if pr.Source != api.SourceCollector {
 		return uuid.Nil, fmt.Errorf("upsert policy_report: unexpected source %q, want %q", pr.Source, api.SourceCollector)
+	}
+	if f.failReportOnName != "" && pr.Name == f.failReportOnName {
+		return uuid.Nil, fmt.Errorf("injected upsert failure for %q", pr.Name)
 	}
 	id := uuid.New()
 	f.upsertedReports = append(f.upsertedReports, pr)
@@ -83,6 +102,7 @@ func (f *fakeKyvernoStore) DeleteClusterScopedPolicyReportsNotIn(_ context.Conte
 	cp := make([]uuid.UUID, len(keepIDs))
 	copy(cp, keepIDs)
 	f.clusterScopedReportSweep = cp
+	f.clusterScopedReportSwept = true
 	f.sweepClusterIDs["pr_cluster"] = clusterID
 	return 0, nil
 }
@@ -241,5 +261,65 @@ func TestCollectKyvernoPolicies_EmptyNamespaceStillSwept(t *testing.T) {
 
 	if keep, ok := st.policySweepsByNS[nsB]; !ok || len(keep) != 0 {
 		t.Errorf("nsB policy sweep: got (%v, ok=%v), want empty slice", keep, ok)
+	}
+}
+
+func TestCollectKyvernoPolicies_PartialUpsertFailure_SkipsDirtyPerimeter(t *testing.T) {
+	ctx := t.Context()
+	clusterID, nsA, nsB := uuid.New(), uuid.New(), uuid.New()
+
+	src := &fakeSource{
+		kyvernoClusterPolicies: []KyvernoClusterPolicyInfo{
+			{Name: "cp-good", ResourceType: "ClusterPolicy", Scope: "cluster"},
+			{Name: "cp-fail", ResourceType: "ClusterPolicy", Scope: "cluster"},
+		},
+		kyvernoPolicies: []KyvernoClusterPolicyInfo{
+			{Name: "ns-policy-a", Namespace: "team-a", ResourceType: "Policy", Scope: "namespace"},
+			{Name: "ns-policy-b", Namespace: "team-b", ResourceType: "Policy", Scope: "namespace"},
+		},
+		kyvernoClusterReports: []KyvernoPolicyReportInfo{
+			{Name: "cpr-good"},
+		},
+		kyvernoPolicyReports: []KyvernoPolicyReportInfo{
+			{Name: "pr-good", Namespace: "team-a"},
+			{Name: "pr-fail", Namespace: "team-b"},
+		},
+	}
+
+	st := newFakeKyvernoStore()
+	st.failPolicyOnName = "cp-fail"
+	st.failReportOnName = "pr-fail"
+	nsByName := map[string]uuid.UUID{"team-a": nsA, "team-b": nsB}
+
+	err := CollectKyvernoPolicies(ctx, src, st, clusterID, "test-cluster", nsByName)
+	if err == nil {
+		t.Fatal("expected error from partial tick")
+	}
+
+	if st.clusterScopedPolicySwept {
+		t.Error("cluster-scoped policy sweep should be skipped when a cluster-scoped upsert failed")
+	}
+	if _, ok := st.policySweepsByNS[nsA]; !ok {
+		t.Error("nsA policy sweep should still happen (no upsert errors in nsA)")
+	}
+	if _, ok := st.policySweepsByNS[nsB]; !ok {
+		t.Error("nsB policy sweep should still happen (no policy upsert errors in nsB)")
+	}
+
+	if !st.clusterScopedReportSwept {
+		t.Error("cluster-scoped report sweep should happen (cluster-scoped report upserts succeeded)")
+	}
+	if _, ok := st.reportSweepsByNS[nsA]; !ok {
+		t.Error("nsA report sweep should still happen")
+	}
+	if _, ok := st.reportSweepsByNS[nsB]; ok {
+		t.Error("nsB report sweep should be skipped (report upsert failed in nsB)")
+	}
+
+	if len(st.upsertedPolicies) != 3 {
+		t.Errorf("policy upserts: got %d, want 3 (cp-good, ns-policy-a, ns-policy-b; cp-fail injected error)", len(st.upsertedPolicies))
+	}
+	if len(st.upsertedReports) != 2 {
+		t.Errorf("report upserts: got %d, want 2 (cpr-good, pr-good; pr-fail injected error)", len(st.upsertedReports))
 	}
 }

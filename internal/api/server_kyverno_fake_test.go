@@ -2,9 +2,26 @@ package api
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 )
+
+func clusterPolicyUniqueKey(clusterID uuid.UUID, namespaceID *uuid.UUID, name string) string {
+	ns := uuid.Nil.String()
+	if namespaceID != nil {
+		ns = namespaceID.String()
+	}
+	return fmt.Sprintf("%s/%s/%s", clusterID.String(), ns, name)
+}
+
+func policyReportUniqueKey(clusterID uuid.UUID, namespaceID *uuid.UUID, name string) string {
+	ns := uuid.Nil.String()
+	if namespaceID != nil {
+		ns = namespaceID.String()
+	}
+	return fmt.Sprintf("%s/%s/%s", clusterID.String(), ns, name)
+}
 
 func (m *memStore) GetClusterPolicy(_ context.Context, id uuid.UUID) (ClusterPolicyRow, error) {
 	m.mu.Lock()
@@ -26,6 +43,17 @@ func (m *memStore) UpsertClusterPolicy(_ context.Context, cp ClusterPolicyRow) (
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	uk := clusterPolicyUniqueKey(cp.ClusterID, cp.NamespaceID, cp.Name)
+	for id, existing := range m.clusterPolicies {
+		existingUK := clusterPolicyUniqueKey(existing.ClusterID, existing.NamespaceID, existing.Name)
+		if existingUK == uk {
+			if cp.Source == SourceAPI && existing.Source == SourceCollector {
+				return uuid.Nil, ErrConflict
+			}
+			delete(m.clusterPolicies, id)
+			break
+		}
+	}
 	id := uuid.New()
 	cp.ID = id
 	m.clusterPolicies[id] = cp
@@ -38,6 +66,17 @@ func (m *memStore) DeleteClusterScopedPoliciesNotIn(_ context.Context, _ uuid.UU
 
 func (m *memStore) DeleteClusterPoliciesByNamespace(_ context.Context, _ uuid.UUID, _ uuid.UUID, _ []uuid.UUID) (int64, error) {
 	return 0, nil
+}
+
+func (m *memStore) DeleteClusterPolicy(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp, ok := m.clusterPolicies[id]
+	if !ok || cp.Source == SourceCollector {
+		return ErrNotFound
+	}
+	delete(m.clusterPolicies, id)
+	return nil
 }
 
 func (m *memStore) GetPolicyReport(_ context.Context, id uuid.UUID) (PolicyReportRow, error) {
@@ -60,6 +99,17 @@ func (m *memStore) UpsertPolicyReport(_ context.Context, pr PolicyReportRow) (uu
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	uk := policyReportUniqueKey(pr.ClusterID, pr.NamespaceID, pr.Name)
+	for id, existing := range m.policyReports {
+		existingUK := policyReportUniqueKey(existing.ClusterID, existing.NamespaceID, existing.Name)
+		if existingUK == uk {
+			if pr.Source == SourceAPI && existing.Source == SourceCollector {
+				return uuid.Nil, ErrConflict
+			}
+			delete(m.policyReports, id)
+			break
+		}
+	}
 	id := uuid.New()
 	pr.ID = id
 	m.policyReports[id] = pr
@@ -72,4 +122,15 @@ func (m *memStore) DeleteClusterScopedPolicyReportsNotIn(_ context.Context, _ uu
 
 func (m *memStore) DeletePolicyReportsByNamespace(_ context.Context, _ uuid.UUID, _ uuid.UUID, _ []uuid.UUID) (int64, error) {
 	return 0, nil
+}
+
+func (m *memStore) DeletePolicyReport(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pr, ok := m.policyReports[id]
+	if !ok || pr.Source == SourceCollector {
+		return ErrNotFound
+	}
+	delete(m.policyReports, id)
+	return nil
 }

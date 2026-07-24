@@ -629,6 +629,10 @@ func buildHTTPServer(
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleListPolicyReports(pg)))))
 	mux.Handle("GET /v1/policy-reports/{id}",
 		requireScope(auth.ScopeRead)(cloudAuth(auditWrap(api.HandleGetPolicyReport(pg)))))
+	mux.Handle("DELETE /v1/cluster-policies/{id}",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleDeleteClusterPolicy(pg)))))
+	mux.Handle("DELETE /v1/policy-reports/{id}",
+		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleDeletePolicyReport(pg)))))
 
 	// Per-asset derived network-rules (flow-matrix P1, Tasks 20 + 21).
 	mux.Handle("GET /v1/workloads/{id}/network-rules",

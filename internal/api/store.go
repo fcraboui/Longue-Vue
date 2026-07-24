@@ -19,6 +19,16 @@ const (
 	SourceAPI       = "api"
 )
 
+// AuditSource discriminators for audit_events.source (ADR-0016).
+// Separate from the Kyverno reconcilable-source constants to avoid
+// cross-domain coupling — the values happen to overlap but the
+// domains are distinct.
+const (
+	AuditSourceAPI      = "api"
+	AuditSourceIngestGw = "ingest_gw"
+	AuditSourceSystem   = "system"
+)
+
 // Sentinel errors returned by Store implementations. Handlers translate these
 // into RFC 7807 responses with the matching HTTP status.
 var (
@@ -1482,6 +1492,10 @@ type KyvernoStore interface {
 	// never swept. Returns the count of deleted rows.
 	DeleteClusterPoliciesByNamespace(ctx context.Context, clusterID uuid.UUID, namespaceID uuid.UUID, keepIDs []uuid.UUID) (int64, error)
 
+	// DeleteClusterPolicy removes a single API-managed cluster policy by UUID.
+	// Returns ErrNotFound if the row does not exist or has source='collector'.
+	DeleteClusterPolicy(ctx context.Context, id uuid.UUID) error
+
 	// --- Policy reports ---------------------------------------------------
 
 	// GetPolicyReport fetches a policy report by stable UUID.
@@ -1509,4 +1523,8 @@ type KyvernoStore interface {
 	// the given cluster+namespace whose ID is NOT in keepIDs. Only collector-originated
 	// rows are affected. Returns the count of deleted rows.
 	DeletePolicyReportsByNamespace(ctx context.Context, clusterID uuid.UUID, namespaceID uuid.UUID, keepIDs []uuid.UUID) (int64, error)
+
+	// DeletePolicyReport removes a single API-managed policy report by UUID.
+	// Returns ErrNotFound if the row does not exist or has source='collector'.
+	DeletePolicyReport(ctx context.Context, id uuid.UUID) error
 }

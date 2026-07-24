@@ -172,10 +172,11 @@ operators opt in gradually. The setting is exposed at
 
 RBAC: add `clusterpolicies`, `policies`, `policyreports`,
 `clusterpolicyreports` (all under `kyverno.io` and `wgpolicyk8s.io`
-API groups) to both the **in-process** ClusterRole and the
-**push-collector** ClusterRole (`charts/longue-vue-collector`). The
-push-collector ClusterRole grants read access so the apiclient can
-list Kyverno CRDs; the POST endpoints handle the write path.
+API groups) to the **in-process** ClusterRole only
+(`charts/longue-vue`). The push-collector ClusterRole
+(`charts/longue-vue-collector`) is **not** modified — push-collector
+clusters send Kyverno data via the POST endpoints (§3b), not via
+in-cluster K8s API calls, so they do not need Kyverno list RBAC.
 
 Reconcile follows the established pattern (ADR-0009), adapted for
 Kyverno's mixed scope (ADR-0033 per-namespace sweep for netpols is
@@ -271,6 +272,15 @@ automation tooling) to write Kyverno data into the CMDB:
 Both are gated by `requireScope(write)` (viewer token → 403) **and**
 `settings.policies_enabled` (disabled → 409 Conflict). The gate aligns
 with the GET endpoints and the collector's per-tick gate (§2).
+
+**Ingest-gateway exclusion:** these POST routes are registered on the
+_public_ listener only; they are **not** mounted on the DMZ ingest-gateway
+(`ingest_mux.go` / `allowlist.go`). A push-collector operating through
+the air-gapped ingestion path (REF-003) therefore **cannot** POST Kyverno
+policies. This is intentional: the ingest-gateway exposes only the
+existing workload/VM/NM write surface; Kyverno policy ingestion via the
+DMZ is deferred (see NEG-008). A push-collector that needs to write
+policies must reach the public listener directly.
 
 **Request body types** — dedicated `ClusterPolicyCreate` and
 `PolicyReportCreate` structs exclude server-generated fields (`id`,

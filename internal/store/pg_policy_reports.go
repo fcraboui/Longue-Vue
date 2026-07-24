@@ -70,6 +70,7 @@ func (p *PG) UpsertPolicyReport(ctx context.Context, pr PolicyReport) (uuid.UUID
 			results_raw       = EXCLUDED.results_raw,
 			source            = EXCLUDED.source,
 			reconcile_seen_at = NOW()
+		WHERE EXCLUDED.source = 'collector' OR policy_reports.source = 'api'
 		RETURNING id`,
 		pr.ClusterID, pr.NamespaceID, pr.Name,
 		pr.ScopeKind, pr.ScopeName,
@@ -78,6 +79,9 @@ func (p *PG) UpsertPolicyReport(ctx context.Context, pr PolicyReport) (uuid.UUID
 		pr.Source,
 	).Scan(&id)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, api.ErrConflict
+		}
 		if fkErr := classifyPolicyReportFKError(err, pr.ClusterID, pr.NamespaceID); fkErr != nil {
 			return uuid.Nil, fkErr
 		}
@@ -119,6 +123,19 @@ func (p *PG) DeleteClusterScopedPolicyReportsNotIn(ctx context.Context, clusterI
 		return 0, fmt.Errorf("sweep cluster-scoped policy_reports: %w", err)
 	}
 	return ct.RowsAffected(), nil
+}
+
+func (p *PG) DeletePolicyReport(ctx context.Context, id uuid.UUID) error {
+	ct, err := p.pool.Exec(ctx,
+		`DELETE FROM policy_reports WHERE id = $1 AND source = $2`,
+		id, api.SourceAPI)
+	if err != nil {
+		return fmt.Errorf("delete policy_report: %w", err)
+	}
+	if ct.RowsAffected() == 0 {
+		return api.ErrNotFound
+	}
+	return nil
 }
 
 var policyReportSortSpec = sortSpec{

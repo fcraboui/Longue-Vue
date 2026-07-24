@@ -5696,6 +5696,7 @@ components:
           resource_type,
           scope,
           spec_raw,
+          source,
           reconcile_seen_at,
         ]
       properties:
@@ -5725,6 +5726,12 @@ components:
         annotations:
           { type: object, additionalProperties: true, nullable: true }
         spec_raw: { type: object, additionalProperties: true }
+        source:
+          {
+            type: string,
+            enum: [collector, api],
+            description: "Provenance — 'collector' (in-process K8s pull) or 'api' (POST endpoint). ADR-0043.",
+          }
         reconcile_seen_at: { type: string, format: date-time }
 
     ClusterPolicyCreate:
@@ -5776,6 +5783,7 @@ components:
           summary_warn,
           summary_error,
           summary_skip,
+          source,
           reconcile_seen_at,
         ]
       properties:
@@ -5803,6 +5811,12 @@ components:
             description: "Omitted from list responses for performance",
           }
         reconcile_seen_at: { type: string, format: date-time }
+        source:
+          {
+            type: string,
+            enum: [collector, api],
+            description: "Provenance — 'collector' (in-process K8s pull) or 'api' (POST endpoint). ADR-0043.",
+          }
 
     PolicyReportCreate:
       type: object

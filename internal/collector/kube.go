@@ -1036,7 +1036,10 @@ func kyvernoAction(obj *unstructured.Unstructured) *string {
 	}
 	vfa, _ := spec["validationFailureAction"].(string)
 	if vfa == "" {
-		return nil
+		// Kyverno <1.10 doesn't set validationFailureAction in the spec;
+		// the kubebuilder default is "audit". Fall through to check
+		// overrides/per-rule actions before returning.
+		vfa = "audit"
 	}
 	action := strings.ToLower(vfa)
 

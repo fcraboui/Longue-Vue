@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -34,6 +35,7 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 			return
 		}
 		var in ClusterPolicyCreate
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
 			return
@@ -56,14 +58,29 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 			return
 		}
 		if in.Scope == "" {
-			in.Scope = "cluster"
+			if in.ResourceType == "Policy" {
+				in.Scope = "namespace"
+			} else {
+				in.Scope = "cluster"
+			}
 		}
-		if !validScopes[strings.ToLower(in.Scope)] {
+		in.Scope = strings.ToLower(in.Scope)
+		if !validScopes[in.Scope] {
 			writeProblem(w, http.StatusBadRequest, "Bad Request",
 				"scope must be cluster or namespace")
 			return
 		}
-		if len(in.SpecRaw) == 0 {
+		if in.ResourceType == "Policy" && in.Scope != "namespace" {
+			writeProblem(w, http.StatusBadRequest, "Bad Request",
+				"scope must be namespace when resource_type is Policy")
+			return
+		}
+		if in.ResourceType == "ClusterPolicy" && in.Scope != "cluster" {
+			writeProblem(w, http.StatusBadRequest, "Bad Request",
+				"scope must be cluster when resource_type is ClusterPolicy")
+			return
+		}
+		if len(in.SpecRaw) == 0 || string(in.SpecRaw) == "null" {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "spec_raw required")
 			return
 		}
@@ -77,6 +94,24 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 				"namespace_id must be omitted when resource_type is ClusterPolicy")
 			return
 		}
+		if in.NamespaceID != nil {
+			ns, nsErr := store.GetNamespace(r.Context(), *in.NamespaceID)
+			if nsErr != nil {
+				if errors.Is(nsErr, ErrNotFound) {
+					writeProblem(w, http.StatusBadRequest, "Bad Request",
+						"namespace_id does not exist")
+					return
+				}
+				slog.Error("lookup namespace for cluster-policy", slog.Any("error", nsErr))
+				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+				return
+			}
+			if ns.ClusterId != in.ClusterID {
+				writeProblem(w, http.StatusBadRequest, "Bad Request",
+					"namespace_id does not belong to the specified cluster_id")
+				return
+			}
+		}
 		if in.Action != nil {
 			a := strings.ToLower(*in.Action)
 			in.Action = &a
@@ -87,6 +122,11 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 		}
 		if in.FailurePolicy != nil {
 			fp := titleCaseFailurePolicy(*in.FailurePolicy)
+			if fp != "Fail" && fp != "Ignore" {
+				writeProblem(w, http.StatusBadRequest, "Bad Request",
+					"failure_policy must be Fail or Ignore")
+				return
+			}
 			in.FailurePolicy = &fp
 		}
 
@@ -114,8 +154,14 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 
 		id, err := store.UpsertClusterPolicy(r.Context(), cp)
 		if err != nil {
+			if errors.Is(err, ErrConflict) {
+				writeProblem(w, http.StatusConflict, "Conflict",
+					"a collector-managed policy already exists at this key; delete it first or wait for the next collector tick")
+				return
+			}
 			if errors.Is(err, ErrNotFound) {
-				writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity", err.Error())
+				writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity",
+					"referenced cluster or namespace does not exist")
 				return
 			}
 			slog.Error("create cluster policy", slog.Any("error", err))
@@ -125,7 +171,9 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 		created, err := store.GetClusterPolicy(r.Context(), id)
 		if err != nil {
 			slog.Error("read back created cluster policy", slog.String("id", id.String()), slog.Any("error", err))
-			writeProblem(w, http.StatusCreated, "Created", "cluster policy created but read-back failed")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprintf(w, `{"id":"%s","warning":"cluster policy created but read-back failed"}`, id)
 			return
 		}
 		writeJSON(w, http.StatusCreated, created)
@@ -245,5 +293,39 @@ func HandleGetClusterPolicy(store Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, cp)
+	}
+}
+
+func HandleDeleteClusterPolicy(store Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireScope(w, r, auth.ScopeWrite) {
+			return
+		}
+		settings, err := store.GetSettings(r.Context())
+		if err != nil {
+			slog.Error("settings unavailable", slog.Any("error", err))
+			writeProblem(w, http.StatusInternalServerError, "settings unavailable", "")
+			return
+		}
+		if !settings.PoliciesEnabled {
+			writeProblem(w, http.StatusConflict, "policies disabled",
+				"enable policies_enabled in admin settings to use this endpoint")
+			return
+		}
+		id, ok := pathUUID(w, r, "id")
+		if !ok {
+			return
+		}
+		if err := store.DeleteClusterPolicy(r.Context(), id); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				writeProblem(w, http.StatusNotFound, "Not Found",
+					"cluster policy not found or is collector-managed (cannot delete)")
+				return
+			}
+			slog.Error("delete cluster policy", slog.Any("error", err))
+			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
