@@ -14,7 +14,7 @@ import type { Me } from '../api';
 import { server } from '../test/server';
 import {
   fixtureApplication, fixtureCluster, fixtureIngress, fixtureMe, fixtureNamespace,
-  fixtureNode, fixturePod, fixturePVC, fixtureService, fixtureWorkload,
+  fixtureNode, fixturePod, fixturePVC, fixtureService, fixtureWorkload, paged,
 } from '../test/fixtures';
 
 // renderWorkload mounts WorkloadDetail under both a MemoryRouter (the page
@@ -33,6 +33,55 @@ function renderWorkload(me: Me | null) {
 }
 
 const viewerMe: Me = { ...fixtureMe, role: 'viewer', scopes: ['read'] };
+
+describe('ClusterDetail section search', () => {
+  it('sends name= with cluster_id= when Namespaces search is typed', async () => {
+    const capturedUrls: string[] = [];
+    server.use(
+      http.get('/v1/namespaces', ({ request }) => {
+        capturedUrls.push(request.url);
+        return HttpResponse.json(paged([fixtureNamespace]));
+      }),
+    );
+    renderWithRouter(<ClusterDetail />, {
+      initialPath: `/clusters/${fixtureCluster.id}`,
+      routePath: '/clusters/:id',
+    });
+    // Wait for ClusterDetail to load and Namespaces section to render its search box
+    await screen.findByText(fixtureCluster.display_name!);
+    const searchInputs = await screen.findAllByRole('searchbox');
+    // The first search box belongs to the Namespaces section
+    const nsSearch = searchInputs[0];
+    await userEvent.type(nsSearch, 'pay');
+    // Wait for the debounced re-fetch to fire with name=pay
+    await waitFor(() => {
+      const withName = capturedUrls.find((u) => u.includes('name=pay'));
+      expect(withName).toBeTruthy();
+      expect(withName).toContain(`cluster_id=${fixtureCluster.id}`);
+    });
+  });
+
+  it('does NOT send name= to /v1/nodes when only Namespaces search is typed', async () => {
+    const nodeUrls: string[] = [];
+    server.use(
+      http.get('/v1/nodes', ({ request }) => {
+        nodeUrls.push(request.url);
+        return HttpResponse.json(paged([fixtureNode]));
+      }),
+    );
+    renderWithRouter(<ClusterDetail />, {
+      initialPath: `/clusters/${fixtureCluster.id}`,
+      routePath: '/clusters/:id',
+    });
+    await screen.findByText(fixtureCluster.display_name!);
+    const searchInputs = await screen.findAllByRole('searchbox');
+    await userEvent.type(searchInputs[0], 'pay');
+    // Small wait to allow any spurious re-fetch from the nodes section
+    await new Promise((r) => setTimeout(r, 400));
+    const contaminated = nodeUrls.find((u) => u.includes('name='));
+    expect(contaminated).toBeUndefined();
+  });
+});
 
 describe('ClusterDetail', () => {
   it('renders without crashing', () => {

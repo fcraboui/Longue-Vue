@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as api from '../../api';
-import { useResource, usePagedList } from '../../hooks';
+import { useResource, usePagedList, useLocalListControls } from '../../hooks';
 import { useMe, canEdit } from '../../me';
 import { ApplicationCard } from '../../components/inventory/ApplicationCard';
 import { EffectiveDICTCard } from '../../components/inventory/EffectiveDICTCard';
@@ -31,9 +31,10 @@ type WorkloadTab = 'overview' | 'network-rules';
 // --- WorkloadDetail child section -----------------------------------------
 
 function WorkloadPodsSection({ workloadId }: { workloadId: string }) {
+  const controls = useLocalListControls();
   const pods = usePagedList<api.Pod>(
-    (cursor, limit) => api.listPods({ workload_id: workloadId, cursor, limit }),
-    [workloadId],
+    (cursor, limit) => api.listPods({ workload_id: workloadId, ...controls.params, cursor, limit }),
+    [workloadId, ...controls.deps],
   );
   // Nodes running this workload are derived from the current pods page only.
   // This is intentional: pagination means we only see nodes for the visible page.
@@ -46,19 +47,22 @@ function WorkloadPodsSection({ workloadId }: { workloadId: string }) {
       <ListSection
         title="Pods"
         list={pods}
+        controls={controls}
         emptyMessage="No pods currently point at this workload."
         rowKey={(p) => p.id}
         columns={[
-          { key: 'name', label: 'Name', link: (p) => `/pods/${p.id}`, render: (p) => p.name },
-          { key: 'phase', label: 'Phase', render: (p) => p.phase || <Dash /> },
+          { key: 'name', label: 'Name', sortKey: 'name', link: (p) => `/pods/${p.id}`, render: (p) => p.name },
+          { key: 'phase', label: 'Phase', sortKey: 'phase', render: (p) => p.phase || <Dash /> },
           {
             key: 'node',
             label: 'Node',
+            sortKey: 'node_name',
             render: (p) => (p.node_name ? <code>{p.node_name}</code> : <Dash />),
           },
           {
             key: 'pod_ip',
             label: 'Pod IP',
+            sortKey: 'pod_ip',
             render: (p) => (p.pod_ip ? <code>{p.pod_ip}</code> : <Dash />),
           },
         ]}

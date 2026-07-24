@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import * as api from '../../api';
-import { useResource, usePagedList } from '../../hooks';
+import { useResource, usePagedList, useLocalListControls } from '../../hooks';
 import { useMe, isAdmin } from '../../me';
 import { ClusterCuratedCard } from '../cluster_curated';
 import { ImpactSection } from '../ImpactGraph';
@@ -19,39 +19,44 @@ type ClusterTab = 'overview' | 'impact' | 'history';
 // --- ClusterDetail child sections -----------------------------------------
 
 function ClusterNamespacesSection({ clusterId }: { clusterId: string }) {
+  const controls = useLocalListControls();
   const list = usePagedList<api.Namespace>(
-    (cursor, limit) => api.listNamespaces({ cluster_id: clusterId, cursor, limit }),
-    [clusterId],
+    (cursor, limit) => api.listNamespaces({ cluster_id: clusterId, ...controls.params, cursor, limit }),
+    [clusterId, ...controls.deps],
   );
   return (
     <ListSection
       title="Namespaces"
       list={list}
+      controls={controls}
       emptyMessage="No namespaces ingested yet."
       rowKey={(n) => n.id}
       columns={[
-        { key: 'name', label: 'Name', link: (n) => `/namespaces/${n.id}`, render: (n) => n.name },
-        { key: 'phase', label: 'Phase', render: (n) => n.phase || <Dash /> },
+        { key: 'name', label: 'Name', sortKey: 'name', link: (n) => `/namespaces/${n.id}`, render: (n) => n.name },
+        { key: 'phase', label: 'Phase', sortKey: 'phase', render: (n) => n.phase || <Dash /> },
       ]}
     />
   );
 }
 
 function ClusterNodesSection({ clusterId }: { clusterId: string }) {
+  const controls = useLocalListControls();
   const list = usePagedList<api.Node>(
-    (cursor, limit) => api.listNodes({ cluster_id: clusterId, cursor, limit }),
-    [clusterId],
+    (cursor, limit) => api.listNodes({ cluster_id: clusterId, ...controls.params, cursor, limit }),
+    [clusterId, ...controls.deps],
   );
   return (
     <ListSection
       title="Nodes"
       list={list}
+      controls={controls}
       emptyMessage="No nodes ingested yet."
       rowKey={(n) => n.id}
       columns={[
         {
           key: 'name',
           label: 'Name',
+          sortKey: 'name',
           link: (n) => `/nodes/${n.id}`,
           render: (n) => n.display_name || n.name,
         },
@@ -67,34 +72,39 @@ function ClusterNodesSection({ clusterId }: { clusterId: string }) {
 }
 
 function ClusterPVsSection({ clusterId }: { clusterId: string }) {
+  const controls = useLocalListControls();
   const list = usePagedList<api.PersistentVolume>(
-    (cursor, limit) => api.listPersistentVolumes({ cluster_id: clusterId, cursor, limit }),
-    [clusterId],
+    (cursor, limit) => api.listPersistentVolumes({ cluster_id: clusterId, ...controls.params, cursor, limit }),
+    [clusterId, ...controls.deps],
   );
   return (
     <ListSection
       title="Persistent Volumes"
       list={list}
+      controls={controls}
       emptyMessage="No PVs in this cluster."
       rowKey={(pv) => pv.id}
       columns={[
         {
           key: 'name',
           label: 'Name',
+          sortKey: 'name',
           link: (pv) => `/persistentvolumes/${pv.id}`,
           render: (pv) => pv.name,
         },
         {
           key: 'capacity',
           label: 'Capacity',
+          sortKey: 'capacity',
           render: (pv) => (pv.capacity ? <code>{pv.capacity}</code> : <Dash />),
         },
         {
           key: 'storage_class',
           label: 'Storage class',
+          sortKey: 'storage_class_name',
           render: (pv) => pv.storage_class_name || <Dash />,
         },
-        { key: 'phase', label: 'Phase', render: (pv) => pv.phase || <Dash /> },
+        { key: 'phase', label: 'Phase', sortKey: 'phase', render: (pv) => pv.phase || <Dash /> },
       ]}
     />
   );
