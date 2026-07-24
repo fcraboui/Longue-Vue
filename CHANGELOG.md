@@ -6,6 +6,29 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.12.0](https://github.com/sthalbert/Longue-Vue/compare/v1.11.0...v1.12.0) (2026-07-24)
+
+
+### Features
+
+* **ui:** add optional search/sort controls to ListSection ([11d9710](https://github.com/sthalbert/Longue-Vue/commit/11d9710d152e0dd734d410df035e6fca6db67958))
+* **ui:** client-mode sorting on application blocks, registries and node conditions ([69c7dae](https://github.com/sthalbert/Longue-Vue/commit/69c7dae4613531034d255fbfd475b713399e3d06))
+* **ui:** cursor pagination and column sort on the audit log ([a2234ea](https://github.com/sthalbert/Longue-Vue/commit/a2234eaf9f79eb9895d9e874ec51e6ca6a0425af))
+* **ui:** honest incompleteness banners on EOL dashboard and search results ([02a61e9](https://github.com/sthalbert/Longue-Vue/commit/02a61e9cf7e849806b054ad7aeafffbca4abdd45))
+* **ui:** real pagination and uniform search/sort on admin tokens+cloud accounts ([b4b8d2a](https://github.com/sthalbert/Longue-Vue/commit/b4b8d2a22827bcc2bd79d62ba5ee9550c3e32e9f))
+* **ui:** real pagination and uniform search/sort on admin users+sessions ([bc49abb](https://github.com/sthalbert/Longue-Vue/commit/bc49abb2e09d4e3c86cfeb133a5951e800b96e78))
+* **ui:** search/sort on cluster and workload detail sections ([f84b909](https://github.com/sthalbert/Longue-Vue/commit/f84b90961feafb39340cf62c69ab301a0b662287))
+* **ui:** search/sort on namespace detail sections; un-truncate cloud-account VM list ([fd69b2e](https://github.com/sthalbert/Longue-Vue/commit/fd69b2e513a3eb67ed6a7cd0828a29da0c3dea1c))
+* **ui:** uniform list controls on admin API helpers ([0a9ae6e](https://github.com/sthalbert/Longue-Vue/commit/0a9ae6e81fd0dbfedb9733354d3dbb71c807d9e3))
+* **ui:** uniform search & sort on admin pages, detail sections and periphery (phase 3) ([6abbf37](https://github.com/sthalbert/Longue-Vue/commit/6abbf3705404c4c5521388a48d033015a6970aa0))
+* **ui:** useLocalListControls for embedded list sections ([3eeb4ed](https://github.com/sthalbert/Longue-Vue/commit/3eeb4edd95b5d8213c727d081de384fe0e1daae6))
+
+
+### Bug Fixes
+
+* **ui:** cloud-account delete dialog no longer claims a page-scoped VM total ([77adfd1](https://github.com/sthalbert/Longue-Vue/commit/77adfd150d26e02eed59dde43940282a05163a6f))
+* **ui:** show EOL incompleteness banner even when zero rows render ([3c3eb92](https://github.com/sthalbert/Longue-Vue/commit/3c3eb921d5f1a863aca92bad1592f7837c16f8b6))
+
 ## [1.11.0](https://github.com/sthalbert/Longue-Vue/compare/v1.10.0...v1.11.0) (2026-07-20)
 
 
