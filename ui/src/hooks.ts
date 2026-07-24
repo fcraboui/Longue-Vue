@@ -275,3 +275,39 @@ export function useListControls(): ListControls {
     deps: [urlName, sort, order],
   };
 }
+
+// useLocalListControls is the component-local twin of useListControls:
+// same ListControls contract, but nothing is mirrored into the URL.
+// Detail pages embed several list sections at once — URL params would
+// collide, so sections keep their search/sort state to themselves
+// (spec decision #5).
+export function useLocalListControls(): ListControls {
+  const [nameInput, setNameInput] = useState('');
+  const [sort, setSort] = useState('');
+  const [order, setOrder] = useState<'asc' | 'desc'>('asc');
+  const name = useDebouncedValue(nameInput.trim(), 300);
+
+  const toggleSort = (key: string) => {
+    if (sort === key) {
+      setOrder(order === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSort(key);
+      setOrder('asc');
+    }
+  };
+
+  return {
+    nameInput,
+    setNameInput,
+    name,
+    sort,
+    order,
+    toggleSort,
+    params: {
+      name: name || undefined,
+      sort: sort || undefined,
+      order: sort ? order : undefined,
+    },
+    deps: [name, sort, order],
+  };
+}

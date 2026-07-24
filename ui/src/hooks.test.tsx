@@ -3,7 +3,7 @@ import { act, render, renderHook, screen, waitFor } from '@testing-library/react
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { type ReactNode, useState } from 'react';
 import { ApiError } from './api';
-import { useDebouncedValue, useResource, useResources, usePageSize, PAGE_SIZE_OPTIONS, usePagedList, useListControls } from './hooks';
+import { useDebouncedValue, useResource, useResources, usePageSize, PAGE_SIZE_OPTIONS, usePagedList, useListControls, useLocalListControls } from './hooks';
 import type { PagedResponse } from './api';
 
 afterEach(() => vi.useRealTimers());
@@ -307,5 +307,31 @@ describe('useListControls', () => {
   it('omits sort/order from params when no sort is active', () => {
     const { result } = renderHook(() => useListControls(), { wrapper: wrapper() });
     expect(result.current.params).toEqual({ name: undefined, sort: undefined, order: undefined });
+  });
+});
+
+describe('useLocalListControls', () => {
+  it('starts empty and debounces name without touching the URL', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useLocalListControls());
+    expect(result.current.params).toEqual({ name: undefined, sort: undefined, order: undefined });
+    act(() => result.current.setNameInput('web'));
+    expect(result.current.name).toBe('');
+    act(() => { vi.advanceTimersByTime(300); });
+    vi.useRealTimers();
+    await waitFor(() => expect(result.current.name).toBe('web'));
+    expect(result.current.deps).toEqual(['web', '', 'asc']);
+  });
+
+  it('toggleSort cycles like the URL variant', async () => {
+    const { result } = renderHook(() => useLocalListControls());
+    act(() => result.current.toggleSort('name'));
+    await waitFor(() => expect(result.current.sort).toBe('name'));
+    expect(result.current.order).toBe('asc');
+    act(() => result.current.toggleSort('name'));
+    await waitFor(() => expect(result.current.order).toBe('desc'));
+    act(() => result.current.toggleSort('phase'));
+    await waitFor(() => expect(result.current.sort).toBe('phase'));
+    expect(result.current.order).toBe('asc');
   });
 });
