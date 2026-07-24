@@ -273,6 +273,7 @@ export default function EolDashboard() {
           );
           return (
             <>
+              <IncompleteListBanner visible={incomplete} what="the inventory (clusters, nodes, VMs or applications)" />
               {(() => {
                 const rows = buildRows(
                   clustersResp.items,
@@ -282,21 +283,18 @@ export default function EolDashboard() {
                 );
                 if (rows.length === 0) return null;
                 return (
-                  <>
-                    <IncompleteListBanner visible={incomplete} what="the inventory (clusters, nodes, VMs or applications)" />
-                    <div className="eol-extract">
-                      <ExtractButton
-                        label="Extract"
-                        onExtract={(format) =>
-                          api.extractEol({
-                            format,
-                            status: statusFilter ?? undefined,
-                          })
-                        }
-                        onTruncation={setTruncated}
-                      />
-                    </div>
-                  </>
+                  <div className="eol-extract">
+                    <ExtractButton
+                      label="Extract"
+                      onExtract={(format) =>
+                        api.extractEol({
+                          format,
+                          status: statusFilter ?? undefined,
+                        })
+                      }
+                      onTruncation={setTruncated}
+                    />
+                  </div>
                 );
               })()}
               <EolTable
