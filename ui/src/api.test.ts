@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import {
   ApiError, getCluster, getMe, listClusters, listNodes, listVirtualMachines, listApplications, login, logout,
-  updateCluster, updateUser,
+  updateCluster, updateUser, listUsers, listAuditEvents,
 } from './api';
 import { server } from './test/server';
 import { fixtureCluster, fixtureMe } from './test/fixtures';
@@ -180,5 +180,45 @@ describe('list helpers forward uniform search/sort params', () => {
     expect(new URLSearchParams(seen.vm).get('sort')).toBe('last_seen_at');
     expect(new URLSearchParams(seen.vm).get('order')).toBe('desc');
     expect(new URLSearchParams(seen.app).get('sort')).toBe('name');
+  });
+});
+
+describe('admin list helpers forward uniform controls', () => {
+  it('listUsers serializes cursor/name/sort/order and defaults limit 200', async () => {
+    let search = '';
+    server.use(
+      http.get('/v1/admin/users', ({ request }) => {
+        search = new URL(request.url).search;
+        return HttpResponse.json({ items: [], next_cursor: null });
+      }),
+    );
+    await listUsers({ cursor: 'c1', name: 'ali', sort: 'username', order: 'desc', limit: 20 });
+    const p = new URLSearchParams(search);
+    expect(p.get('cursor')).toBe('c1');
+    expect(p.get('name')).toBe('ali');
+    expect(p.get('sort')).toBe('username');
+    expect(p.get('order')).toBe('desc');
+    expect(p.get('limit')).toBe('20');
+    await listUsers();
+    expect(new URLSearchParams(search).get('limit')).toBe('200');
+  });
+
+  it('listAuditEvents forwards sort/order/limit and keeps structured filters', async () => {
+    let search = '';
+    server.use(
+      http.get('/v1/admin/audit', ({ request }) => {
+        search = new URL(request.url).search;
+        return HttpResponse.json({ items: [], next_cursor: null });
+      }),
+    );
+    await listAuditEvents({ action: 'user.create', sort: 'action', order: 'asc', limit: 50, cursor: 'c2' });
+    const p = new URLSearchParams(search);
+    expect(p.get('action')).toBe('user.create');
+    expect(p.get('sort')).toBe('action');
+    expect(p.get('order')).toBe('asc');
+    expect(p.get('limit')).toBe('50');
+    expect(p.get('cursor')).toBe('c2');
+    await listAuditEvents();
+    expect(new URLSearchParams(search).get('limit')).toBe('100');
   });
 });
