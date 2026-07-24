@@ -1,9 +1,11 @@
 import { FormEvent, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import * as api from '../../api';
-import { useResource } from '../../hooks';
-import { AsyncView, Dash, SectionTitle } from '../../components';
+import { useResource, useListControls, usePagedList, type ListControls } from '../../hooks';
+import { Dash, Paginator, SectionTitle } from '../../components';
 import { useEntityTable } from '../../components/column_filters';
+import { SearchInput } from '../../components/SearchInput';
+import { SortHeader } from '../../components/SortHeader';
 
 // Token presets per ADR-0007 + ADR-0015. The OpenAPI request type is
 // fixed (name, scopes, expires_at) so vm-collector tokens currently
@@ -23,24 +25,41 @@ export default function TokensPage() {
   const [nonce, setNonce] = useState(0);
   const reload: Reload = () => setNonce((n) => n + 1);
   const [minted, setMinted] = useState<api.ApiTokenMint | null>(null);
-  const state = useResource(() => api.listApiTokens(), [nonce]);
+  const controls = useListControls();
+  const list = usePagedList<api.ApiToken>(
+    (cursor, limit) => api.listApiTokens({ ...controls.params, cursor, limit }),
+    [...controls.deps, nonce],
+  );
 
   return (
-    <AsyncView state={state}>
-      {(resp) => (
-        <>
-          {minted && <MintedReveal minted={minted} onDismiss={() => setMinted(null)} />}
-          <MintForm
-            reload={() => {
-              reload();
-            }}
-            onMinted={setMinted}
-          />
-          <SectionTitle count={resp.items.length}>Machine tokens</SectionTitle>
-          <TokenTable tokens={resp.items} reload={reload} />
-        </>
+    <>
+      {minted && <MintedReveal minted={minted} onDismiss={() => setMinted(null)} />}
+      <MintForm
+        reload={() => {
+          reload();
+        }}
+        onMinted={setMinted}
+      />
+      <SectionTitle count={list.items.length}>Machine tokens</SectionTitle>
+      <div className="vm-filters">
+        <SearchInput value={controls.nameInput} onChange={controls.setNameInput} label="Name" />
+      </div>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <div className="error">Failed to load: {list.error}</div>
+      ) : (
+        <TokenTable tokens={list.items} controls={controls} reload={reload} />
       )}
-    </AsyncView>
+    </>
   );
 }
 
@@ -238,8 +257,9 @@ function MintForm({
       </div>
       {isVmCollector ? (
         <div>
-          <label>Bound to cloud account</label>
+          <label htmlFor="bound-cloud-account">Bound to cloud account</label>
           <select
+            id="bound-cloud-account"
             value={boundCloudAccountId}
             onChange={(e) => setBoundCloudAccountId(e.target.value)}
           >
@@ -290,18 +310,44 @@ function MintForm({
   );
 }
 
-function TokenTable({ tokens, reload }: { tokens: api.ApiToken[]; reload: Reload }) {
+function TokenTable({
+  tokens,
+  controls,
+  reload,
+}: {
+  tokens: api.ApiToken[];
+  controls: ListControls;
+  reload: Reload;
+}) {
   const tableRef = useEntityTable('admin.tokens');
   if (tokens.length === 0) return <p className="muted">No tokens minted yet.</p>;
   return (
     <table className="entities" ref={tableRef}>
       <thead>
         <tr>
-          <th>Name</th>
+          <SortHeader
+            label="Name"
+            sortKey="name"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
           <th>Prefix</th>
           <th>Scopes</th>
-          <th>Last used</th>
-          <th>Expires</th>
+          <SortHeader
+            label="Last used"
+            sortKey="last_used_at"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
+          <SortHeader
+            label="Expires"
+            sortKey="expires_at"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
           <th>Status</th>
           <th style={{ textAlign: 'right' }}>Actions</th>
         </tr>
