@@ -20,7 +20,7 @@ const cpSelect = `
 	resource_type, scope, description, category, severity,
 	action, failure_policy, background,
 	rule_types, rules_count, target_resources, key_exclusions,
-	ready, annotations, spec_raw, reconcile_seen_at`
+	ready, annotations, spec_raw, source, reconcile_seen_at`
 
 func (p *PG) GetClusterPolicy(ctx context.Context, id uuid.UUID) (api.ClusterPolicyRow, error) {
 	const q = `SELECT ` + cpSelect + ` FROM cluster_policies WHERE id = $1`
@@ -31,6 +31,7 @@ func (p *PG) GetClusterPolicy(ctx context.Context, id uuid.UUID) (api.ClusterPol
 		&cp.Action, &cp.FailurePolicy, &cp.Background,
 		&cp.RuleTypes, &cp.RulesCount, &cp.TargetResources, &cp.KeyExclusions,
 		&cp.Ready, &cp.Annotations, &cp.SpecRaw,
+		&cp.Source,
 		&cp.ReconcileSeenAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -50,12 +51,12 @@ func (p *PG) UpsertClusterPolicy(ctx context.Context, cp ClusterPolicy) (uuid.UU
 			 resource_type, scope, description, category, severity,
 			 action, failure_policy, background,
 			 rule_types, rules_count, target_resources, key_exclusions,
-			 ready, annotations, spec_raw, reconcile_seen_at)
+			 ready, annotations, spec_raw, source, reconcile_seen_at)
 		VALUES ($1, $2, $3,
 		        $4, $5, $6, $7, $8,
 		        $9, $10, $11,
 		        $12, $13, $14, $15,
-		        $16, $17, $18, NOW())
+		        $16, $17, $18, $19, NOW())
 		ON CONFLICT (cluster_id, COALESCE(namespace_id, '00000000-0000-0000-0000-000000000000'), name) DO UPDATE SET
 			resource_type      = EXCLUDED.resource_type,
 			scope              = EXCLUDED.scope,
@@ -72,6 +73,7 @@ func (p *PG) UpsertClusterPolicy(ctx context.Context, cp ClusterPolicy) (uuid.UU
 			ready              = EXCLUDED.ready,
 			annotations        = EXCLUDED.annotations,
 			spec_raw           = EXCLUDED.spec_raw,
+			source             = EXCLUDED.source,
 			reconcile_seen_at  = NOW()
 		RETURNING id`,
 		cp.ClusterID, cp.NamespaceID, cp.Name,
@@ -79,26 +81,48 @@ func (p *PG) UpsertClusterPolicy(ctx context.Context, cp ClusterPolicy) (uuid.UU
 		cp.Action, cp.FailurePolicy, cp.Background,
 		cp.RuleTypes, cp.RulesCount, cp.TargetResources, cp.KeyExclusions,
 		cp.Ready, cp.Annotations, cp.SpecRaw,
+		cp.Source,
 	).Scan(&id)
 	if err != nil {
+		if fkErr := classifyClusterPolicyFKError(err, cp.ClusterID, cp.NamespaceID); fkErr != nil {
+			return uuid.Nil, fkErr
+		}
 		return uuid.Nil, fmt.Errorf("upsert cluster_policy: %w", err)
 	}
 	return id, nil
 }
 
-func (p *PG) DeleteClusterPoliciesNotIn(ctx context.Context, clusterID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
+func (p *PG) DeleteClusterPoliciesByNamespace(ctx context.Context, clusterID uuid.UUID, namespaceID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
 	var ct pgconn.CommandTag
 	var err error
 	if len(keepIDs) == 0 {
 		ct, err = p.pool.Exec(ctx,
-			`DELETE FROM cluster_policies WHERE cluster_id=$1`, clusterID)
+			`DELETE FROM cluster_policies WHERE cluster_id=$1 AND namespace_id=$2 AND source=$3`,
+			clusterID, namespaceID, api.SourceCollector)
 	} else {
 		ct, err = p.pool.Exec(ctx,
-			`DELETE FROM cluster_policies WHERE cluster_id=$1 AND id <> ALL($2)`,
-			clusterID, keepIDs)
+			`DELETE FROM cluster_policies WHERE cluster_id=$1 AND namespace_id=$2 AND source=$3 AND id <> ALL($4)`,
+			clusterID, namespaceID, api.SourceCollector, keepIDs)
 	}
 	if err != nil {
-		return 0, fmt.Errorf("sweep cluster_policies: %w", err)
+		return 0, fmt.Errorf("sweep cluster_policies by namespace: %w", err)
+	}
+	return ct.RowsAffected(), nil
+}
+
+func (p *PG) DeleteClusterScopedPoliciesNotIn(ctx context.Context, clusterID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
+	var ct pgconn.CommandTag
+	var err error
+	if len(keepIDs) == 0 {
+		ct, err = p.pool.Exec(ctx,
+			`DELETE FROM cluster_policies WHERE cluster_id=$1 AND namespace_id IS NULL AND source=$2`, clusterID, api.SourceCollector)
+	} else {
+		ct, err = p.pool.Exec(ctx,
+			`DELETE FROM cluster_policies WHERE cluster_id=$1 AND namespace_id IS NULL AND source=$2 AND id <> ALL($3)`,
+			clusterID, api.SourceCollector, keepIDs)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("sweep cluster-scoped policies: %w", err)
 	}
 	return ct.RowsAffected(), nil
 }
@@ -294,6 +318,7 @@ func (p *PG) ListClusterPolicies(
 			&r.Action, &r.FailurePolicy, &r.Background,
 			&r.RuleTypes, &r.RulesCount, &r.TargetResources, &r.KeyExclusions,
 			&r.Ready, &r.Annotations, &r.SpecRaw,
+			&r.Source,
 			&r.ReconcileSeenAt,
 		); err != nil {
 			return nil, "", fmt.Errorf("scan cluster_policy: %w", err)
@@ -311,4 +336,22 @@ func (p *PG) ListClusterPolicies(
 		raw = raw[:limit]
 	}
 	return raw, next, nil
+}
+
+// classifyClusterPolicyFKError disambiguates 23503 foreign-key violations on
+// the cluster_policies table into cluster vs namespace misses, so the POST
+// handler can return an accurate 4xx.
+func classifyClusterPolicyFKError(err error, clusterID uuid.UUID, namespaceID *uuid.UUID) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23503" {
+		return nil
+	}
+	if strings.Contains(pgErr.ConstraintName, "namespace_id") {
+		target := "<nil>"
+		if namespaceID != nil {
+			target = namespaceID.String()
+		}
+		return fmt.Errorf("namespace %s does not exist: %w", target, api.ErrNotFound)
+	}
+	return fmt.Errorf("cluster %s does not exist: %w", clusterID, api.ErrNotFound)
 }

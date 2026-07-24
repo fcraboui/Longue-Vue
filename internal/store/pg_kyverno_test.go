@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/google/uuid"
@@ -39,8 +40,8 @@ func makeCP(clusterID, nsID uuid.UUID, name string) api.ClusterPolicyRow {
 		ClusterID:     clusterID,
 		NamespaceID:   &nsID,
 		Name:          name,
-		ResourceType:  "ClusterPolicy",
-		Scope:         "cluster",
+		ResourceType:  "Policy",
+		Scope:         "namespace",
 		Description:   &desc,
 		Category:      &cat,
 		Severity:      &sev,
@@ -52,6 +53,7 @@ func makeCP(clusterID, nsID uuid.UUID, name string) api.ClusterPolicyRow {
 		Ready:         &rdy,
 		Annotations:   json.RawMessage(`{}`),
 		SpecRaw:       json.RawMessage(`{}`),
+		Source:        api.SourceCollector,
 	}
 }
 
@@ -68,6 +70,7 @@ func makePR(clusterID, nsID uuid.UUID, name string) api.PolicyReportRow {
 		SummaryFail: 2,
 		SummaryWarn: 1,
 		ResultsRaw:  json.RawMessage(`[]`),
+		Source:      api.SourceCollector,
 	}
 }
 
@@ -171,21 +174,29 @@ func TestKyverno_ListClusterPolicies_Filters(t *testing.T) {
 	}
 }
 
-func TestKyverno_SweepClusterPolicies_DeletesUnseen(t *testing.T) {
+func TestKyverno_SweepClusterScopedPolicies_DeletesUnseen(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
 
-	kept, err := pg.UpsertClusterPolicy(ctx, makeCP(cid, nsID, "kept"))
+	clusterScopedKept := makeCP(cid, nsID, "kept")
+	clusterScopedKept.NamespaceID = nil
+	clusterScopedKept.ResourceType = "ClusterPolicy"
+	clusterScopedKept.Scope = "cluster"
+	kept, err := pg.UpsertClusterPolicy(ctx, clusterScopedKept)
 	if err != nil {
 		t.Fatalf("upsert kept: %v", err)
 	}
-	_, err = pg.UpsertClusterPolicy(ctx, makeCP(cid, nsID, "gone"))
+	clusterScopedGone := makeCP(cid, nsID, "gone")
+	clusterScopedGone.NamespaceID = nil
+	clusterScopedGone.ResourceType = "ClusterPolicy"
+	clusterScopedGone.Scope = "cluster"
+	_, err = pg.UpsertClusterPolicy(ctx, clusterScopedGone)
 	if err != nil {
 		t.Fatalf("upsert gone: %v", err)
 	}
 
-	deleted, err := pg.DeleteClusterPoliciesNotIn(ctx, cid, []uuid.UUID{kept})
+	deleted, err := pg.DeleteClusterScopedPoliciesNotIn(ctx, cid, []uuid.UUID{kept})
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
@@ -199,6 +210,189 @@ func TestKyverno_SweepClusterPolicies_DeletesUnseen(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].Name != "kept" {
 		t.Fatalf("want only 'kept', got %+v", items)
+	}
+}
+
+func TestKyverno_SweepClusterPoliciesByNamespace_DeletesUnseen(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	cid, nsID := seedClusterForKyverno(t, pg)
+
+	kept, err := pg.UpsertClusterPolicy(ctx, makeCP(cid, nsID, "kept"))
+	if err != nil {
+		t.Fatalf("upsert kept: %v", err)
+	}
+	_, err = pg.UpsertClusterPolicy(ctx, makeCP(cid, nsID, "gone"))
+	if err != nil {
+		t.Fatalf("upsert gone: %v", err)
+	}
+
+	deleted, err := pg.DeleteClusterPoliciesByNamespace(ctx, cid, nsID, []uuid.UUID{kept})
+	if err != nil {
+		t.Fatalf("sweep by namespace: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("want 1 deleted, got %d", deleted)
+	}
+
+	items, _, err := pg.ListClusterPolicies(ctx, api.ClusterPolicyListFilter{NamespaceID: &nsID}, api.ListPage{Limit: 50})
+	if err != nil {
+		t.Fatalf("list after sweep: %v", err)
+	}
+	if len(items) != 1 || items[0].Name != "kept" {
+		t.Fatalf("want only 'kept', got %+v", items)
+	}
+}
+
+func TestKyverno_SweepClusterPoliciesByNamespace_DoesNotAffectOtherNamespaces(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	cid, nsA := seedClusterForKyverno(t, pg)
+	nsB, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: cid, Name: "other-ns"})
+	if err != nil {
+		t.Fatalf("upsert namespace B: %v", err)
+	}
+
+	_, err = pg.UpsertClusterPolicy(ctx, makeCP(cid, nsA, "in-a"))
+	if err != nil {
+		t.Fatalf("upsert in-a: %v", err)
+	}
+	inB, err := pg.UpsertClusterPolicy(ctx, makeCP(cid, *nsB.Id, "in-b"))
+	if err != nil {
+		t.Fatalf("upsert in-b: %v", err)
+	}
+
+	deleted, err := pg.DeleteClusterPoliciesByNamespace(ctx, cid, nsA, []uuid.UUID{})
+	if err != nil {
+		t.Fatalf("sweep nsA (empty keep): %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("want 1 deleted from nsA, got %d", deleted)
+	}
+
+	items, _, err := pg.ListClusterPolicies(ctx, api.ClusterPolicyListFilter{ClusterID: &cid}, api.ListPage{Limit: 50})
+	if err != nil {
+		t.Fatalf("list after sweep: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != inB {
+		t.Fatalf("want only in-b remaining, got %+v", items)
+	}
+}
+
+func TestKyverno_SweepClusterScopedPoliciesNotIn(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	cid, nsID := seedClusterForKyverno(t, pg)
+
+	clusterScoped := makeCP(cid, nsID, "cluster-wide")
+	clusterScoped.NamespaceID = nil
+	clusterScoped.ResourceType = "ClusterPolicy"
+	clusterScoped.Scope = "cluster"
+	kept, err := pg.UpsertClusterPolicy(ctx, clusterScoped)
+	if err != nil {
+		t.Fatalf("upsert cluster-scoped kept: %v", err)
+	}
+
+	gone := makeCP(cid, nsID, "cluster-wide-gone")
+	gone.NamespaceID = nil
+	gone.ResourceType = "ClusterPolicy"
+	gone.Scope = "cluster"
+	_, err = pg.UpsertClusterPolicy(ctx, gone)
+	if err != nil {
+		t.Fatalf("upsert cluster-scoped gone: %v", err)
+	}
+
+	_, err = pg.UpsertClusterPolicy(ctx, makeCP(cid, nsID, "ns-policy"))
+	if err != nil {
+		t.Fatalf("upsert namespaced policy: %v", err)
+	}
+
+	deleted, err := pg.DeleteClusterScopedPoliciesNotIn(ctx, cid, []uuid.UUID{kept})
+	if err != nil {
+		t.Fatalf("sweep cluster-scoped: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("want 1 cluster-scoped deleted, got %d", deleted)
+	}
+
+	items, _, err := pg.ListClusterPolicies(ctx, api.ClusterPolicyListFilter{ClusterID: &cid}, api.ListPage{Limit: 50})
+	if err != nil {
+		t.Fatalf("list after sweep: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("want 2 remaining (kept cluster-scoped + ns-policy), got %d", len(items))
+	}
+}
+
+func TestKyverno_SweepByNamespace_PreservesApiSourcedRows(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	cid, nsID := seedClusterForKyverno(t, pg)
+
+	collectorRow := makeCP(cid, nsID, "collector-pol")
+	_, err := pg.UpsertClusterPolicy(ctx, collectorRow)
+	if err != nil {
+		t.Fatalf("upsert collector row: %v", err)
+	}
+
+	apiRow := makeCP(cid, nsID, "api-pol")
+	apiRow.Source = api.SourceAPI
+	apiID, err := pg.UpsertClusterPolicy(ctx, apiRow)
+	if err != nil {
+		t.Fatalf("upsert api row: %v", err)
+	}
+
+	deleted, err := pg.DeleteClusterPoliciesByNamespace(ctx, cid, nsID, []uuid.UUID{})
+	if err != nil {
+		t.Fatalf("sweep with empty keep: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("want 1 collector row deleted, got %d", deleted)
+	}
+
+	items, _, err := pg.ListClusterPolicies(ctx, api.ClusterPolicyListFilter{NamespaceID: &nsID}, api.ListPage{Limit: 50})
+	if err != nil {
+		t.Fatalf("list after sweep: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != apiID {
+		t.Fatalf("want only api row surviving, got %+v", items)
+	}
+}
+
+func TestKyverno_SweepPolicyReportsByNamespace_PreservesApiSourcedRows(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	cid, nsID := seedClusterForKyverno(t, pg)
+
+	_, err := pg.UpsertPolicyReport(ctx, makePR(cid, nsID, "collector-pr"))
+	if err != nil {
+		t.Fatalf("upsert collector report: %v", err)
+	}
+
+	apiReport := makePR(cid, nsID, "api-pr")
+	apiReport.Source = api.SourceAPI
+	apiID, err := pg.UpsertPolicyReport(ctx, apiReport)
+	if err != nil {
+		t.Fatalf("upsert api report: %v", err)
+	}
+
+	deleted, err := pg.DeletePolicyReportsByNamespace(ctx, cid, nsID, []uuid.UUID{})
+	if err != nil {
+		t.Fatalf("sweep with empty keep: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("want 1 collector report deleted, got %d", deleted)
+	}
+
+	items, _, err := pg.ListPolicyReports(ctx,
+		api.PolicyReportListFilter{NamespaceID: &nsID},
+		api.ListPage{Limit: 50},
+	)
+	if err != nil {
+		t.Fatalf("list after sweep: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != apiID {
+		t.Fatalf("want only api report surviving, got %+v", items)
 	}
 }
 
@@ -301,7 +495,7 @@ func TestKyverno_ListPolicyReports_ScopeFilters(t *testing.T) {
 		t.Fatalf("want 1, got %d", len(items))
 	}
 
-	sn := "cluster"
+	sn := "default"
 	items2, _, err := pg.ListPolicyReports(ctx,
 		api.PolicyReportListFilter{ScopeName: &sn},
 		api.ListPage{Limit: 50},
@@ -314,21 +508,25 @@ func TestKyverno_ListPolicyReports_ScopeFilters(t *testing.T) {
 	}
 }
 
-func TestKyverno_SweepPolicyReports_DeletesUnseen(t *testing.T) {
+func TestKyverno_SweepClusterScopedPolicyReports_DeletesUnseen(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
 
-	kept, err := pg.UpsertPolicyReport(ctx, makePR(cid, nsID, "kept"))
+	clusterScopedKept := makePR(cid, nsID, "kept")
+	clusterScopedKept.NamespaceID = nil
+	kept, err := pg.UpsertPolicyReport(ctx, clusterScopedKept)
 	if err != nil {
 		t.Fatalf("upsert kept: %v", err)
 	}
-	_, err = pg.UpsertPolicyReport(ctx, makePR(cid, nsID, "gone"))
+	clusterScopedGone := makePR(cid, nsID, "gone")
+	clusterScopedGone.NamespaceID = nil
+	_, err = pg.UpsertPolicyReport(ctx, clusterScopedGone)
 	if err != nil {
 		t.Fatalf("upsert gone: %v", err)
 	}
 
-	deleted, err := pg.DeletePolicyReportsNotIn(ctx, cid, []uuid.UUID{kept})
+	deleted, err := pg.DeleteClusterScopedPolicyReportsNotIn(ctx, cid, []uuid.UUID{kept})
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
@@ -345,6 +543,122 @@ func TestKyverno_SweepPolicyReports_DeletesUnseen(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].Name != "kept" {
 		t.Fatalf("want only 'kept', got %+v", items)
+	}
+}
+
+func TestKyverno_SweepPolicyReportsByNamespace_DeletesUnseen(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	cid, nsID := seedClusterForKyverno(t, pg)
+
+	kept, err := pg.UpsertPolicyReport(ctx, makePR(cid, nsID, "kept"))
+	if err != nil {
+		t.Fatalf("upsert kept: %v", err)
+	}
+	_, err = pg.UpsertPolicyReport(ctx, makePR(cid, nsID, "gone"))
+	if err != nil {
+		t.Fatalf("upsert gone: %v", err)
+	}
+
+	deleted, err := pg.DeletePolicyReportsByNamespace(ctx, cid, nsID, []uuid.UUID{kept})
+	if err != nil {
+		t.Fatalf("sweep by namespace: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("want 1 deleted, got %d", deleted)
+	}
+
+	items, _, err := pg.ListPolicyReports(ctx,
+		api.PolicyReportListFilter{NamespaceID: &nsID},
+		api.ListPage{Limit: 50},
+	)
+	if err != nil {
+		t.Fatalf("list after sweep: %v", err)
+	}
+	if len(items) != 1 || items[0].Name != "kept" {
+		t.Fatalf("want only 'kept', got %+v", items)
+	}
+}
+
+func TestKyverno_SweepPolicyReportsByNamespace_DoesNotAffectOtherNamespaces(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	cid, nsA := seedClusterForKyverno(t, pg)
+	nsB, _, err := pg.UpsertNamespace(ctx, api.NamespaceCreate{ClusterId: cid, Name: "other-ns"})
+	if err != nil {
+		t.Fatalf("upsert namespace B: %v", err)
+	}
+
+	_, err = pg.UpsertPolicyReport(ctx, makePR(cid, nsA, "in-a"))
+	if err != nil {
+		t.Fatalf("upsert in-a: %v", err)
+	}
+	inB, err := pg.UpsertPolicyReport(ctx, makePR(cid, *nsB.Id, "in-b"))
+	if err != nil {
+		t.Fatalf("upsert in-b: %v", err)
+	}
+
+	deleted, err := pg.DeletePolicyReportsByNamespace(ctx, cid, nsA, []uuid.UUID{})
+	if err != nil {
+		t.Fatalf("sweep nsA (empty keep): %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("want 1 deleted from nsA, got %d", deleted)
+	}
+
+	items, _, err := pg.ListPolicyReports(ctx,
+		api.PolicyReportListFilter{ClusterID: &cid},
+		api.ListPage{Limit: 50},
+	)
+	if err != nil {
+		t.Fatalf("list after sweep: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != inB {
+		t.Fatalf("want only in-b remaining, got %+v", items)
+	}
+}
+
+func TestKyverno_SweepClusterScopedPolicyReportsNotIn(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	cid, nsID := seedClusterForKyverno(t, pg)
+
+	clusterScoped := makePR(cid, nsID, "cpr-cluster")
+	clusterScoped.NamespaceID = nil
+	kept, err := pg.UpsertPolicyReport(ctx, clusterScoped)
+	if err != nil {
+		t.Fatalf("upsert cluster-scoped kept: %v", err)
+	}
+
+	gone := makePR(cid, nsID, "cpr-cluster-gone")
+	gone.NamespaceID = nil
+	_, err = pg.UpsertPolicyReport(ctx, gone)
+	if err != nil {
+		t.Fatalf("upsert cluster-scoped gone: %v", err)
+	}
+
+	_, err = pg.UpsertPolicyReport(ctx, makePR(cid, nsID, "ns-report"))
+	if err != nil {
+		t.Fatalf("upsert namespaced report: %v", err)
+	}
+
+	deleted, err := pg.DeleteClusterScopedPolicyReportsNotIn(ctx, cid, []uuid.UUID{kept})
+	if err != nil {
+		t.Fatalf("sweep cluster-scoped: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("want 1 cluster-scoped deleted, got %d", deleted)
+	}
+
+	items, _, err := pg.ListPolicyReports(ctx,
+		api.PolicyReportListFilter{ClusterID: &cid},
+		api.ListPage{Limit: 50},
+	)
+	if err != nil {
+		t.Fatalf("list after sweep: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("want 2 remaining (kept cluster-scoped + ns-report), got %d", len(items))
 	}
 }
 
@@ -375,6 +689,58 @@ func TestKyverno_ListClusterPolicies_SeverityPagination_NullSeverity(t *testing.
 		items, next, err := pg.ListClusterPolicies(ctx,
 			api.ClusterPolicyListFilter{ClusterID: &cid},
 			api.ListPage{Limit: 2, Cursor: cursor, Sort: "severity", Order: "asc"},
+		)
+		if err != nil {
+			t.Fatalf("list page: %v", err)
+		}
+		for _, it := range items {
+			if seen[it.ID] {
+				t.Fatalf("duplicate %s", it.ID)
+			}
+			seen[it.ID] = true
+		}
+		total += len(items)
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+
+	if total != 3 {
+		t.Fatalf("want 3 total across pages, got %d", total)
+	}
+}
+
+func TestKyverno_ListPolicyReports_SortByScopeKind_NullScope(t *testing.T) {
+	if os.Getenv("PGX_TEST_DATABASE") == "" {
+		t.Skip("PGX_TEST_DATABASE not set; skipping integration test")
+	}
+	pg := newTestPG(t)
+	ctx := context.Background()
+	cid, nsID := seedClusterForKyverno(t, pg)
+
+	withScope := makePR(cid, nsID, "has-scope")
+	withoutScope := makePR(cid, nsID, "no-scope")
+	withoutScope.ScopeKind = nil
+	withoutScope.ScopeName = nil
+	withoutScope2 := makePR(cid, nsID, "also-no-scope")
+	withoutScope2.ScopeKind = nil
+	withoutScope2.ScopeName = nil
+
+	for _, pr := range []api.PolicyReportRow{withScope, withoutScope, withoutScope2} {
+		if _, err := pg.UpsertPolicyReport(ctx, pr); err != nil {
+			t.Fatalf("upsert: %v", err)
+		}
+	}
+
+	seen := make(map[uuid.UUID]bool)
+	var cursor string
+	total := 0
+
+	for {
+		items, next, err := pg.ListPolicyReports(ctx,
+			api.PolicyReportListFilter{ClusterID: &cid},
+			api.ListPage{Limit: 2, Cursor: cursor, Sort: "scope_kind", Order: "asc"},
 		)
 		if err != nil {
 			t.Fatalf("list page: %v", err)

@@ -19,13 +19,13 @@ const prSelect = `
 	id, cluster_id, namespace_id, name,
 	scope_kind, scope_name,
 	summary_pass, summary_fail, summary_warn, summary_error, summary_skip,
-	results_raw, reconcile_seen_at`
+	results_raw, source, reconcile_seen_at`
 
 const prListSelect = `
 	id, cluster_id, namespace_id, name,
 	scope_kind, scope_name,
 	summary_pass, summary_fail, summary_warn, summary_error, summary_skip,
-	reconcile_seen_at`
+	source, reconcile_seen_at`
 
 func (p *PG) GetPolicyReport(ctx context.Context, id uuid.UUID) (api.PolicyReportRow, error) {
 	const q = `SELECT ` + prSelect + ` FROM policy_reports WHERE id = $1`
@@ -35,6 +35,7 @@ func (p *PG) GetPolicyReport(ctx context.Context, id uuid.UUID) (api.PolicyRepor
 		&pr.ScopeKind, &pr.ScopeName,
 		&pr.SummaryPass, &pr.SummaryFail, &pr.SummaryWarn, &pr.SummaryError, &pr.SummarySkip,
 		&pr.ResultsRaw,
+		&pr.Source,
 		&pr.ReconcileSeenAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -53,11 +54,11 @@ func (p *PG) UpsertPolicyReport(ctx context.Context, pr PolicyReport) (uuid.UUID
 			(cluster_id, namespace_id, name,
 			 scope_kind, scope_name,
 			 summary_pass, summary_fail, summary_warn, summary_error, summary_skip,
-			 results_raw, reconcile_seen_at)
+			 results_raw, source, reconcile_seen_at)
 		VALUES ($1, $2, $3,
 		       $4, $5,
 		       $6, $7, $8, $9, $10,
-		       $11, NOW())
+		       $11, $12, NOW())
 		ON CONFLICT (cluster_id, COALESCE(namespace_id, '00000000-0000-0000-0000-000000000000'), name) DO UPDATE SET
 			scope_kind        = EXCLUDED.scope_kind,
 			scope_name        = EXCLUDED.scope_name,
@@ -67,32 +68,55 @@ func (p *PG) UpsertPolicyReport(ctx context.Context, pr PolicyReport) (uuid.UUID
 			summary_error     = EXCLUDED.summary_error,
 			summary_skip      = EXCLUDED.summary_skip,
 			results_raw       = EXCLUDED.results_raw,
+			source            = EXCLUDED.source,
 			reconcile_seen_at = NOW()
 		RETURNING id`,
 		pr.ClusterID, pr.NamespaceID, pr.Name,
 		pr.ScopeKind, pr.ScopeName,
 		pr.SummaryPass, pr.SummaryFail, pr.SummaryWarn, pr.SummaryError, pr.SummarySkip,
 		pr.ResultsRaw,
+		pr.Source,
 	).Scan(&id)
 	if err != nil {
+		if fkErr := classifyPolicyReportFKError(err, pr.ClusterID, pr.NamespaceID); fkErr != nil {
+			return uuid.Nil, fkErr
+		}
 		return uuid.Nil, fmt.Errorf("upsert policy_report: %w", err)
 	}
 	return id, nil
 }
 
-func (p *PG) DeletePolicyReportsNotIn(ctx context.Context, clusterID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
+func (p *PG) DeletePolicyReportsByNamespace(ctx context.Context, clusterID uuid.UUID, namespaceID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
 	var ct pgconn.CommandTag
 	var err error
 	if len(keepIDs) == 0 {
 		ct, err = p.pool.Exec(ctx,
-			`DELETE FROM policy_reports WHERE cluster_id=$1`, clusterID)
+			`DELETE FROM policy_reports WHERE cluster_id=$1 AND namespace_id=$2 AND source=$3`,
+			clusterID, namespaceID, api.SourceCollector)
 	} else {
 		ct, err = p.pool.Exec(ctx,
-			`DELETE FROM policy_reports WHERE cluster_id=$1 AND id <> ALL($2)`,
-			clusterID, keepIDs)
+			`DELETE FROM policy_reports WHERE cluster_id=$1 AND namespace_id=$2 AND source=$3 AND id <> ALL($4)`,
+			clusterID, namespaceID, api.SourceCollector, keepIDs)
 	}
 	if err != nil {
-		return 0, fmt.Errorf("sweep policy_reports: %w", err)
+		return 0, fmt.Errorf("sweep policy_reports by namespace: %w", err)
+	}
+	return ct.RowsAffected(), nil
+}
+
+func (p *PG) DeleteClusterScopedPolicyReportsNotIn(ctx context.Context, clusterID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
+	var ct pgconn.CommandTag
+	var err error
+	if len(keepIDs) == 0 {
+		ct, err = p.pool.Exec(ctx,
+			`DELETE FROM policy_reports WHERE cluster_id=$1 AND namespace_id IS NULL AND source=$2`, clusterID, api.SourceCollector)
+	} else {
+		ct, err = p.pool.Exec(ctx,
+			`DELETE FROM policy_reports WHERE cluster_id=$1 AND namespace_id IS NULL AND source=$2 AND id <> ALL($3)`,
+			clusterID, api.SourceCollector, keepIDs)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("sweep cluster-scoped policy_reports: %w", err)
 	}
 	return ct.RowsAffected(), nil
 }
@@ -100,6 +124,8 @@ func (p *PG) DeletePolicyReportsNotIn(ctx context.Context, clusterID uuid.UUID, 
 var policyReportSortSpec = sortSpec{
 	columns: map[string]sortColumn{
 		sortKeyName:            {expr: "LOWER(name)", kind: sortText},
+		sortKeyScopeKind:       {expr: "LOWER(scope_kind)", kind: sortText, nullable: true},
+		sortKeyScopeName:       {expr: "LOWER(scope_name)", kind: sortText, nullable: true},
 		sortKeySummaryPass:     {expr: "summary_pass", kind: sortInt},
 		sortKeySummaryFail:     {expr: "summary_fail", kind: sortInt},
 		sortKeySummaryWarn:     {expr: "summary_warn", kind: sortInt},
@@ -114,6 +140,10 @@ func policyReportSortVal(r *api.PolicyReportRow, key string) *string {
 	switch key {
 	case sortKeyName:
 		return sortValText(&r.Name)
+	case sortKeyScopeKind:
+		return sortValText(r.ScopeKind)
+	case sortKeyScopeName:
+		return sortValText(r.ScopeName)
 	case sortKeySummaryPass:
 		return sortValInt(intPtr(r.SummaryPass))
 	case sortKeySummaryFail:
@@ -203,6 +233,7 @@ func (p *PG) ListPolicyReports(
 			&r.ID, &r.ClusterID, &r.NamespaceID, &r.Name,
 			&r.ScopeKind, &r.ScopeName,
 			&r.SummaryPass, &r.SummaryFail, &r.SummaryWarn, &r.SummaryError, &r.SummarySkip,
+			&r.Source,
 			&r.ReconcileSeenAt,
 		); err != nil {
 			return nil, "", fmt.Errorf("scan policy_report: %w", err)
@@ -220,4 +251,21 @@ func (p *PG) ListPolicyReports(
 		raw = raw[:limit]
 	}
 	return raw, next, nil
+}
+
+// classifyPolicyReportFKError disambiguates 23503 foreign-key violations on
+// the policy_reports table into cluster vs namespace misses.
+func classifyPolicyReportFKError(err error, clusterID uuid.UUID, namespaceID *uuid.UUID) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23503" {
+		return nil
+	}
+	if strings.Contains(pgErr.ConstraintName, "namespace_id") {
+		target := "<nil>"
+		if namespaceID != nil {
+			target = namespaceID.String()
+		}
+		return fmt.Errorf("namespace %s does not exist: %w", target, api.ErrNotFound)
+	}
+	return fmt.Errorf("cluster %s does not exist: %w", clusterID, api.ErrNotFound)
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -13,36 +14,132 @@ import (
 
 const cpListNameMaxLen = 100
 
+var validScopes = map[string]bool{"cluster": true, "namespace": true}
+var validResourceTypes = map[string]bool{"ClusterPolicy": true, "Policy": true}
+
 func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeWrite) {
 			return
 		}
-		var cp ClusterPolicyRow
-		if err := json.NewDecoder(r.Body).Decode(&cp); err != nil {
+		settings, err := store.GetSettings(r.Context())
+		if err != nil {
+			slog.Error("settings unavailable", slog.Any("error", err))
+			writeProblem(w, http.StatusInternalServerError, "settings unavailable", "")
+			return
+		}
+		if !settings.PoliciesEnabled {
+			writeProblem(w, http.StatusConflict, "policies disabled",
+				"enable policies_enabled in admin settings to use this endpoint")
+			return
+		}
+		var in ClusterPolicyCreate
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
 			return
 		}
-		if cp.Name == "" {
+		if in.Name == "" {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "name required")
 			return
 		}
-		if cp.ClusterID == uuid.Nil {
+		if in.ClusterID == uuid.Nil {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "cluster_id required")
 			return
 		}
+		if in.ResourceType == "" {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "resource_type required")
+			return
+		}
+		if !validResourceTypes[in.ResourceType] {
+			writeProblem(w, http.StatusBadRequest, "Bad Request",
+				"resource_type must be ClusterPolicy or Policy")
+			return
+		}
+		if in.Scope == "" {
+			in.Scope = "cluster"
+		}
+		if !validScopes[strings.ToLower(in.Scope)] {
+			writeProblem(w, http.StatusBadRequest, "Bad Request",
+				"scope must be cluster or namespace")
+			return
+		}
+		if len(in.SpecRaw) == 0 {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", "spec_raw required")
+			return
+		}
+		if in.ResourceType == "Policy" && in.NamespaceID == nil {
+			writeProblem(w, http.StatusBadRequest, "Bad Request",
+				"namespace_id required when resource_type is Policy")
+			return
+		}
+		if in.ResourceType == "ClusterPolicy" && in.NamespaceID != nil {
+			writeProblem(w, http.StatusBadRequest, "Bad Request",
+				"namespace_id must be omitted when resource_type is ClusterPolicy")
+			return
+		}
+		if in.Action != nil {
+			a := strings.ToLower(*in.Action)
+			in.Action = &a
+		}
+		if in.Severity != nil {
+			s := strings.ToLower(*in.Severity)
+			in.Severity = &s
+		}
+		if in.FailurePolicy != nil {
+			fp := titleCaseFailurePolicy(*in.FailurePolicy)
+			in.FailurePolicy = &fp
+		}
+
+		cp := ClusterPolicyRow{
+			ClusterID:       in.ClusterID,
+			NamespaceID:     in.NamespaceID,
+			Name:            in.Name,
+			ResourceType:    in.ResourceType,
+			Scope:           in.Scope,
+			Description:     in.Description,
+			Category:        in.Category,
+			Severity:        in.Severity,
+			Action:          in.Action,
+			FailurePolicy:   in.FailurePolicy,
+			Background:      in.Background,
+			RuleTypes:       in.RuleTypes,
+			RulesCount:      in.RulesCount,
+			TargetResources: in.TargetResources,
+			KeyExclusions:   in.KeyExclusions,
+			Ready:           in.Ready,
+			Annotations:     in.Annotations,
+			SpecRaw:         in.SpecRaw,
+			Source:          SourceAPI,
+		}
+
 		id, err := store.UpsertClusterPolicy(r.Context(), cp)
 		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity", err.Error())
+				return
+			}
 			slog.Error("create cluster policy", slog.Any("error", err))
 			writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
 		created, err := store.GetClusterPolicy(r.Context(), id)
 		if err != nil {
-			writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+			slog.Error("read back created cluster policy", slog.String("id", id.String()), slog.Any("error", err))
+			writeProblem(w, http.StatusCreated, "Created", "cluster policy created but read-back failed")
 			return
 		}
 		writeJSON(w, http.StatusCreated, created)
+	}
+}
+
+func titleCaseFailurePolicy(s string) string {
+	switch strings.ToLower(s) {
+	case "fail":
+		return "Fail"
+	case "ignore":
+		return "Ignore"
+	default:
+		return s
 	}
 }
 

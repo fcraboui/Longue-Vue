@@ -614,8 +614,9 @@ func buildHTTPServer(
 	// codegen router (HandlerWithOptions above) which sets BearerAuthScopes in
 	// context and applies the shared AuthMiddleware + AuditMiddleware chain.
 
-	// Kyverno policies — read endpoints (ADR-0043). v1 in-process-only;
-	// no push-collector routes (see ADR-0038 anti-pattern).
+	// Kyverno policies — read + write endpoints (ADR-0043). POST routes
+	// accept externally-authored rows (source='api'); collector sweep
+	// skips API-sourced rows via the source discriminator column.
 	mux.Handle("POST /v1/cluster-policies",
 		requireScope(auth.ScopeWrite)(cloudAuth(auditWrap(api.HandleCreateClusterPolicy(pg)))))
 	mux.Handle("GET /v1/cluster-policies",

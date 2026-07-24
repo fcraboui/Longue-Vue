@@ -80,12 +80,16 @@ tags:
     description: Kubernetes NetworkPolicy resources — push-mode write surface added by ADR-0038.
   - name: cluster-policies
     description: |
-      Kyverno ClusterPolicy and namespaced Policy resources — read-only view
-      gated behind settings.policies_enabled.
+      Kyverno ClusterPolicy and namespaced Policy resources. Read endpoints are
+      gated behind settings.policies_enabled (returns 409 when off). POST
+      creates externally-authored rows (source='api') that survive the
+      collector's reconcile sweep; also gated behind policies_enabled.
   - name: policy-reports
     description: |
-      Kyverno PolicyReport and ClusterPolicyReport resources — read-only view
-      gated behind settings.policies_enabled.
+      Kyverno PolicyReport and ClusterPolicyReport resources. Read endpoints
+      are gated behind settings.policies_enabled (returns 409 when off). POST
+      creates externally-authored rows (source='api') that survive the
+      collector's reconcile sweep; also gated behind policies_enabled.
 
 security:
   - BearerAuth: []
@@ -4196,6 +4200,16 @@ paths:
                 description: "Case-insensitive exact match (Fail, Ignore)",
               },
           }
+        - {
+            in: query,
+            name: category,
+            required: false,
+            schema:
+              {
+                type: string,
+                description: "Substring/ILIKE match on category",
+              },
+          }
         - $ref: "#/components/parameters/NameFilter"
         - {
             in: query,
@@ -4236,6 +4250,15 @@ paths:
       description: |
         Upserts a ClusterPolicy row by (cluster_id, namespace_id, name).
         Idempotent — re-inserting an existing key updates the row.
+
+        The created row is marked source='api' and survives the collector's
+        reconcile sweep (which only deletes source='collector' rows). Gated
+        behind settings.policies_enabled (returns 409 when disabled).
+
+        Normalisation: action and severity are lowercased; failure_policy is
+        title-cased (Fail, Ignore); scope_kind is title-cased per K8s
+        convention. Resource_type=Policy requires namespace_id;
+        resource_type=ClusterPolicy forbids it.
       security:
         - BearerAuth: [write]
         - SessionCookie: [write]
@@ -4244,7 +4267,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ClusterPolicy"
+              $ref: "#/components/schemas/ClusterPolicyCreate"
       responses:
         "201":
           description: ClusterPolicy created or updated.
@@ -4258,6 +4281,10 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "409":
+          description: policies_enabled is off
 
   /v1/cluster-policies/{id}:
     get:
@@ -4302,8 +4329,9 @@ paths:
         rows. Gated behind settings.policies_enabled (returns 409 when
         disabled).
 
-        Sortable keys: name, summary_pass, summary_fail, summary_warn,
-        summary_error, summary_skip, reconcile_seen_at
+        Sortable keys: name, scope_kind, scope_name, summary_pass,
+        summary_fail, summary_warn, summary_error, summary_skip,
+        reconcile_seen_at
       security:
         - BearerAuth: [read]
         - SessionCookie: [read]
@@ -4380,6 +4408,13 @@ paths:
       description: |
         Upserts a PolicyReport row by (cluster_id, namespace_id, name).
         Idempotent — re-inserting an existing key updates the row.
+
+        The created row is marked source='api' and survives the collector's
+        reconcile sweep (which only deletes source='collector' rows). Gated
+        behind settings.policies_enabled (returns 409 when disabled).
+
+        Normalisation: scope_kind is title-cased per K8s convention
+        (Namespace, Deployment, DaemonSet, …).
       security:
         - BearerAuth: [write]
         - SessionCookie: [write]
@@ -4388,7 +4423,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PolicyReport"
+              $ref: "#/components/schemas/PolicyReportCreate"
       responses:
         "201":
           description: PolicyReport created or updated.
@@ -4402,6 +4437,10 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "409":
+          description: policies_enabled is off
 
   /v1/policy-reports/{id}:
     get:
@@ -4854,6 +4893,13 @@ components:
 
     Conflict:
       description: Conflict with current state (e.g., duplicate name).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+    UnprocessableEntity:
+      description: Unprocessable entity (e.g., foreign key not found).
       content:
         application/problem+json:
           schema:
@@ -5681,6 +5727,40 @@ components:
         spec_raw: { type: object, additionalProperties: true }
         reconcile_seen_at: { type: string, format: date-time }
 
+    ClusterPolicyCreate:
+      type: object
+      description: |
+        Request body for POST /v1/cluster-policies. Server-generated fields
+        (id, source, reconcile_seen_at) are omitted; required fields are
+        validated. ADR-0043 §3b.
+      required: [cluster_id, name, resource_type, spec_raw]
+      properties:
+        cluster_id: { type: string, format: uuid }
+        namespace_id: { type: string, format: uuid, nullable: true }
+        name: { type: string }
+        resource_type: { type: string, enum: [ClusterPolicy, Policy] }
+        scope: { type: string, enum: [cluster, namespace] }
+        description: { type: string, nullable: true }
+        category: { type: string, nullable: true }
+        severity:
+          {
+            type: string,
+            nullable: true,
+            enum: [critical, high, medium, low, info],
+          }
+        action: { type: string, nullable: true, enum: [enforce, audit] }
+        failure_policy: { type: string, nullable: true, enum: [Fail, Ignore] }
+        background: { type: boolean, nullable: true }
+        rule_types: { type: array, items: { type: string }, nullable: true }
+        rules_count: { type: integer, nullable: true }
+        target_resources:
+          { type: array, items: { type: string }, nullable: true }
+        key_exclusions: { type: array, items: { type: string }, nullable: true }
+        ready: { type: boolean, nullable: true }
+        annotations:
+          { type: object, additionalProperties: true, nullable: true }
+        spec_raw: { type: object, additionalProperties: true }
+
     PolicyReport:
       type: object
       description: |
@@ -5723,6 +5803,36 @@ components:
             description: "Omitted from list responses for performance",
           }
         reconcile_seen_at: { type: string, format: date-time }
+
+    PolicyReportCreate:
+      type: object
+      description: |
+        Request body for POST /v1/policy-reports. Server-generated fields
+        (id, source, reconcile_seen_at) are omitted; required fields are
+        validated. ADR-0043 §3b.
+      required: [cluster_id, name]
+      properties:
+        cluster_id: { type: string, format: uuid }
+        namespace_id: { type: string, format: uuid, nullable: true }
+        name: { type: string }
+        scope_kind:
+          {
+            type: string,
+            nullable: true,
+            description: "Kind of the evaluated resource per .scope.kind (e.g. Namespace, Pod, Deployment)",
+          }
+        scope_name: { type: string, nullable: true }
+        summary_pass: { type: integer }
+        summary_fail: { type: integer }
+        summary_warn: { type: integer }
+        summary_error: { type: integer }
+        summary_skip: { type: integer }
+        results_raw:
+          {
+            type: array,
+            items: { type: object, additionalProperties: true },
+            nullable: true,
+          }
 
     ContainerList:
       type: array

@@ -49,13 +49,14 @@ precedent: cap, `X-Longue-Vue-Truncated`, audit-logged).
   reconcile pattern (ADR-0009, ADR-0033) apply directly: a policy is
   either cluster-scoped or namespace-scoped, and both live under a
   cluster.
-- **v1 is in-process-only.** The push-collector surface (POST
-  endpoints, mux wiring, apiclient methods) is not specified here.
-  This avoids the anti-pattern documented in ADR-0038, where RBAC
-  permissions were granted to the push ClusterRole without any write
-  path, causing silent data loss for air-gapped clusters. A future ADR
-  will add the push surface following the ADR-0038 pattern if demand
-  arises.
+- **Push-collector POST surface.** Two POST endpoints (`POST
+/v1/cluster-policies`, `POST /v1/policy-reports`) are specified in
+  §3b, gated by `requireScope(write)`. A `source` discriminator column
+  (`'collector'` / `'api'`) on both tables allows the reconcile sweep
+  (`DeleteClusterPoliciesByNamespace` / `DeletePolicyReportsByNamespace`)
+  to target only collector-originated rows (`WHERE source=$3` with the
+  `api.SourceCollector` constant), so that API-created rows survive
+  reconcile ticks. This follows the ADR-0038 push-collector pattern.
 
 ## Decision
 
@@ -80,7 +81,7 @@ predates this ADR's review); it stores both `ClusterPolicy` and
 | `description`       | TEXT                                         | from `metadata.annotations["policies.kyverno.io/description"]`; fallback: first non-empty line of `spec.rules[0].validate.message`                                                                                                                                                    |
 | `category`          | TEXT                                         | from `metadata.annotations["policies.kyverno.io/category"]`                                                                                                                                                                                                                           |
 | `severity`          | TEXT                                         | from `metadata.annotations["policies.kyverno.io/severity"]`; normalised to lowercase at ingestion (`critical` / `high` / `medium` / `low` / `info`)                                                                                                                                   |
-| `action`            | TEXT                                         | `Enforce` or `Audit` — normalised at ingestion (see §5)                                                                                                                                                                                                                               |
+| `action`            | TEXT                                         | `enforce` or `audit` — normalised to lowercase at ingestion (see §5)                                                                                                                                                                                                                  |
 | `failure_policy`    | TEXT                                         | `Fail` or `Ignore` — from `spec.failurePolicy` (Kyverno ≤1.12) or `spec.webhookConfiguration.failurePolicy` (Kyverno ≥1.13); normalised to title-case at ingestion                                                                                                                    |
 | `background`        | BOOLEAN                                      | from `spec.background` (default true)                                                                                                                                                                                                                                                 |
 | `rule_types`        | TEXT[]                                       | distinct rule types across `spec.rules[]`: subset of `{validate, mutate, generate, verifyImages}`                                                                                                                                                                                     |
@@ -90,6 +91,7 @@ predates this ADR's review); it stores both `ClusterPolicy` and
 | `ready`             | BOOLEAN                                      | tri-state: `true`/`false` from `status.conditions[type=="Ready"].status`; NULL when status or Ready condition absent                                                                                                                                                                  |
 | `annotations`       | JSONB                                        | full annotations for drill-down (subject, scored, minversion, …)                                                                                                                                                                                                                      |
 | `spec_raw`          | JSONB                                        | full spec for forensic access (mirrors `network_policies.spec_raw`)                                                                                                                                                                                                                   |
+| `source`            | TEXT                                         | `'collector'` (set by in-process collector) or `'api'` (set by POST handler); NOT NULL, default `'collector'`; CHECK (`source IN ('collector', 'api')`)                                                                                                                               |
 | `reconcile_seen_at` | TIMESTAMPTZ                                  | standard reconcile timestamp                                                                                                                                                                                                                                                          |
 
 **FK behaviour:** `namespace_id` is nullable (NULL = cluster-scoped
@@ -120,21 +122,22 @@ the constraint. Expression indexes can serve as `ON CONFLICT` arbiters
 `ClusterPolicyReport`, carrying the summary counts and the results
 array.
 
-| Column              | Type                                         | Notes                                                 |
-| ------------------- | -------------------------------------------- | ----------------------------------------------------- |
-| `id`                | UUID PK                                      | `gen_random_uuid()`                                   |
-| `cluster_id`        | UUID FK → `clusters(id) ON DELETE CASCADE`   |                                                       |
-| `namespace_id`      | UUID FK → `namespaces(id) ON DELETE CASCADE` | NULL for ClusterPolicyReport                          |
-| `name`              | TEXT                                         | report object name                                    |
-| `scope_kind`        | TEXT                                         | `Namespace`, `Pod`, etc. from `scope.kind` (nullable) |
-| `scope_name`        | TEXT                                         | from `scope.name` (nullable)                          |
-| `summary_pass`      | INTEGER                                      |                                                       |
-| `summary_fail`      | INTEGER                                      |                                                       |
-| `summary_warn`      | INTEGER                                      |                                                       |
-| `summary_error`     | INTEGER                                      |                                                       |
-| `summary_skip`      | INTEGER                                      |                                                       |
-| `results_raw`       | JSONB                                        | full `results[]` array for drill-down                 |
-| `reconcile_seen_at` | TIMESTAMPTZ                                  |                                                       |
+| Column              | Type                                         | Notes                                                                                               |
+| ------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `id`                | UUID PK                                      | `gen_random_uuid()`                                                                                 |
+| `cluster_id`        | UUID FK → `clusters(id) ON DELETE CASCADE`   |                                                                                                     |
+| `namespace_id`      | UUID FK → `namespaces(id) ON DELETE CASCADE` | NULL for ClusterPolicyReport                                                                        |
+| `name`              | TEXT                                         | report object name                                                                                  |
+| `scope_kind`        | TEXT                                         | `Namespace`, `Pod`, etc. from `scope.kind` (nullable)                                               |
+| `scope_name`        | TEXT                                         | from `scope.name` (nullable)                                                                        |
+| `summary_pass`      | INTEGER                                      |                                                                                                     |
+| `summary_fail`      | INTEGER                                      |                                                                                                     |
+| `summary_warn`      | INTEGER                                      |                                                                                                     |
+| `summary_error`     | INTEGER                                      |                                                                                                     |
+| `summary_skip`      | INTEGER                                      |                                                                                                     |
+| `results_raw`       | JSONB                                        | full `results[]` array for drill-down                                                               |
+| `source`            | TEXT                                         | `'collector'` or `'api'`; NOT NULL, default `'collector'`; CHECK (`source IN ('collector', 'api')`) |
+| `reconcile_seen_at` | TIMESTAMPTZ                                  |                                                                                                     |
 
 `policy_reports` uses the same COALESCE expression index pattern as
 `cluster_policies` to handle NULL `namespace_id` for
@@ -169,19 +172,41 @@ operators opt in gradually. The setting is exposed at
 
 RBAC: add `clusterpolicies`, `policies`, `policyreports`,
 `clusterpolicyreports` (all under `kyverno.io` and `wgpolicyk8s.io`
-API groups) to the **in-process** ClusterRole only (`charts/longue-vue`).
-The push-collector ClusterRole (`charts/longue-vue-collector`) is **not**
-modified — v1 is in-process-only per the constraint above. This avoids
-the ADR-0038 anti-pattern (RBAC granted without write path).
+API groups) to both the **in-process** ClusterRole and the
+**push-collector** ClusterRole (`charts/longue-vue-collector`). The
+push-collector ClusterRole grants read access so the apiclient can
+list Kyverno CRDs; the POST endpoints handle the write path.
 
-Reconcile follows the established pattern (ADR-0009). After each
-cluster-wide list call, `DeleteClusterPoliciesNotIn(cluster_id, seen_ids)`
-sweeps rows not present in the latest tick. The reconcile is
-cluster-level: both cluster-scoped and namespace-scoped policies are
-swept together, matching the cluster-wide collection model. If a
-namespace-level reconcile is needed in the future (e.g., per-namespace
-list calls), a `DeleteClusterPoliciesNotInNamespaces` method can be
-added. Same pattern for policy reports.
+Reconcile follows the established pattern (ADR-0009), adapted for
+Kyverno's mixed scope (ADR-0033 per-namespace sweep for netpols is
+the precedent). After each collection tick, two sweep phases run:
+
+1. **Cluster-scoped sweep.**
+   `DeleteClusterScopedPoliciesNotIn(cluster_id, seen_ids)` removes
+   collector-originated `ClusterPolicy` / `ClusterPolicyReport` rows
+   (`WHERE namespace_id IS NULL AND source='collector'`) not present
+   in the latest tick.
+
+2. **Per-namespace sweep.** For every namespace known to the cluster,
+   `DeleteClusterPoliciesByNamespace(cluster_id, namespace_id, seen_ids)`
+   and `DeletePolicyReportsByNamespace(cluster_id, namespace_id, seen_ids)`
+   remove collector-originated namespaced rows not present in the latest
+   tick. The `cluster_id` parameter is defense-in-depth — the PG FK chain
+   already constrains rows to a single cluster, but including it in the
+   WHERE clause (`AND cluster_id=$1`) prevents cross-cluster impact if a
+   caller ever passes the wrong `namespace_id`. Namespaces that the
+   collector did **not** visit (e.g., an unknown/orphan namespace from a
+   previous tick) are **never swept**; their rows survive reconcile,
+   preventing the collateral deletion bug where a cluster-wide sweep would
+   delete namespaced policies in namespaces outside the `seen` set.
+
+API-created rows (`source='api'`) are never deleted by reconcile.
+The old `DeleteClusterPoliciesNotIn` / `DeletePolicyReportsNotIn`
+methods have been removed from the `api.KyvernoStore` interface; the
+collector's local `KyvernoStore` interface uses only the four-method
+sweep surface (two cluster-scoped, two per-namespace). Source values
+are referenced via the `api.SourceCollector` and `api.SourceAPI`
+constants defined in `internal/api/store.go`.
 
 ### 3. REST API
 
@@ -197,20 +222,20 @@ New list and detail endpoints:
 
 Query parameters follow ADR-0042 (uniform list contract):
 
-| Param            | Type   | Notes                                                                                                                       |
-| ---------------- | ------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `limit`          | int    | cursor page size                                                                                                            |
-| `cursor`         | string | tagged base64-JSON cursor                                                                                                   |
-| `name`           | string | substring / glob filter on policy name (LIKE metacharacters literal per ADR-0042)                                           |
-| `sort`           | string | allowlist: `name`, `action`, `background`, `severity`, `rules_count`, `failure_policy`, `category`, `ready`, `scope`        |
-| `order`          | string | `asc` (default) / `desc`                                                                                                    |
-| `cluster_id`     | UUID   | filter by cluster                                                                                                           |
-| `namespace_id`   | UUID   | filter by namespace                                                                                                         |
-| `resource_type`  | string | `ClusterPolicy` / `Policy`                                                                                                  |
-| `action`         | string | `Enforce` / `Audit` (case-insensitive exact match; values normalised at ingestion)                                          |
-| `failure_policy` | string | `Fail` / `Ignore` (case-insensitive exact match)                                                                            |
-| `severity`       | string | `critical` / `high` / `medium` / `low` / `info` (case-insensitive exact match; values normalised to lowercase at ingestion) |
-| `category`       | string | substring filter on category                                                                                                |
+| Param            | Type   | Notes                                                                                                                                                      |
+| ---------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `limit`          | int    | cursor page size                                                                                                                                           |
+| `cursor`         | string | tagged base64-JSON cursor                                                                                                                                  |
+| `name`           | string | substring / glob filter on policy name (LIKE metacharacters literal per ADR-0042)                                                                          |
+| `sort`           | string | allowlist: `name`, `resource_type`, `action`, `background`, `severity`, `rules_count`, `failure_policy`, `category`, `ready`, `scope`, `reconcile_seen_at` |
+| `order`          | string | `asc` (default) / `desc`                                                                                                                                   |
+| `cluster_id`     | UUID   | filter by cluster                                                                                                                                          |
+| `namespace_id`   | UUID   | filter by namespace                                                                                                                                        |
+| `resource_type`  | string | `ClusterPolicy` / `Policy`                                                                                                                                 |
+| `action`         | string | `enforce` / `audit` (case-insensitive exact match; values normalised to lowercase at ingestion)                                                            |
+| `failure_policy` | string | `Fail` / `Ignore` (case-insensitive exact match)                                                                                                           |
+| `severity`       | string | `critical` / `high` / `medium` / `low` / `info` (case-insensitive exact match; values normalised to lowercase at ingestion)                                |
+| `category`       | string | substring filter on category                                                                                                                               |
 
 **Sort infrastructure notes:** `background`, `ready`, and
 `rules_count` require extending the sort infrastructure beyond the
@@ -223,13 +248,79 @@ mapping in the sort helper (using `sortInt`) sorts by severity level.
 Response: `{items: [...], next_cursor: "..." | null}` per ADR-0042.
 
 The `policy-reports` endpoint follows the same contract with its own
-sort/filter allowlist. The `cluster_policy_name` filter is removed —
-since Kyverno 1.11, PolicyReports are named after the evaluated
-resource's UID, not the policy name. To find reports for a specific
-policy, use `GET /v1/policy-reports?cluster_id=<id>` and filter client-side on `results_raw`, or query the non-conformity sub-endpoint (§7).
+sort/filter allowlist: `name`, `scope_kind`, `scope_name`,
+`summary_pass`, `summary_fail`, `summary_warn`, `summary_error`,
+`summary_skip`, `reconcile_seen_at`. The `cluster_policy_name` filter
+is removed — since Kyverno 1.11, PolicyReports are named after the
+evaluated resource's UID, not the policy name. To find reports for a
+specific policy, use `GET /v1/policy-reports?cluster_id=<id>` and
+filter client-side on `results_raw`, or query the non-conformity
+sub-endpoint (§7).
 Additional filters for policy-reports: `scope_kind` (exact match on the
 evaluated resource kind, e.g. `Namespace`, `Pod`, `Deployment`) and
 `scope_name` (substring/ILIKE match).
+
+### 3b. POST endpoints (push-collector surface)
+
+Two POST endpoints allow external agents (push-collector apiclient,
+automation tooling) to write Kyverno data into the CMDB:
+
+- **`POST /v1/cluster-policies`** — upsert a ClusterPolicy or Policy row
+- **`POST /v1/policy-reports`** — upsert a PolicyReport or ClusterPolicyReport row
+
+Both are gated by `requireScope(write)` (viewer token → 403) **and**
+`settings.policies_enabled` (disabled → 409 Conflict). The gate aligns
+with the GET endpoints and the collector's per-tick gate (§2).
+
+**Request body types** — dedicated `ClusterPolicyCreate` and
+`PolicyReportCreate` structs exclude server-generated fields (`id`,
+`source`, `reconcile_seen_at`). Required fields are validated:
+
+| Endpoint         | Required fields                                   | Validation                                                                                                                                                                            |
+| ---------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| cluster-policies | `name`, `cluster_id`, `resource_type`, `spec_raw` | `resource_type` ∈ {`ClusterPolicy`, `Policy`}; `scope` ∈ {`cluster`, `namespace`} (defaults to `cluster`); `spec_raw` must be non-empty (DB NOT NULL); scope↔namespace_id rules below |
+| policy-reports   | `name`, `cluster_id`                              | `scope_kind` normalised to title-case if provided                                                                                                                                     |
+
+**Scope↔namespace_id consistency:**
+
+- `resource_type=Policy` → `namespace_id` is required (namespaced policy
+  must belong to a namespace; 400 if omitted).
+- `resource_type=ClusterPolicy` → `namespace_id` must be omitted or null
+  (cluster-scoped policy; 400 if provided).
+
+**Case normalisation:** `action` and `severity` are lowercased by the
+handler (matching the collector's ingestion-time normalisation in §5).
+`failure_policy` is **title-cased** (`Fail` / `Ignore`) to match the
+Kyverno CRD spec and the collector's raw K8s API output (§5).
+`scope_kind` is title-cased.
+
+**Source discriminator:** the handler sets `source='api'` on every row
+created via POST. The in-process collector sets `source='collector'`.
+This allows the reconcile sweep to target only collector-originated rows
+(`WHERE source='collector'`), ensuring API-created rows survive
+reconcile ticks. The column is NOT NULL with a CHECK constraint and
+defaults to `'collector'` (migration 00061).
+
+**FK error handling:** the store's `UpsertClusterPolicy` and
+`UpsertPolicyReport` methods classify PostgreSQL FK violation errors
+(23503) and return `api.ErrNotFound`, which the handler maps to 422
+Unprocessable Entity. This follows the established pattern in
+`CreatePod` / `CreatePersistentVolumeClaim`.
+
+**Response:** 201 Created with the full row (via GET read-back after
+upsert). If the read-back fails (unlikely but possible), the handler
+logs the error and returns 201 with a plain-text message indicating the
+row was created but read-back failed — it never returns a bare
+`{"id": "..."}` envelope. On conflict (same `cluster_id` +
+`namespace_id` + `name`), the row is updated (idempotent upsert via ON
+CONFLICT DO UPDATE).
+
+**Sweep durability guarantee:** rows created via POST (`source='api'`)
+are never deleted by the collector's reconcile sweep (§2). The sweep
+targets only `source='collector'` rows. This is a deliberate
+architectural choice: API-authored rows represent operator intent that
+should persist across collector cycles. If an operator needs to remove an
+API-authored row, they must use the REST API directly.
 
 ### 4. UI — Policies view
 
@@ -251,7 +342,7 @@ resize via `resizable_columns.ts`):
 | **Zone**                | Derived from cluster (§6)                                 | Plain text                                                                                                                                          |
 | **Category / Severity** | `cluster_policies.category` + `cluster_policies.severity` | Colour-coded badge using shared `status-ok`/`status-warn`/`status-bad` CSS classes: critical/high=bad, medium=warn, low/info=ok; category as prefix |
 | **Rule Types**          | `cluster_policies.rule_types`                             | Pill badges: `validate`, `mutate`, `generate`, `verifyImages` — colour per type                                                                     |
-| **Action**              | `cluster_policies.action`                                 | Pill badge (`Enforce` / `Audit`)                                                                                                                    |
+| **Action**              | `cluster_policies.action`                                 | Pill badge (`enforce` / `audit`)                                                                                                                    |
 | **Failure Policy**      | `cluster_policies.failure_policy`                         | Badge: red = `Fail` (request rejected on webhook error), grey = `Ignore`                                                                            |
 | **Target Resources**    | `cluster_policies.target_resources`                       | Comma-separated list with overflow tooltip (e.g. `Pod, Deployment, Namespace`)                                                                      |
 | **Key Exclusions**      | `cluster_policies.key_exclusions`                         | Comma-separated list with overflow tooltip; muted style (e.g. `ns:kube-system`); hover shows full list from `spec_raw` when capped                  |
@@ -272,8 +363,8 @@ results. Default state: hidden (collapsed).
 every other list view). Column sort and column resize use the existing
 `SortHeader` + `resizable_columns.ts` infrastructure.
 
-**UI infrastructure gaps** (must be scoped as shared work before the
-Policies page can render):
+**UI infrastructure gaps** (deferred from v1 — the base table ships
+without these; IMP-009 scopes v1 to the base `EntityListPage` table):
 
 - Nested/expandable rows (PolicyReport toggle) — no existing
   `EntityListPage` support.
@@ -358,17 +449,18 @@ versions. There is no object form with an `.action` sub-field.
 
 - Kyverno ≤1.12: `spec.validationFailureAction` is the sole source.
   Values may be `"Enforce"`, `"Audit"`, `"enforce"`, or `"audit"`
-  (mixed case across versions). **Normalise to title-case** (`Enforce`
-  / `Audit`) at ingestion.
+  (mixed case across versions). **Normalise to lowercase** (`enforce`
+  / `audit`) at ingestion.
 - Kyverno ≥1.13: `spec.validationFailureAction` is deprecated. The
   authoritative source is the per-rule
   `spec.rules[].validate.failureAction`, which can differ across rules
   within the same policy. `spec.validationFailureActionOverrides`
   allows namespace-level overrides. **Aggregation rule for the `action`
-  column:** if any rule has `Enforce`, the policy-level `action` is
-  `Enforce`; otherwise `Audit`. This is a conservative display choice —
-  operators see `Enforce` if any rule blocks. The per-rule breakdown is
-  available in `spec_raw` for drill-down.
+  column:** if any rule has `Enforce` (case-insensitive), the
+  policy-level `action` is `enforce`; otherwise `audit`. This is a
+  conservative display choice — operators see `enforce` if any rule
+  blocks. The per-rule breakdown is available in `spec_raw` for
+  drill-down.
 
 Field extraction from a `PolicyReport` / `ClusterPolicyReport`:
 
@@ -473,8 +565,8 @@ this optimisation is deferred.
 - **Proxy auth and SSRF posture:** the proxy endpoint requires
   `requireReadScope` (consistent with all other GET endpoints). The
   `policy_prometheus_url` is an admin-configured setting (not
-  user-supplied input); it is validated at save time as an HTTPS URL.
-  The proxy does not follow redirects.
+  user-supplied input); HTTPS validation is deferred — the setting
+  stores the URL as-is. The proxy does not follow redirects.
 
 **Kyverno `kyverno_policy_results_total` label reference:**
 (verified against `pkg/metrics/common_types.go` and
@@ -514,9 +606,10 @@ histograms).
 - **POS-002**: The PolicyReport toggle surfaces compliance results
   (pass/fail counts) alongside policy definitions without cluttering the
   default view.
-- **POS-003**: Case normalisation at ingestion (`action`, `severity`,
-  `failure_policy`) makes filtering reliable regardless of Kyverno
-  version — the DB always stores canonical title-case/lowercase values.
+- **POS-003**: Case normalisation at ingestion (`action`, `severity`
+  → lowercase; `failure_policy` → title-case; `scope_kind` → title-case)
+  makes filtering reliable regardless of Kyverno version — the DB always
+  stores canonical values.
 - **POS-004**: The cluster link (to `/ui/clusters/<uuid>`) keeps the
   existing navigation pattern consistent with other list views; no
   hardcoded hostname.
@@ -545,10 +638,9 @@ histograms).
 - **POS-011**: `target_resources` and `key_exclusions` provide immediate
   visibility into what a policy selects and what it exempts, without
   needing to open the full spec.
-- **POS-012**: Declaring v1 in-process-only avoids the ADR-0038
-  anti-pattern (RBAC granted without write path). Push-collected
-  clusters will not see policies until a follow-up ADR adds the write
-  surface — this is explicit and documented, not silent.
+- **POS-012**: The `source` discriminator prevents reconcile sweeps from
+  deleting API-created rows, following the ADR-0038 pattern and avoiding
+  the anti-pattern of silent data loss for push-collected clusters.
 
 ### Negative
 
@@ -596,13 +688,15 @@ histograms).
   available in `spec_raw` and rendered in a hover tooltip on the
   "Key Exclusions" cell — so operators see the cap in the cell and the
   complete list on mouse-over without opening a detail page.
-- **NEG-008**: v1 is in-process-only. Clusters collected via the push
-  collector (air-gapped topology, ADR-0009) will not show Kyverno
-  policies until a follow-up ADR adds the push surface. This is
-  explicitly chosen over the ADR-0038 anti-pattern (silent data loss).
+- **NEG-008**: The push-collector apiclient methods (batch upsert,
+  reconcile) are not yet implemented. The POST endpoints exist and are
+  functional, but the apiclient's KyvernoStore implementation is
+  deferred to a follow-up. Push-collected clusters can use the POST
+  endpoints directly if needed, but the convenience methods are not
+  available yet.
 - **NEG-009**: The `action` column is a single-value summary. When a
   policy has mixed enforce/audit rules (Kyverno ≥1.13), the column
-  shows `Enforce` if any rule enforces — a conservative display. The
+  shows `enforce` if any rule enforces — a conservative display. The
   per-rule breakdown is available in `spec_raw`.
 - **NEG-010**: PolicyReport volume in Kyverno 1.11+ (one report per
   evaluated resource) can reach 10^4–10^5 rows per cluster. The
@@ -691,11 +785,12 @@ histograms).
   `policies_enabled`. Add the four Kyverno CRDs to the in-process
   ClusterRole template only (`charts/longue-vue`). **Do not** modify
   the push-collector ClusterRole (`charts/longue-vue-collector`).
-  Normalise `action` (title-case), `severity` (lowercase), and
+  Normalise `action` (lowercase), `severity` (lowercase), and
   `failure_policy` (title-case) during the K8s list→row mapping.
   Use paginated list calls (`limit` + `continue`) for PolicyReports.
 - **IMP-005**: Store: `internal/store/pg_cluster_policies.go` —
-  `UpsertClusterPolicy`, `DeleteClusterPoliciesNotIn`,
+  `UpsertClusterPolicy`, `DeleteClusterScopedPoliciesNotIn`,
+  `DeleteClusterPoliciesByNamespace`,
   `ListClusterPolicies` (with ADR-0042 sort/filter/pagination),
   `GetClusterPolicy` (detail endpoint).
   `internal/store/pg_policy_reports.go` — same pattern for reports,
@@ -704,6 +799,9 @@ histograms).
   Extend sort infrastructure: add `sortInt` cursor type
   for `background` (via `::int` cast), `ready` (via `::int` cast),
   `rules_count`, and CASE-based severity rank mapping.
+  All sweep methods use parameterized `api.SourceCollector` for the
+  source discriminator and include `cluster_id` in the WHERE clause
+  for defense-in-depth.
 - **IMP-006**: OpenAPI: add `/v1/cluster-policies`, `/v1/cluster-policies/{id}`,
   `/v1/policy-reports`, `/v1/policy-reports/{id}` endpoints to
   `api/openapi/openapi.yaml` with the shared params (Limit, Cursor,
@@ -719,8 +817,8 @@ histograms).
   with all other GET endpoints) that forwards batched PromQL queries to
   the configured `policy_prometheus_url` and returns the result indexed
   by policy name. The UI calls this endpoint once per page load; it
-  never queries Prometheus directly. The `policy_prometheus_url` is
-  validated as HTTPS at save time; the proxy does not follow redirects
+  never queries Prometheus directly. HTTPS validation of
+  `policy_prometheus_url` is deferred; the proxy does not follow redirects
   (SSRF posture).
 - **IMP-009**: UI: add `PolicyIcon` to `ui/src/icons.tsx`. Add
   `<NavLink>` entries for `/cluster-policies` and `/policy-reports` in
@@ -745,8 +843,11 @@ histograms).
   `internal/mcp/` — separate PR after the UI lands.
 - **IMP-012**: Reconcile: implement cluster-level reconcile —
   cluster-scoped and namespace-scoped policies/reports swept together
-  after the cluster-wide list via `DeleteClusterPoliciesNotIn` /
-  `DeletePolicyReportsNotIn`. The `seen` slice is initialised as
+  after the cluster-wide list via `DeleteClusterScopedPoliciesNotIn` /
+  `DeleteClusterScopedPolicyReportsNotIn` (cluster-scoped) and
+  `DeleteClusterPoliciesByNamespace` /
+  `DeletePolicyReportsByNamespace` (per-namespace, with `cluster_id`
+  defense-in-depth). The `seen` slice is initialised as
   `make([]uuid.UUID, 0)` so that a successful but empty tick sweeps
   all rows (consistent with the established sweep contract).
 - **IMP-013**: Tests: unit tests for action derivation logic (case

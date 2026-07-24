@@ -314,6 +314,15 @@ else
         "${BASE}/v1/admin/settings")
     if [ "$STATUS" = "403" ]; then
         echo "policies_enabled → 403 (set LONGUE_VUE_POLICIES_ENABLED=true at boot, or use an admin token)" >&2
+        echo "skipping policy seeding" >&2
+        # Skip to summary — data would be invisible while policies_enabled is off.
+        echo
+        echo "=== summary ==="
+        for kind in clusters nodes namespaces workloads pods services ingresses persistentvolumes persistentvolumeclaims cluster-policies policy-reports; do
+            count=$(curl -sS "${AUTH_ARGS[@]}" "${BASE}/v1/${kind}?limit=200" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('items',[])))" 2>/dev/null || echo "?")
+            printf "  %-25s %s\n" "$kind" "$count"
+        done
+        exit 0
     else
         echo "policies_enabled → $STATUS"
     fi
@@ -463,9 +472,7 @@ echo "cluster policies seeded"
 post /v1/policy-reports "{
   \"cluster_id\":\"$PROD_ID\",
   \"name\":\"clusterpolicyreport\",
-  \"scope_kind\":\"ClusterPolicyReport\",
-  \"scope_name\":\"\",
-  \"summary_pass\":3,
+  \"summary_pass\":4,
   \"summary_fail\":2,
   \"summary_warn\":0,
   \"summary_error\":0,
@@ -486,7 +493,7 @@ post /v1/policy-reports "{
   \"cluster_id\":\"$PROD_ID\",
   \"namespace_id\":\"$SHOP_PROD\",
   \"name\":\"policyreport\",
-  \"scope_kind\":\"PolicyReport\",
+  \"scope_kind\":\"Namespace\",
   \"scope_name\":\"shop\",
   \"summary_pass\":2,
   \"summary_fail\":2,
@@ -507,7 +514,7 @@ post /v1/policy-reports "{
   \"cluster_id\":\"$PROD_ID\",
   \"namespace_id\":\"$PLATFORM_PROD\",
   \"name\":\"policyreport\",
-  \"scope_kind\":\"PolicyReport\",
+  \"scope_kind\":\"Namespace\",
   \"scope_name\":\"platform\",
   \"summary_pass\":0,
   \"summary_fail\":0,

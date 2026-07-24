@@ -58,6 +58,8 @@ const (
 	sortKeyScope         = "scope"
 
 	// Policy report sort keys.
+	sortKeyScopeKind    = "scope_kind"
+	sortKeyScopeName    = "scope_name"
 	sortKeySummaryPass  = "summary_pass"
 	sortKeySummaryFail  = "summary_fail"
 	sortKeySummaryWarn  = "summary_warn"

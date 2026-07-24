@@ -153,11 +153,13 @@ export function PolicyReports() {
         {
           key: 'scope_kind',
           label: 'Scope Kind',
+          sortKey: 'scope_kind',
           render: (r) => r.scope_kind || <Dash />,
         },
         {
           key: 'scope_name',
           label: 'Scope Name',
+          sortKey: 'scope_name',
           render: (r) => r.scope_name || <Dash />,
         },
         {
