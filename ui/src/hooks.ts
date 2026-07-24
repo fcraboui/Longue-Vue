@@ -203,6 +203,36 @@ export function usePagedList<T>(
   };
 }
 
+// useClientSort is the client-side twin of the server sort: local key/direction
+// plus a generic comparator application. For full-payload tables only.
+export function useClientSort<T>(
+  initialKey: string,
+  accessors: Record<string, (item: T) => string | number | null | undefined>,
+) {
+  const [sort, setSort] = useState(initialKey);
+  const [asc, setAsc] = useState(true);
+  const toggleSort = (key: string) => {
+    if (key === sort) {
+      setAsc(!asc);
+    } else {
+      setSort(key);
+      setAsc(true);
+    }
+  };
+  const sortItems = (items: T[]): T[] => {
+    const get = accessors[sort];
+    if (!get) return items;
+    const dir = asc ? 1 : -1;
+    return [...items].sort((a, b) => {
+      const va = get(a);
+      const vb = get(b);
+      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+      return String(va ?? '').toLowerCase().localeCompare(String(vb ?? '').toLowerCase()) * dir;
+    });
+  };
+  return { sort, asc, toggleSort, sortItems };
+}
+
 export type ListControls = {
   nameInput: string;
   setNameInput: (v: string) => void;

@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import * as api from '../../api';
-import { useResource } from '../../hooks';
+import { useClientSort, useResource } from '../../hooks';
+import { SortHeader } from '../../components/SortHeader';
 import { AsyncView, SectionTitle } from '../../components';
 
 // ApplicationBlocksPage — admin tab for managing the optional grouping
@@ -14,6 +15,12 @@ export default function ApplicationBlocksPage() {
   const [nonce, setNonce] = useState(0);
   const reload: Reload = () => setNonce((n) => n + 1);
   const state = useResource(() => api.listApplicationBlocks(), [nonce]);
+  const cs = useClientSort<api.ApplicationBlock>('name', {
+    name: (b) => b.name,
+    display_name: (b) => b.display_name ?? '',
+    owner: (b) => b.owner ?? '',
+    application_count: (b) => b.application_count ?? 0,
+  });
 
   return (
     <AsyncView state={state}>
@@ -28,20 +35,18 @@ export default function ApplicationBlocksPage() {
             <table className="entities">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Display name</th>
-                  <th>Owner</th>
-                  <th>Applications</th>
+                  <SortHeader label="Name" sortKey="name" activeKey={cs.sort} asc={cs.asc} onToggle={cs.toggleSort} />
+                  <SortHeader label="Display name" sortKey="display_name" activeKey={cs.sort} asc={cs.asc} onToggle={cs.toggleSort} />
+                  <SortHeader label="Owner" sortKey="owner" activeKey={cs.sort} asc={cs.asc} onToggle={cs.toggleSort} />
+                  <SortHeader label="Applications" sortKey="application_count" activeKey={cs.sort} asc={cs.asc} onToggle={cs.toggleSort} />
                   <th>Notes</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {[...resp.items]
-                  .sort((a, b) => a.name.localeCompare(b.name))
-                  .map((b) => (
-                    <BlockRow key={b.id} block={b} reload={reload} />
-                  ))}
+                {cs.sortItems(resp.items).map((b) => (
+                  <BlockRow key={b.id} block={b} reload={reload} />
+                ))}
               </tbody>
             </table>
           )}

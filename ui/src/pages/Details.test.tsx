@@ -461,3 +461,44 @@ describe('OriginLine', () => {
     expect(container.textContent).not.toMatch(/origin:/i);
   });
 });
+
+describe('NodeDetail Conditions sorting', () => {
+  it('clicking Status header reorders condition rows', async () => {
+    const nodeWithMultipleConditions = {
+      ...fixtureNode,
+      conditions: [
+        { type: 'MemoryPressure', status: 'False', reason: 'KubeletHasSufficientMemory', message: '' },
+        { type: 'Ready', status: 'True', reason: 'KubeletReady', message: 'kubelet is posting ready status' },
+        { type: 'DiskPressure', status: 'False', reason: 'KubeletHasNoDiskPressure', message: '' },
+      ],
+    };
+    server.use(http.get('/v1/nodes/:id', () => HttpResponse.json(nodeWithMultipleConditions)));
+    const user = userEvent.setup();
+    renderWithRouter(<NodeDetail />, {
+      initialPath: `/nodes/${fixtureNode.id}`,
+      routePath: '/nodes/:id',
+    });
+    // Wait for the page to load and show the Conditions section.
+    await waitFor(() =>
+      expect(screen.getByText('MemoryPressure')).toBeInTheDocument(),
+    );
+    // Initial sort by type asc: DiskPressure, MemoryPressure, Ready.
+    const initialRows = () => screen.getAllByRole('row').filter(
+      (r) => ['DiskPressure', 'MemoryPressure', 'Ready'].some((t) => r.textContent?.includes(t)),
+    );
+    await waitFor(() => {
+      const rows = initialRows();
+      expect(rows[0].textContent).toMatch(/DiskPressure/);
+      expect(rows[1].textContent).toMatch(/MemoryPressure/);
+      expect(rows[2].textContent).toMatch(/Ready/);
+    });
+    // Click Status header → sort by status asc: False before True.
+    await user.click(screen.getByRole('columnheader', { name: /Status/ }));
+    await waitFor(() => {
+      const rows = initialRows();
+      // False rows come before True.
+      expect(rows[0].textContent).toMatch(/False/);
+      expect(rows[rows.length - 1].textContent).toMatch(/True/);
+    });
+  });
+});

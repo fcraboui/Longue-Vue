@@ -2,9 +2,9 @@ import { http, HttpResponse } from 'msw';
 import {
   fixtureApplication, fixtureApplicationBlock, fixtureAuditEvent,
   fixtureAuthConfig, fixtureCloudAccount, fixtureCluster, fixtureImpactGraph,
-  fixtureIngress, fixtureMe, fixtureNamespace, fixtureNode, fixtureOSImage, fixturePV,
-  fixturePVC, fixturePod, fixtureService, fixtureSession, fixtureSettings,
-  fixtureToken, fixtureUser, fixtureVirtualMachine, fixtureWorkload, paged,
+  fixtureImageRegistry, fixtureIngress, fixtureMe, fixtureNamespace, fixtureNode,
+  fixtureOSImage, fixturePV, fixturePVC, fixturePod, fixtureService, fixtureSession,
+  fixtureSettings, fixtureToken, fixtureUser, fixtureVirtualMachine, fixtureWorkload, paged,
 } from './fixtures';
 
 // Default handler set — every endpoint api.ts can call has at least one
@@ -105,6 +105,23 @@ export const handlers = [
   http.post('/v1/applications', () => HttpResponse.json(fixtureApplication)),
   http.patch('/v1/applications/:id', () => HttpResponse.json(fixtureApplication)),
   http.delete('/v1/applications/:id', () => new HttpResponse(null, { status: 204 })),
+
+  // --- image registries ---
+  http.get('/v1/admin/image-versions/registries', () =>
+    HttpResponse.json(paged([fixtureImageRegistry])),
+  ),
+  http.post('/v1/admin/image-versions/registries', () =>
+    HttpResponse.json(fixtureImageRegistry),
+  ),
+  http.patch('/v1/admin/image-versions/registries/:hostname/:pathPrefix', () =>
+    HttpResponse.json(fixtureImageRegistry),
+  ),
+  http.delete('/v1/admin/image-versions/registries/:hostname/:pathPrefix', () =>
+    new HttpResponse(null, { status: 204 }),
+  ),
+  http.get('/v1/admin/image-versions/registries/:hostname/:pathPrefix/credentials', () =>
+    HttpResponse.json({ auth_username: 'robot', auth_token: 'secret' }),
+  ),
 
   // --- OS images ---
   http.get('/v1/os-images', () =>

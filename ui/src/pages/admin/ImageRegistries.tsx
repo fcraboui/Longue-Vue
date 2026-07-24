@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import * as api from '../../api';
-import { useResource } from '../../hooks';
+import { useClientSort, useResource } from '../../hooks';
+import { SortHeader } from '../../components/SortHeader';
 import { AsyncView, SectionTitle } from '../../components';
 
 // ImageRegistriesPage — admin tab for managing image registry poll targets
@@ -12,6 +13,12 @@ export default function ImageRegistriesPage() {
   const [nonce, setNonce] = useState(0);
   const reload: Reload = () => setNonce((n) => n + 1);
   const state = useResource(() => api.listImageRegistries(), [nonce]);
+  // hostname accessor subsumes old two-key order (hostname then path_prefix).
+  const cs = useClientSort<api.ImageRegistry>('hostname', {
+    hostname: (r) => r.hostname + ' ' + r.path_prefix,
+    type: (r) => (r.is_mirror ? 'Mirror' : 'Source'),
+    status: (r) => (r.enabled ? 'Enabled' : 'Disabled'),
+  });
 
   return (
     <AsyncView state={state}>
@@ -25,29 +32,23 @@ export default function ImageRegistriesPage() {
             <table className="entities">
               <thead>
                 <tr>
-                  <th>Hostname</th>
+                  <SortHeader label="Hostname" sortKey="hostname" activeKey={cs.sort} asc={cs.asc} onToggle={cs.toggleSort} />
                   <th>Path prefix</th>
-                  <th>Type</th>
+                  <SortHeader label="Type" sortKey="type" activeKey={cs.sort} asc={cs.asc} onToggle={cs.toggleSort} />
                   <th>Rate limit (req/s)</th>
-                  <th>Status</th>
+                  <SortHeader label="Status" sortKey="status" activeKey={cs.sort} asc={cs.asc} onToggle={cs.toggleSort} />
                   <th>Notes</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {[...resp.items]
-                  .sort((a, b) =>
-                    a.hostname === b.hostname
-                      ? a.path_prefix.localeCompare(b.path_prefix)
-                      : a.hostname.localeCompare(b.hostname),
-                  )
-                  .map((r) => (
-                    <RegistryRow
-                      key={`${r.hostname}|${r.path_prefix}`}
-                      registry={r}
-                      reload={reload}
-                    />
-                  ))}
+                {cs.sortItems(resp.items).map((r) => (
+                  <RegistryRow
+                    key={`${r.hostname}|${r.path_prefix}`}
+                    registry={r}
+                    reload={reload}
+                  />
+                ))}
               </tbody>
             </table>
           )}

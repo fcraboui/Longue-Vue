@@ -1,6 +1,6 @@
 import type {
   ApiToken, Application, ApplicationBlock, ApplicationMember, AuditEvent,
-  AuthConfig, Cluster, CloudAccount, Container, Ingress, ImpactGraph, Me,
+  AuthConfig, Cluster, CloudAccount, Container, ImageRegistry, Ingress, ImpactGraph, Me,
   Namespace, Node, NodeCondition, NodeTaint, OSImage, PagedResponse, PersistentVolume,
   PersistentVolumeClaim, Pod, Service, Session, Settings, User,
   VirtualMachine, VMApplication, Workload,
@@ -432,6 +432,34 @@ export const fixtureVirtualMachineMember: ApplicationMember = {
 export function paged<T>(items: T[]): PagedResponse<T> {
   return { items, next_cursor: null };
 }
+
+export const fixtureImageRegistry: ImageRegistry = {
+  hostname: 'registry.example.com',
+  path_prefix: '',
+  rate_limit_per_sec: 5,
+  enabled: true,
+  notes: null,
+  is_mirror: false,
+  replicates_from_hostname: null,
+  auth_username: null,
+  auth_configured: false,
+  created_at: '2025-01-01T00:00:00Z',
+  updated_at: '2025-01-01T00:00:00Z',
+};
+
+export const fixtureImageRegistryMirror: ImageRegistry = {
+  hostname: 'mirror.example.com',
+  path_prefix: 'containers/',
+  rate_limit_per_sec: 10,
+  enabled: false,
+  notes: 'internal mirror',
+  is_mirror: true,
+  replicates_from_hostname: null,
+  auth_username: null,
+  auth_configured: false,
+  created_at: '2025-01-01T00:00:00Z',
+  updated_at: '2025-01-01T00:00:00Z',
+};
 
 export const fixtureOSImage: OSImage = {
   image_name: 'master-PLATFORM-k8s-1-32-k8s_1_32_snc-2025.10.13',

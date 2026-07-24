@@ -3,7 +3,7 @@ import { act, render, renderHook, screen, waitFor } from '@testing-library/react
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { type ReactNode, useState } from 'react';
 import { ApiError } from './api';
-import { useDebouncedValue, useResource, useResources, usePageSize, PAGE_SIZE_OPTIONS, usePagedList, useListControls, useLocalListControls } from './hooks';
+import { useDebouncedValue, useResource, useResources, usePageSize, PAGE_SIZE_OPTIONS, usePagedList, useListControls, useLocalListControls, useClientSort } from './hooks';
 import type { PagedResponse } from './api';
 
 afterEach(() => vi.useRealTimers());
@@ -307,6 +307,24 @@ describe('useListControls', () => {
   it('omits sort/order from params when no sort is active', () => {
     const { result } = renderHook(() => useListControls(), { wrapper: wrapper() });
     expect(result.current.params).toEqual({ name: undefined, sort: undefined, order: undefined });
+  });
+});
+
+describe('useClientSort', () => {
+  const rows = [{ n: 'b', v: 2 }, { n: 'a', v: 10 }, { n: 'c', v: 1 }];
+  const accessors = { name: (r: { n: string; v: number }) => r.n, val: (r: { n: string; v: number }) => r.v };
+  it('sorts by the initial key ascending and flips on toggle', async () => {
+    const { result } = renderHook(() => useClientSort('name', accessors));
+    expect(result.current.sortItems(rows).map((r) => r.n)).toEqual(['a', 'b', 'c']);
+    act(() => result.current.toggleSort('name'));
+    await waitFor(() => expect(result.current.asc).toBe(false));
+    expect(result.current.sortItems(rows).map((r) => r.n)).toEqual(['c', 'b', 'a']);
+  });
+  it('sorts numbers numerically and switches keys asc', async () => {
+    const { result } = renderHook(() => useClientSort('name', accessors));
+    act(() => result.current.toggleSort('val'));
+    await waitFor(() => expect(result.current.sort).toBe('val'));
+    expect(result.current.sortItems(rows).map((r) => r.v)).toEqual([1, 2, 10]);
   });
 });
 
