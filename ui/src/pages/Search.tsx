@@ -7,6 +7,7 @@ import { useEntityTable } from '../components/column_filters';
 import { isAdmin, useMe } from '../me';
 import { ExtractButton } from '../components/ExtractButton';
 import { TruncationBanner } from '../components/TruncationBanner';
+import { IncompleteListBanner } from '../components/IncompleteListBanner';
 
 // Image search — answers "which applications run component X in version Y?"
 // The query is kept in the URL (?q=) so auditors can bookmark / share.
@@ -103,8 +104,11 @@ function Results({ q }: { q: string }) {
         for (const vm of vmsByApp.items) vmsById.set(vm.id, vm);
         return {
           workloads: wls.items,
+          workloadsMore: !!wls.next_cursor,
           pods: pods.items,
+          podsMore: !!pods.next_cursor,
           vms: Array.from(vmsById.values()),
+          vmsMore: !!(vmsByImage.next_cursor || vmsByApp.next_cursor),
           accountsById: new Map((accounts?.items ?? []).map((a) => [a.id, a])),
         };
       }),
@@ -113,7 +117,7 @@ function Results({ q }: { q: string }) {
 
   return (
     <AsyncView state={state}>
-      {({ workloads, pods, vms, accountsById }) => {
+      {({ workloads, workloadsMore, pods, podsMore, vms, vmsMore, accountsById }) => {
         // Unique namespace count across the union of workload + pod hits —
         // the top-line "affected apps" number shown in the callout.
         const affectedNamespaces = new Set<string>();
@@ -140,6 +144,7 @@ function Results({ q }: { q: string }) {
                 onTruncation={setTruncated}
               />
             </div>
+            <IncompleteListBanner visible={workloadsMore} what="matching workloads" />
             {workloads.length === 0 ? (
               <Empty message="No workloads match." />
             ) : (
@@ -186,6 +191,7 @@ function Results({ q }: { q: string }) {
                 onTruncation={setTruncated}
               />
             </div>
+            <IncompleteListBanner visible={podsMore} what="matching pods" />
             {pods.length === 0 ? (
               <Empty message="No pods match." />
             ) : (
@@ -237,6 +243,7 @@ function Results({ q }: { q: string }) {
                 onTruncation={setTruncated}
               />
             </div>
+            <IncompleteListBanner visible={vmsMore} what="matching virtual machines" />
             {vms.length === 0 ? (
               <Empty message="No virtual machines match." />
             ) : (

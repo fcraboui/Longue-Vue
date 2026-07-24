@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as api from '../../api';
-import { useResource, usePagedList } from '../../hooks';
+import { useClientSort, useResource, usePagedList } from '../../hooks';
+import { SortHeader } from '../../components/SortHeader';
 import { NodeCuratedCard } from '../node_curated';
 import { ImpactSection } from '../ImpactGraph';
 import { LabelsCard } from '../../components/inventory/LabelsCard';
@@ -203,6 +204,11 @@ export function NodeDetail() {
   const { id = '' } = useParams();
   const [nonce, setNonce] = useState(0);
   const reload = () => setNonce((n) => n + 1);
+  // Conditions table: initial key 'type' asc — stable alphabetical default.
+  const condSort = useClientSort<api.NodeCondition>('type', {
+    type: (c) => c.type,
+    status: (c) => c.status,
+  });
   // 1. Fetch the node record itself.
   const node = useResource(() => api.getNode(id), [id, nonce]);
   // Also pull all workloads so we can attach name/kind to each pod's
@@ -322,14 +328,14 @@ export function NodeDetail() {
               <table className="entities">
                 <thead>
                   <tr>
-                    <th>Type</th>
-                    <th>Status</th>
+                    <SortHeader label="Type" sortKey="type" activeKey={condSort.sort} asc={condSort.asc} onToggle={condSort.toggleSort} />
+                    <SortHeader label="Status" sortKey="status" activeKey={condSort.sort} asc={condSort.asc} onToggle={condSort.toggleSort} />
                     <th>Reason</th>
                     <th>Message</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {n.conditions.map((c) => {
+                  {condSort.sortItems(n.conditions).map((c) => {
                     const healthy =
                       (c.type === 'Ready' && c.status === 'True') ||
                       (c.type !== 'Ready' && c.status === 'False');

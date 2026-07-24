@@ -1,9 +1,11 @@
 import { FormEvent, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as api from '../../api';
-import { useResource } from '../../hooks';
-import { AsyncView, Dash, SectionTitle } from '../../components';
+import { useListControls, usePagedList, type ListControls } from '../../hooks';
+import { Dash, Paginator, SectionTitle } from '../../components';
 import { useEntityTable } from '../../components/column_filters';
+import { SearchInput } from '../../components/SearchInput';
+import { SortHeader } from '../../components/SortHeader';
 
 // CloudAccountsPage — admin tab for ADR-0015 cloud-provider accounts.
 // Shape mirrors the Tokens page: list-then-action, with an inline create
@@ -43,88 +45,146 @@ function formatTs(ts?: string | null): string {
 export default function CloudAccountsPage() {
   const [nonce, setNonce] = useState(0);
   const reload: Reload = () => setNonce((n) => n + 1);
-  const state = useResource(() => api.listCloudAccounts(), [nonce]);
+  const controls = useListControls();
+  const list = usePagedList<api.CloudAccount>(
+    (cursor, limit) => api.listCloudAccounts({ ...controls.params, cursor, limit }),
+    [...controls.deps, nonce],
+  );
   const [searchParams, setSearchParams] = useSearchParams();
   const statusFilter = searchParams.get('status') || '';
-  const tableRef = useEntityTable('admin.cloud_accounts');
 
   const setStatus = (s: string) => {
-    const next = new URLSearchParams(searchParams);
-    if (s) next.set('status', s);
-    else next.delete('status');
-    setSearchParams(next, { replace: true });
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (s) next.set('status', s);
+      else next.delete('status');
+      return next;
+    }, { replace: true });
   };
 
+  // Client-side status filter over the current page.
+  // Pending count is page-scoped since the list paginates (ADR-0042
+  // phase 3). Fleets are small; the banner is a hint, not a tally.
+  const pending = list.items.filter((a) => a.status === 'pending_credentials');
+  const filtered = statusFilter
+    ? list.items.filter((a) => a.status === statusFilter)
+    : list.items;
+
   return (
-    <AsyncView state={state}>
-      {(resp) => {
-        const accounts = resp.items;
-        // Plain filter (no useMemo) — render-prop callbacks aren't a stable
-        // hook scope. Both filters are O(N) over the page's 200-row max so
-        // recomputing every render is cheap.
-        const pending = accounts.filter((a) => a.status === 'pending_credentials');
-        const filtered = statusFilter
-          ? accounts.filter((a) => a.status === statusFilter)
-          : accounts;
+    <>
+      {pending.length > 0 && (
+        <div className="vm-banner">
+          <strong>{pending.length}</strong> account{pending.length === 1 ? '' : 's'} pending
+          credentials — collector is stuck waiting for AK/SK input.{' '}
+          <button
+            type="button"
+            className="link-btn"
+            onClick={() => setStatus('pending_credentials')}
+          >
+            Filter table
+          </button>
+        </div>
+      )}
 
-        return (
-          <>
-            {pending.length > 0 && (
-              <div className="vm-banner">
-                <strong>{pending.length}</strong> account{pending.length === 1 ? '' : 's'} pending
-                credentials — collector is stuck waiting for AK/SK input.{' '}
-                <button
-                  type="button"
-                  className="link-btn"
-                  onClick={() => setStatus('pending_credentials')}
-                >
-                  Filter table
-                </button>
-              </div>
-            )}
+      <CreateForm reload={reload} />
 
-            <CreateForm reload={reload} />
+      <SectionTitle count={filtered.length}>
+        {statusFilter ? `Cloud accounts (${statusFilter})` : 'Cloud accounts'}
+      </SectionTitle>
 
-            <SectionTitle count={filtered.length}>
-              {statusFilter ? `Cloud accounts (${statusFilter})` : 'Cloud accounts'}
-            </SectionTitle>
+      {statusFilter && (
+        <p style={{ margin: '0 0 0.5rem' }}>
+          Filtering by <code>{statusFilter}</code>.{' '}
+          <button type="button" className="link-btn" onClick={() => setStatus('')}>
+            clear
+          </button>
+        </p>
+      )}
 
-            {statusFilter && (
-              <p style={{ margin: '0 0 0.5rem' }}>
-                Filtering by <code>{statusFilter}</code>.{' '}
-                <button type="button" className="link-btn" onClick={() => setStatus('')}>
-                  clear
-                </button>
-              </p>
-            )}
+      <div className="vm-filters">
+        <SearchInput value={controls.nameInput} onChange={controls.setNameInput} label="Name" />
+      </div>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <div className="error">Failed to load: {list.error}</div>
+      ) : filtered.length === 0 ? (
+        <p className="muted">No cloud accounts registered yet.</p>
+      ) : (
+        <CloudAccountTable accounts={filtered} controls={controls} reload={reload} />
+      )}
+    </>
+  );
+}
 
-            {filtered.length === 0 ? (
-              <p className="muted">No cloud accounts registered yet.</p>
-            ) : (
-              <table className="entities" ref={tableRef}>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Provider</th>
-                    <th>Region</th>
-                    <th>Status</th>
-                    <th>Last seen</th>
-                    <th>Owner</th>
-                    <th>Criticality</th>
-                    <th style={{ textAlign: 'right' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((a) => (
-                    <CloudAccountRow key={a.id} account={a} reload={reload} />
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </>
-        );
-      }}
-    </AsyncView>
+function CloudAccountTable({
+  accounts,
+  controls,
+  reload,
+}: {
+  accounts: api.CloudAccount[];
+  controls: ListControls;
+  reload: Reload;
+}) {
+  const tableRef = useEntityTable('admin.cloud_accounts');
+  return (
+    <table className="entities" ref={tableRef}>
+      <thead>
+        <tr>
+          <SortHeader
+            label="Name"
+            sortKey="name"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
+          <SortHeader
+            label="Provider"
+            sortKey="provider"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
+          <SortHeader
+            label="Region"
+            sortKey="region"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
+          <SortHeader
+            label="Status"
+            sortKey="status"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
+          <SortHeader
+            label="Last seen"
+            sortKey="last_seen_at"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
+          <th>Owner</th>
+          <th>Criticality</th>
+          <th style={{ textAlign: 'right' }}>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {accounts.map((a) => (
+          <CloudAccountRow key={a.id} account={a} reload={reload} />
+        ))}
+      </tbody>
+    </table>
   );
 }
 

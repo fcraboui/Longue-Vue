@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as api from '../../api';
-import { useResource, usePagedList } from '../../hooks';
+import { useResource, usePagedList, useLocalListControls } from '../../hooks';
 import { NamespaceCuratedCard } from '../namespace_curated';
 import { ImpactSection } from '../ImpactGraph';
 import { NamespaceIcon } from '../../icons';
@@ -22,19 +22,21 @@ import { ListSection } from '../../components/ListSection';
 // --- NamespaceDetail child sections ---------------------------------------
 
 function NamespaceWorkloadsSection({ namespaceId }: { namespaceId: string }) {
+  const controls = useLocalListControls();
   const list = usePagedList<api.Workload>(
-    (cursor, limit) => api.listWorkloads({ namespace_id: namespaceId, cursor, limit }),
-    [namespaceId],
+    (cursor, limit) => api.listWorkloads({ namespace_id: namespaceId, ...controls.params, cursor, limit }),
+    [namespaceId, ...controls.deps],
   );
   return (
     <ListSection
       title="Workloads"
       list={list}
+      controls={controls}
       emptyMessage="None."
       rowKey={(w) => w.id}
       columns={[
-        { key: 'name', label: 'Name', link: (w) => `/workloads/${w.id}`, render: (w) => w.name },
-        { key: 'kind', label: 'Kind', render: (w) => <span className="pill">{w.kind}</span> },
+        { key: 'name', label: 'Name', sortKey: 'name', link: (w) => `/workloads/${w.id}`, render: (w) => w.name },
+        { key: 'kind', label: 'Kind', sortKey: 'kind', render: (w) => <span className="pill">{w.kind}</span> },
         {
           key: 'ready',
           label: 'Ready',
@@ -61,27 +63,31 @@ function NamespaceWorkloadsSection({ namespaceId }: { namespaceId: string }) {
 }
 
 function NamespacePodsSection({ namespaceId }: { namespaceId: string }) {
+  const controls = useLocalListControls();
   const list = usePagedList<api.Pod>(
-    (cursor, limit) => api.listPods({ namespace_id: namespaceId, cursor, limit }),
-    [namespaceId],
+    (cursor, limit) => api.listPods({ namespace_id: namespaceId, ...controls.params, cursor, limit }),
+    [namespaceId, ...controls.deps],
   );
   return (
     <ListSection
       title="Pods"
       list={list}
+      controls={controls}
       emptyMessage="None."
       rowKey={(p) => p.id}
       columns={[
-        { key: 'name', label: 'Name', link: (p) => `/pods/${p.id}`, render: (p) => p.name },
-        { key: 'phase', label: 'Phase', render: (p) => p.phase || <Dash /> },
+        { key: 'name', label: 'Name', sortKey: 'name', link: (p) => `/pods/${p.id}`, render: (p) => p.name },
+        { key: 'phase', label: 'Phase', sortKey: 'phase', render: (p) => p.phase || <Dash /> },
         {
           key: 'node',
           label: 'Node',
+          sortKey: 'node_name',
           render: (p) => (p.node_name ? <code>{p.node_name}</code> : <Dash />),
         },
         {
           key: 'pod_ip',
           label: 'Pod IP',
+          sortKey: 'pod_ip',
           render: (p) => (p.pod_ip ? <code>{p.pod_ip}</code> : <Dash />),
         },
         {
@@ -104,26 +110,30 @@ function NamespacePodsSection({ namespaceId }: { namespaceId: string }) {
 }
 
 function NamespaceServicesSection({ namespaceId }: { namespaceId: string }) {
+  const controls = useLocalListControls();
   const list = usePagedList<api.Service>(
-    (cursor, limit) => api.listServices({ namespace_id: namespaceId, cursor, limit }),
-    [namespaceId],
+    (cursor, limit) => api.listServices({ namespace_id: namespaceId, ...controls.params, cursor, limit }),
+    [namespaceId, ...controls.deps],
   );
   return (
     <ListSection
       title="Services"
       list={list}
+      controls={controls}
       emptyMessage="None."
       rowKey={(s) => s.id}
       columns={[
-        { key: 'name', label: 'Name', link: (s) => `/services/${s.id}`, render: (s) => s.name },
+        { key: 'name', label: 'Name', sortKey: 'name', link: (s) => `/services/${s.id}`, render: (s) => s.name },
         {
           key: 'type',
           label: 'Type',
+          sortKey: 'type',
           render: (s) => <span className="pill">{s.type || 'ClusterIP'}</span>,
         },
         {
           key: 'cluster_ip',
           label: 'ClusterIP',
+          sortKey: 'cluster_ip',
           render: (s) => (s.cluster_ip ? <code>{s.cluster_ip}</code> : <Dash />),
         },
       ]}
@@ -132,19 +142,21 @@ function NamespaceServicesSection({ namespaceId }: { namespaceId: string }) {
 }
 
 function NamespaceIngressesSection({ namespaceId }: { namespaceId: string }) {
+  const controls = useLocalListControls();
   const list = usePagedList<api.Ingress>(
-    (cursor, limit) => api.listIngresses({ namespace_id: namespaceId, cursor, limit }),
-    [namespaceId],
+    (cursor, limit) => api.listIngresses({ namespace_id: namespaceId, ...controls.params, cursor, limit }),
+    [namespaceId, ...controls.deps],
   );
   return (
     <ListSection
       title="Ingresses"
       list={list}
+      controls={controls}
       emptyMessage="None."
       rowKey={(i) => i.id}
       columns={[
-        { key: 'name', label: 'Name', link: (i) => `/ingresses/${i.id}`, render: (i) => i.name },
-        { key: 'class', label: 'Class', render: (i) => i.ingress_class_name || <Dash /> },
+        { key: 'name', label: 'Name', sortKey: 'name', link: (i) => `/ingresses/${i.id}`, render: (i) => i.name },
+        { key: 'class', label: 'Class', sortKey: 'ingress_class_name', render: (i) => i.ingress_class_name || <Dash /> },
         {
           key: 'hosts',
           label: 'Hosts',
@@ -166,27 +178,31 @@ function NamespaceIngressesSection({ namespaceId }: { namespaceId: string }) {
 }
 
 function NamespacePVCsSection({ namespaceId }: { namespaceId: string }) {
+  const controls = useLocalListControls();
   const list = usePagedList<api.PersistentVolumeClaim>(
-    (cursor, limit) => api.listPersistentVolumeClaims({ namespace_id: namespaceId, cursor, limit }),
-    [namespaceId],
+    (cursor, limit) => api.listPersistentVolumeClaims({ namespace_id: namespaceId, ...controls.params, cursor, limit }),
+    [namespaceId, ...controls.deps],
   );
   return (
     <ListSection
       title="Persistent Volume Claims"
       list={list}
+      controls={controls}
       emptyMessage="None."
       rowKey={(pvc) => pvc.id}
       columns={[
         {
           key: 'name',
           label: 'Name',
+          sortKey: 'name',
           link: (pvc) => `/persistentvolumeclaims/${pvc.id}`,
           render: (pvc) => pvc.name,
         },
-        { key: 'phase', label: 'Phase', render: (pvc) => pvc.phase || <Dash /> },
+        { key: 'phase', label: 'Phase', sortKey: 'phase', render: (pvc) => pvc.phase || <Dash /> },
         {
           key: 'requested',
           label: 'Requested',
+          sortKey: 'requested_storage',
           render: (pvc) => (pvc.requested_storage ? <code>{pvc.requested_storage}</code> : <Dash />),
         },
         {

@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import * as api from '../../api';
-import { useResource } from '../../hooks';
-import { AsyncView, Dash, SectionTitle } from '../../components';
+import { Dash, Paginator, SectionTitle } from '../../components';
 import { useEntityTable } from '../../components/column_filters';
+import { SearchInput } from '../../components/SearchInput';
+import { SortHeader } from '../../components/SortHeader';
+import { useListControls, usePagedList } from '../../hooks';
 
 // Admin Sessions page. Read-only table with a revoke action. The `id`
 // column is the server-side public UUID, never the cookie value —
@@ -12,44 +14,83 @@ import { useEntityTable } from '../../components/column_filters';
 export default function SessionsPage() {
   const [nonce, setNonce] = useState(0);
   const reload = () => setNonce((n) => n + 1);
-  const state = useResource(() => api.listSessions(), [nonce]);
+  const controls = useListControls();
+  const list = usePagedList<api.Session>(
+    (cursor, limit) => api.listSessions({ ...controls.params, cursor, limit }),
+    [...controls.deps, nonce],
+  );
   const tableRef = useEntityTable('admin.sessions');
 
   return (
-    <AsyncView state={state}>
-      {(resp) => (
-        <>
-          <SectionTitle count={resp.items.length}>Active sessions</SectionTitle>
-          <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-            Only non-expired sessions are listed. Revoking a session logs that
-            user's tab out server-side — the next request the browser makes
-            bounces back to the login page.
-          </p>
-          {resp.items.length === 0 ? (
-            <p className="muted">No active sessions.</p>
-          ) : (
-            <table className="entities" ref={tableRef}>
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Created</th>
-                  <th>Last used</th>
-                  <th>Expires</th>
-                  <th>User agent</th>
-                  <th>Source IP</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resp.items.map((s) => (
-                  <SessionRow key={s.id} session={s} reload={reload} />
-                ))}
-              </tbody>
-            </table>
-          )}
-        </>
+    <>
+      <SectionTitle count={list.items.length}>Active sessions</SectionTitle>
+      <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
+        Only non-expired sessions are listed. Revoking a session logs that
+        user's tab out server-side — the next request the browser makes
+        bounces back to the login page.
+      </p>
+      <div className="vm-filters">
+        <SearchInput value={controls.nameInput} onChange={controls.setNameInput} label="Username" />
+      </div>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <div className="error">Failed to load: {list.error}</div>
+      ) : list.items.length === 0 ? (
+        <p className="muted">No active sessions.</p>
+      ) : (
+        <table className="entities" ref={tableRef}>
+          <thead>
+            <tr>
+              <SortHeader
+                label="User"
+                sortKey="username"
+                activeKey={controls.sort}
+                asc={controls.order === 'asc'}
+                onToggle={controls.toggleSort}
+              />
+              <SortHeader
+                label="Created"
+                sortKey="created_at"
+                activeKey={controls.sort}
+                asc={controls.order === 'asc'}
+                onToggle={controls.toggleSort}
+              />
+              <SortHeader
+                label="Last used"
+                sortKey="last_used_at"
+                activeKey={controls.sort}
+                asc={controls.order === 'asc'}
+                onToggle={controls.toggleSort}
+              />
+              <SortHeader
+                label="Expires"
+                sortKey="expires_at"
+                activeKey={controls.sort}
+                asc={controls.order === 'asc'}
+                onToggle={controls.toggleSort}
+              />
+              <th>User agent</th>
+              <th>Source IP</th>
+              <th style={{ textAlign: 'right' }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.items.map((s) => (
+              <SessionRow key={s.id} session={s} reload={reload} />
+            ))}
+          </tbody>
+        </table>
       )}
-    </AsyncView>
+    </>
   );
 }
 

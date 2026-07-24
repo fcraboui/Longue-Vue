@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { usePagedList } from '../hooks';
+import { useLocalListControls, usePagedList } from '../hooks';
 import type { PagedResponse } from '../api';
 import { ListSection } from './ListSection';
 
@@ -93,5 +93,66 @@ describe('ListSection', () => {
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
     await waitFor(() => expect(screen.getByText('gamma')).toBeInTheDocument());
     expect(screen.queryByText('alpha')).toBeNull();
+  });
+
+  it('renders identically to before when controls are omitted', async () => {
+    renderHarness(async () =>
+      itemsPage([{ id: 'a1', name: 'alpha', kind: 'Widget' }]),
+    );
+    await waitFor(() => expect(screen.getByText('alpha')).toBeInTheDocument());
+    // No search input rendered.
+    expect(screen.queryByPlaceholderText(/filter by name/i)).toBeNull();
+    // Headers are plain <th> elements (not sortable).
+    const nameHeader = screen.getByRole('columnheader', { name: 'Name' });
+    expect(nameHeader).not.toHaveClass('sortable');
+    const kindHeader = screen.getByRole('columnheader', { name: 'Kind' });
+    expect(kindHeader).not.toHaveClass('sortable');
+  });
+
+  it('renders search box and sortable headers when controls are provided', async () => {
+    // Host component owns useLocalListControls and passes it to ListSection.
+    function ControlledHarness() {
+      const list = usePagedList<Item>(
+        async () => itemsPage([{ id: 'a1', name: 'alpha', kind: 'Widget' }]),
+        [],
+      );
+      const controls = useLocalListControls();
+      return (
+        <ListSection
+          title="Controlled"
+          list={list}
+          emptyMessage="Nothing."
+          rowKey={(i) => i.id}
+          controls={controls}
+          columns={[
+            { key: 'name', label: 'Name', sortKey: 'name', render: (i) => i.name },
+            { key: 'kind', label: 'Kind', render: (i) => i.kind },
+          ]}
+        />
+      );
+    }
+
+    render(
+      <MemoryRouter>
+        <ControlledHarness />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText('alpha')).toBeInTheDocument());
+
+    // Search input is rendered with the default placeholder.
+    expect(screen.getByPlaceholderText(/filter by name/i)).toBeInTheDocument();
+
+    // First column has sortKey → rendered as SortHeader with class 'sortable'.
+    const nameHeader = screen.getByRole('columnheader', { name: 'Name' });
+    expect(nameHeader).toHaveClass('sortable');
+
+    // Second column has no sortKey → plain <th>, no 'sortable' class.
+    const kindHeader = screen.getByRole('columnheader', { name: 'Kind' });
+    expect(kindHeader).not.toHaveClass('sortable');
+
+    // Clicking the sortable header toggles the ascending arrow.
+    await userEvent.click(nameHeader);
+    expect(screen.getByRole('columnheader', { name: /Name.*▲/ })).toBeInTheDocument();
   });
 });

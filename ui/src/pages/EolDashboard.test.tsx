@@ -98,6 +98,87 @@ describe('EOL Dashboard extract button', () => {
   });
 });
 
+describe('EOL Dashboard incomplete list banner', () => {
+  it('shows the incomplete banner when clusters returns a next_cursor', async () => {
+    server.use(
+      http.get('/v1/clusters', () =>
+        HttpResponse.json({ items: [clusterWithEol], next_cursor: 'more' }),
+      ),
+      http.get('/v1/nodes', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/virtual-machines', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/applications', () => HttpResponse.json({ items: [], next_cursor: null })),
+    );
+    renderWithRouter(<EolDashboard />, { initialPath: '/eol' });
+    await waitFor(() =>
+      expect(screen.getByText(/first page of/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/the inventory/i)).toBeInTheDocument();
+  });
+
+  it('does not show the incomplete banner when all cursors are null', async () => {
+    server.use(
+      http.get('/v1/clusters', () =>
+        HttpResponse.json({ items: [clusterWithEol], next_cursor: null }),
+      ),
+      http.get('/v1/nodes', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/virtual-machines', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/applications', () => HttpResponse.json({ items: [], next_cursor: null })),
+    );
+    renderWithRouter(<EolDashboard />, { initialPath: '/eol' });
+    // Wait for the page to settle (EOL table visible).
+    await waitFor(() =>
+      expect(screen.getByText('kubernetes')).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/first page of/i)).toBeNull();
+  });
+
+  it('shows the incomplete banner even when first-page fetches yield zero EOL rows', async () => {
+    // All list endpoints return items WITHOUT eol annotations (zero displayable rows)
+    // but /v1/clusters returns a next_cursor (more data exists on subsequent pages).
+    const clusterNoEol = {
+      id: 'c-no-eol',
+      name: 'staging',
+      display_name: 'Staging',
+      annotations: null, // no EOL annotations
+    };
+    const nodeNoEol = {
+      id: 'node-no-eol',
+      name: 'worker-1',
+      display_name: null,
+      cluster_id: clusterNoEol.id,
+      annotations: null, // no EOL annotations
+    };
+    const vmNoEol = {
+      id: 'vm-no-eol',
+      name: 'db-01',
+      display_name: 'db-01',
+      annotations: null, // no EOL annotations
+    };
+    server.use(
+      http.get('/v1/clusters', () =>
+        HttpResponse.json({ items: [clusterNoEol], next_cursor: 'more' }),
+      ),
+      http.get('/v1/nodes', () =>
+        HttpResponse.json({ items: [nodeNoEol], next_cursor: null }),
+      ),
+      http.get('/v1/virtual-machines', () =>
+        HttpResponse.json({ items: [vmNoEol], next_cursor: null }),
+      ),
+      http.get('/v1/applications', () =>
+        HttpResponse.json({ items: [], next_cursor: null }),
+      ),
+    );
+    renderWithRouter(<EolDashboard />, { initialPath: '/eol' });
+    // The banner should be visible even though no EOL rows render.
+    await waitFor(() =>
+      expect(screen.getByText(/first page of/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/the inventory/i)).toBeInTheDocument();
+    // The EOL table and extract button should NOT be visible (zero rows).
+    expect(screen.queryByRole('button', { name: /extract/i })).toBeNull();
+  });
+});
+
 describe('EOL Dashboard application column', () => {
   beforeEach(() => {
     server.use(

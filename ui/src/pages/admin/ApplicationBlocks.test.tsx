@@ -88,4 +88,42 @@ describe('ApplicationBlocksPage', () => {
       expect(screen.getByText(/No application blocks configured yet/i)).toBeInTheDocument(),
     );
   });
+
+  it('clicking Owner header reorders rows', async () => {
+    const alpha: typeof fixtureApplicationBlock = {
+      ...fixtureApplicationBlock,
+      id: 'f1111111-1111-1111-1111-111111111111',
+      name: 'alpha',
+      owner: 'aardvark',
+    };
+    const beta: typeof fixtureApplicationBlock = {
+      ...fixtureApplicationBlock,
+      id: 'f2222222-2222-2222-2222-222222222222',
+      name: 'beta',
+      owner: 'zebra',
+    };
+    server.use(http.get('/v1/application-blocks', () => HttpResponse.json(paged([beta, alpha]))));
+    const user = userEvent.setup();
+    renderWithRouter(<ApplicationBlocksPage />, { initialPath: '/admin/application-blocks' });
+    // Initial sort by name: alpha before beta.
+    await waitFor(() => {
+      const rows = screen.getAllByRole('row').slice(1); // skip header
+      expect(rows[0].textContent).toMatch(/alpha/);
+      expect(rows[1].textContent).toMatch(/beta/);
+    });
+    // Click Owner header → sort by owner asc: aardvark before zebra.
+    await user.click(screen.getByRole('columnheader', { name: /Owner/ }));
+    await waitFor(() => {
+      const rows = screen.getAllByRole('row').slice(1);
+      expect(rows[0].textContent).toMatch(/aardvark/);
+      expect(rows[1].textContent).toMatch(/zebra/);
+    });
+    // Click again → desc: zebra first.
+    await user.click(screen.getByRole('columnheader', { name: /Owner/ }));
+    await waitFor(() => {
+      const rows = screen.getAllByRole('row').slice(1);
+      expect(rows[0].textContent).toMatch(/zebra/);
+      expect(rows[1].textContent).toMatch(/aardvark/);
+    });
+  });
 });

@@ -133,8 +133,8 @@ export interface UserUpdate {
   unlock?: boolean;
 }
 
-export function listUsers() {
-  return request<PagedResponse<User>>('/v1/admin/users?limit=200');
+export function listUsers(filter?: { cursor?: string; limit?: number } & ListControlParams) {
+  return request<PagedResponse<User>>('/v1/admin/users' + query({ limit: 200, ...filter }));
 }
 export function createUser(in_: UserCreate) {
   return request<User>('/v1/admin/users', { method: 'POST', body: JSON.stringify(in_) });
@@ -179,8 +179,8 @@ export interface ApiTokenCreate {
   expires_at?: string | null;
 }
 
-export function listApiTokens() {
-  return request<PagedResponse<ApiToken>>('/v1/admin/tokens?limit=200');
+export function listApiTokens(filter?: { cursor?: string; limit?: number } & ListControlParams) {
+  return request<PagedResponse<ApiToken>>('/v1/admin/tokens' + query({ limit: 200, ...filter }));
 }
 export function createApiToken(in_: ApiTokenCreate) {
   return request<ApiTokenMint>('/v1/admin/tokens', { method: 'POST', body: JSON.stringify(in_) });
@@ -224,8 +224,8 @@ export interface Session {
   source_ip?: string | null;
 }
 
-export function listSessions() {
-  return request<PagedResponse<Session>>('/v1/admin/sessions?limit=200');
+export function listSessions(filter?: { cursor?: string; limit?: number } & ListControlParams) {
+  return request<PagedResponse<Session>>('/v1/admin/sessions' + query({ limit: 200, ...filter }));
 }
 export function revokeSession(id: string) {
   return request<void>(`/v1/admin/sessions/${id}`, { method: 'DELETE' });
@@ -261,19 +261,27 @@ export interface AuditFilter {
   since?: string;
   until?: string;
   cursor?: string;
+  limit?: number;
+  sort?: string;
+  order?: 'asc' | 'desc';
 }
 
 export function listAuditEvents(filter: AuditFilter = {}) {
-  const q = new URLSearchParams();
-  q.set('limit', '100');
-  if (filter.actorId) q.set('actor_id', filter.actorId);
-  if (filter.resourceType) q.set('resource_type', filter.resourceType);
-  if (filter.resourceId) q.set('resource_id', filter.resourceId);
-  if (filter.action) q.set('action', filter.action);
-  if (filter.since) q.set('since', filter.since);
-  if (filter.until) q.set('until', filter.until);
-  if (filter.cursor) q.set('cursor', filter.cursor);
-  return request<PagedResponse<AuditEvent>>(`/v1/admin/audit?${q.toString()}`);
+  return request<PagedResponse<AuditEvent>>(
+    '/v1/admin/audit' +
+      query({
+        limit: filter.limit ?? 100,
+        actor_id: filter.actorId,
+        resource_type: filter.resourceType,
+        resource_id: filter.resourceId,
+        action: filter.action,
+        since: filter.since,
+        until: filter.until,
+        cursor: filter.cursor,
+        sort: filter.sort,
+        order: filter.order,
+      }),
+  );
 }
 
 // Settings -----------------------------------------------------------------
@@ -891,8 +899,8 @@ export interface CloudAccountCredentials {
   secret_key: string;
 }
 
-export function listCloudAccounts() {
-  return request<PagedResponse<CloudAccount>>('/v1/admin/cloud-accounts?limit=200');
+export function listCloudAccounts(filter?: { cursor?: string; limit?: number } & ListControlParams) {
+  return request<PagedResponse<CloudAccount>>('/v1/admin/cloud-accounts' + query({ limit: 200, ...filter }));
 }
 export function getCloudAccount(id: string) {
   return request<CloudAccount>(`/v1/admin/cloud-accounts/${id}`);

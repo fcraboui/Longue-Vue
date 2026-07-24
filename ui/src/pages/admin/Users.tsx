@@ -1,8 +1,10 @@
 import { FormEvent, useState } from 'react';
 import * as api from '../../api';
-import { useResource } from '../../hooks';
-import { AsyncView, Dash, SectionTitle } from '../../components';
+import { Dash, Paginator, SectionTitle } from '../../components';
 import { useEntityTable } from '../../components/column_filters';
+import { SearchInput } from '../../components/SearchInput';
+import { SortHeader } from '../../components/SortHeader';
+import { useListControls, usePagedList, type ListControls } from '../../hooks';
 
 // Admin Users page: list of humans, new-user collapsible form, inline
 // row actions. Destructive actions (delete, disable, reset-password)
@@ -13,19 +15,34 @@ type Reload = () => void;
 export default function UsersPage() {
   const [nonce, setNonce] = useState(0);
   const reload: Reload = () => setNonce((n) => n + 1);
-  const state = useResource(() => api.listUsers(), [nonce]);
+  const controls = useListControls();
+  const list = usePagedList<api.User>(
+    (cursor, limit) => api.listUsers({ ...controls.params, cursor, limit }),
+    [...controls.deps, nonce],
+  );
 
   return (
     <>
-      <AsyncView state={state}>
-        {(resp) => (
-          <>
-            <NewUserForm reload={reload} />
-            <SectionTitle count={resp.items.length}>Users</SectionTitle>
-            <UserTable users={resp.items} reload={reload} />
-          </>
-        )}
-      </AsyncView>
+      <NewUserForm reload={reload} />
+      <SectionTitle count={list.items.length}>Users</SectionTitle>
+      <div className="vm-filters">
+        <SearchInput value={controls.nameInput} onChange={controls.setNameInput} label="Username" />
+      </div>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <div className="error">Failed to load: {list.error}</div>
+      ) : (
+        <UserTable users={list.items} controls={controls} reload={reload} />
+      )}
     </>
   );
 }
@@ -122,18 +139,50 @@ function NewUserForm({ reload }: { reload: Reload }) {
   );
 }
 
-function UserTable({ users, reload }: { users: api.User[]; reload: Reload }) {
+function UserTable({
+  users,
+  controls,
+  reload,
+}: {
+  users: api.User[];
+  controls: ListControls;
+  reload: Reload;
+}) {
   const tableRef = useEntityTable('admin.users');
   if (users.length === 0) return <p className="muted">No users.</p>;
   return (
     <table className="entities" ref={tableRef}>
       <thead>
         <tr>
-          <th>Username</th>
-          <th>Role</th>
+          <SortHeader
+            label="Username"
+            sortKey="username"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
+          <SortHeader
+            label="Role"
+            sortKey="role"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
           <th>Status</th>
-          <th>Last login</th>
-          <th>Created</th>
+          <SortHeader
+            label="Last login"
+            sortKey="last_login_at"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
+          <SortHeader
+            label="Created"
+            sortKey="created_at"
+            activeKey={controls.sort}
+            asc={controls.order === 'asc'}
+            onToggle={controls.toggleSort}
+          />
           <th style={{ textAlign: 'right' }}>Actions</th>
         </tr>
       </thead>
