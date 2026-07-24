@@ -1,13 +1,15 @@
 import { FormEvent, useState } from 'react';
 import * as api from '../../api';
-import { useResource } from '../../hooks';
-import { AsyncView, Dash, SectionTitle } from '../../components';
+import { Dash, Paginator, SectionTitle } from '../../components';
 import { useEntityTable } from '../../components/column_filters';
+import { SortHeader } from '../../components/SortHeader';
+import { useListControls, usePagedList } from '../../hooks';
 
 // Admin Audit page. Read-only, newest-first list of recorded API
 // actions. Auditors can reach this without the rest of the admin panel
 // (see AdminLayout + RequireAdmin). Filters are applied server-side so
 // the page stays fast with large event counts.
+// No free-text name search by design — audit has structured filters only.
 
 type FilterForm = {
   actor: string;
@@ -22,15 +24,20 @@ export default function AuditPage() {
   const [draft, setDraft] = useState<FilterForm>(emptyFilter);
   const [applied, setApplied] = useState<FilterForm>(emptyFilter);
   const tableRef = useEntityTable('admin.audit');
-  const state = useResource(
-    () =>
+  const controls = useListControls(); // sort/order only — no SearchInput rendered
+  const list = usePagedList<api.AuditEvent>(
+    (cursor, limit) =>
       api.listAuditEvents({
         actorId: applied.actor || undefined,
         resourceType: applied.resourceType || undefined,
         action: applied.action || undefined,
         since: applied.since ? new Date(applied.since).toISOString() : undefined,
+        sort: controls.params.sort,
+        order: controls.params.order,
+        cursor,
+        limit,
       }),
-    [applied],
+    [applied, ...controls.deps],
   );
 
   const onSubmit = (e: FormEvent) => {
@@ -84,31 +91,63 @@ export default function AuditPage() {
         </button>
       </form>
 
-      <AsyncView state={state}>
-        {(resp) =>
-          resp.items.length === 0 ? (
-            <p className="muted">No audit events match.</p>
-          ) : (
-            <table className="entities" ref={tableRef}>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Actor</th>
-                  <th>Action</th>
-                  <th>Resource</th>
-                  <th>HTTP</th>
-                  <th>Source IP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resp.items.map((ev) => (
-                  <AuditRow key={ev.id} ev={ev} />
-                ))}
-              </tbody>
-            </table>
-          )
-        }
-      </AsyncView>
+      <Paginator
+        pageSize={list.pageSize}
+        hasPrev={list.hasPrev}
+        hasNext={list.hasNext}
+        onPrev={list.prev}
+        onNext={list.next}
+        onPageSize={list.setPageSize}
+      />
+      {list.loading ? (
+        <p className="loading">Loading…</p>
+      ) : list.error ? (
+        <div className="error">Failed to load: {list.error}</div>
+      ) : list.items.length === 0 ? (
+        <p className="muted">No audit events match.</p>
+      ) : (
+        <table className="entities" ref={tableRef}>
+          <thead>
+            <tr>
+              <SortHeader
+                label="Time"
+                sortKey="occurred_at"
+                activeKey={controls.sort}
+                asc={controls.order === 'asc'}
+                onToggle={controls.toggleSort}
+              />
+              <SortHeader
+                label="Actor"
+                sortKey="actor_username"
+                activeKey={controls.sort}
+                asc={controls.order === 'asc'}
+                onToggle={controls.toggleSort}
+              />
+              <SortHeader
+                label="Action"
+                sortKey="action"
+                activeKey={controls.sort}
+                asc={controls.order === 'asc'}
+                onToggle={controls.toggleSort}
+              />
+              <SortHeader
+                label="Resource"
+                sortKey="resource_type"
+                activeKey={controls.sort}
+                asc={controls.order === 'asc'}
+                onToggle={controls.toggleSort}
+              />
+              <th>HTTP</th>
+              <th>Source IP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.items.map((ev) => (
+              <AuditRow key={ev.id} ev={ev} />
+            ))}
+          </tbody>
+        </table>
+      )}
     </>
   );
 }
