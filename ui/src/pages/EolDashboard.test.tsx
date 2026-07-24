@@ -98,6 +98,41 @@ describe('EOL Dashboard extract button', () => {
   });
 });
 
+describe('EOL Dashboard incomplete list banner', () => {
+  it('shows the incomplete banner when clusters returns a next_cursor', async () => {
+    server.use(
+      http.get('/v1/clusters', () =>
+        HttpResponse.json({ items: [clusterWithEol], next_cursor: 'more' }),
+      ),
+      http.get('/v1/nodes', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/virtual-machines', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/applications', () => HttpResponse.json({ items: [], next_cursor: null })),
+    );
+    renderWithRouter(<EolDashboard />, { initialPath: '/eol' });
+    await waitFor(() =>
+      expect(screen.getByText(/first page of/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/the inventory/i)).toBeInTheDocument();
+  });
+
+  it('does not show the incomplete banner when all cursors are null', async () => {
+    server.use(
+      http.get('/v1/clusters', () =>
+        HttpResponse.json({ items: [clusterWithEol], next_cursor: null }),
+      ),
+      http.get('/v1/nodes', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/virtual-machines', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/applications', () => HttpResponse.json({ items: [], next_cursor: null })),
+    );
+    renderWithRouter(<EolDashboard />, { initialPath: '/eol' });
+    // Wait for the page to settle (EOL table visible).
+    await waitFor(() =>
+      expect(screen.getByText('kubernetes')).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/first page of/i)).toBeNull();
+  });
+});
+
 describe('EOL Dashboard application column', () => {
   beforeEach(() => {
     server.use(

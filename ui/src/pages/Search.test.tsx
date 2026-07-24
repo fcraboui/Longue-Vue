@@ -41,6 +41,28 @@ describe('ImageSearch', () => {
   });
 });
 
+describe('Search page incomplete list banners', () => {
+  it('shows the workloads banner when /v1/workloads returns a next_cursor, others absent', async () => {
+    server.use(
+      http.get('/v1/workloads', () =>
+        HttpResponse.json({ items: [], next_cursor: 'more' }),
+      ),
+      http.get('/v1/pods', () => HttpResponse.json({ items: [], next_cursor: null })),
+      http.get('/v1/virtual-machines', () => HttpResponse.json({ items: [], next_cursor: null })),
+    );
+    renderWithRouter(<ImageSearch />, { initialPath: '/search/image?q=nginx' });
+    await waitFor(() => expect(screen.getByText(/matches for/i)).toBeInTheDocument());
+    // Workloads banner should be visible — banner div has class "banner-warn".
+    const workloadsBanners = screen.getAllByText(/first page of/i);
+    expect(workloadsBanners.length).toBe(1);
+    expect(workloadsBanners[0].textContent).toMatch(/matching workloads/i);
+    // Pods and VMs banners should be absent (no second/third "first page of" element).
+    const allBannerTexts = screen.getAllByText(/first page of/i).map((el) => el.textContent ?? '');
+    expect(allBannerTexts.some((t) => /matching pods/i.test(t))).toBe(false);
+    expect(allBannerTexts.some((t) => /matching virtual machines/i.test(t))).toBe(false);
+  });
+});
+
 describe('Search page extract buttons', () => {
   beforeEach(() => {
     // Mock the api extract functions so downloadExtract (which needs DOM APIs

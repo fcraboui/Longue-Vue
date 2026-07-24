@@ -7,6 +7,7 @@ import { useEntityTable } from '../components/column_filters';
 import { EolIcon } from '../icons';
 import { ExtractButton } from '../components/ExtractButton';
 import { TruncationBanner } from '../components/TruncationBanner';
+import { IncompleteListBanner } from '../components/IncompleteListBanner';
 import { SortHeader } from '../components/SortHeader';
 
 // --- EOL annotation parsing -----------------------------------------------
@@ -263,6 +264,10 @@ export default function EolDashboard() {
       <TruncationBanner visible={truncated} />
       <AsyncView state={state}>
         {([clustersResp, nodesResp, vmsResp, appsResp]) => {
+          const incomplete = Boolean(
+            clustersResp.next_cursor || nodesResp.next_cursor ||
+            vmsResp.next_cursor || appsResp.next_cursor,
+          );
           const appNameById = new Map(
             (appsResp.items ?? []).map((a) => [a.id, a.display_name || a.name]),
           );
@@ -277,18 +282,21 @@ export default function EolDashboard() {
                 );
                 if (rows.length === 0) return null;
                 return (
-                  <div className="eol-extract">
-                    <ExtractButton
-                      label="Extract"
-                      onExtract={(format) =>
-                        api.extractEol({
-                          format,
-                          status: statusFilter ?? undefined,
-                        })
-                      }
-                      onTruncation={setTruncated}
-                    />
-                  </div>
+                  <>
+                    <IncompleteListBanner visible={incomplete} what="the inventory (clusters, nodes, VMs or applications)" />
+                    <div className="eol-extract">
+                      <ExtractButton
+                        label="Extract"
+                        onExtract={(format) =>
+                          api.extractEol({
+                            format,
+                            status: statusFilter ?? undefined,
+                          })
+                        }
+                        onTruncation={setTruncated}
+                      />
+                    </div>
+                  </>
                 );
               })()}
               <EolTable
