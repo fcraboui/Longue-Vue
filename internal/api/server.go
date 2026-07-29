@@ -242,12 +242,12 @@ func (s *Server) CreateCluster(ctx context.Context, req CreateClusterRequestObje
 	if created {
 		return CreateCluster201JSONResponse{
 			Body:    c,
-			Headers: CreateCluster201ResponseHeaders{Location: loc},
+			Headers: CreateCluster201ResponseHeaders{Location: &loc},
 		}, nil
 	}
 	return CreateCluster200JSONResponse{
 		Body:    c,
-		Headers: CreateCluster200ResponseHeaders{Location: loc},
+		Headers: CreateCluster200ResponseHeaders{Location: &loc},
 	}, nil
 }
 
@@ -445,7 +445,7 @@ func (s *Server) CreateNode(ctx context.Context, req CreateNodeRequestObject) (C
 	}
 	return CreateNode201JSONResponse{
 		Body:    n,
-		Headers: CreateNode201ResponseHeaders{Location: loc},
+		Headers: CreateNode201ResponseHeaders{Location: &loc},
 	}, nil
 }
 
@@ -587,7 +587,7 @@ func (s *Server) CreateNamespace(ctx context.Context, req CreateNamespaceRequest
 	}
 	return CreateNamespace201JSONResponse{
 		Body:    n,
-		Headers: CreateNamespace201ResponseHeaders{Location: loc},
+		Headers: CreateNamespace201ResponseHeaders{Location: &loc},
 	}, nil
 }
 
@@ -722,7 +722,7 @@ func (s *Server) CreatePod(ctx context.Context, req CreatePodRequestObject) (Cre
 	}
 	return CreatePod201JSONResponse{
 		Body:    p,
-		Headers: CreatePod201ResponseHeaders{Location: loc},
+		Headers: CreatePod201ResponseHeaders{Location: &loc},
 	}, nil
 }
 
@@ -893,7 +893,7 @@ func (s *Server) CreateWorkload(ctx context.Context, req CreateWorkloadRequestOb
 	}
 	return CreateWorkload201JSONResponse{
 		Body:    wl,
-		Headers: CreateWorkload201ResponseHeaders{Location: loc},
+		Headers: CreateWorkload201ResponseHeaders{Location: &loc},
 	}, nil
 }
 
@@ -1062,7 +1062,7 @@ func (s *Server) CreateService(ctx context.Context, req CreateServiceRequestObje
 	}
 	return CreateService201JSONResponse{
 		Body:    svc,
-		Headers: CreateService201ResponseHeaders{Location: loc},
+		Headers: CreateService201ResponseHeaders{Location: &loc},
 	}, nil
 }
 
@@ -1199,7 +1199,7 @@ func (s *Server) CreateIngress(ctx context.Context, req CreateIngressRequestObje
 	}
 	return CreateIngress201JSONResponse{
 		Body:    ing,
-		Headers: CreateIngress201ResponseHeaders{Location: loc},
+		Headers: CreateIngress201ResponseHeaders{Location: &loc},
 	}, nil
 }
 
@@ -1336,7 +1336,7 @@ func (s *Server) CreatePersistentVolume(ctx context.Context, req CreatePersisten
 	}
 	return CreatePersistentVolume201JSONResponse{
 		Body:    pv,
-		Headers: CreatePersistentVolume201ResponseHeaders{Location: loc},
+		Headers: CreatePersistentVolume201ResponseHeaders{Location: &loc},
 	}, nil
 }
 
@@ -1469,7 +1469,7 @@ func (s *Server) CreatePersistentVolumeClaim(
 	}
 	return CreatePersistentVolumeClaim201JSONResponse{
 		Body:    pvc,
-		Headers: CreatePersistentVolumeClaim201ResponseHeaders{Location: loc},
+		Headers: CreatePersistentVolumeClaim201ResponseHeaders{Location: &loc},
 	}, nil
 }
 
