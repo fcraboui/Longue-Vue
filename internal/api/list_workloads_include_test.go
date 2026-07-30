@@ -66,6 +66,7 @@ func TestListWorkloads_IncludeContainersVersions(t *testing.T) {
 	cv := list.Items[0].ContainersVersions
 	if cv == nil {
 		t.Fatal("containers_versions not populated with ?include=containers_versions")
+		return
 	}
 	web, ok := (*cv)["web"]
 	if !ok {

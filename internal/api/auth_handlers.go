@@ -178,9 +178,10 @@ func (s *Server) OidcAuthorize(ctx context.Context, _ OidcAuthorizeRequestObject
 		return nil, fmt.Errorf("oidcAuthorize store: %w", err)
 	}
 
+	location := s.oidc.AuthorizeURL(state, challenge, nonce)
 	return OidcAuthorize302Response{
 		Headers: OidcAuthorize302ResponseHeaders{
-			Location: s.oidc.AuthorizeURL(state, challenge, nonce),
+			Location: &location,
 		},
 	}, nil
 }
@@ -437,9 +438,10 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 	_ = s.store.TouchUserLogin(ctx, *user.Id, now)
 
 	cookie := auth.SessionCookie(sid, expires, r, s.cookiePolicy, s.trustedProxies)
+	setCookie := cookie.String()
 	return Login204Response{
 		Headers: Login204ResponseHeaders{
-			SetCookie: cookie.String(),
+			SetCookie: &setCookie,
 		},
 	}, nil
 }
