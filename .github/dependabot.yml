@@ -1,0 +1,35 @@
+# Dependabot security updates only — scheduled version updates are disabled
+# via open-pull-requests-limit: 0 on every entry.
+#
+# The commit-message prefixes are load-bearing for release engineering:
+# release-please only cuts a release (and therefore a v* tag, images,
+# binaries and charts) for fix/feat commits. Security bumps of runtime
+# dependencies must ship, so they are prefixed fix(deps); npm
+# devDependencies never reach the embedded UI bundle, so they stay
+# chore(deps) and do not trigger a release.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /ui
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "fix(deps)"
+      prefix-development: "chore(deps)"
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "fix(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "chore(deps)"
