@@ -4,7 +4,7 @@
 // LB) writes its address into status.loadBalancer.ingress[]. Auditors can
 // read it directly without bouncing into kubectl.
 
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { ImpactSection } from '../ImpactGraph';

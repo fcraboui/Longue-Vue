@@ -2,7 +2,7 @@
 // impact and history tabs.
 
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router';
 import * as api from '../../api';
 import { useResource, usePagedList, useLocalListControls } from '../../hooks';
 import { useMe, isAdmin } from '../../me';

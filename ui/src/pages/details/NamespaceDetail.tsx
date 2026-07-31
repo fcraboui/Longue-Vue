@@ -2,7 +2,7 @@
 // NS (serves the "application = namespace" view).
 
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import * as api from '../../api';
 import { useResource, usePagedList, useLocalListControls } from '../../hooks';
 import { NamespaceCuratedCard } from '../namespace_curated';

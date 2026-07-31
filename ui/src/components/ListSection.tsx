@@ -5,7 +5,7 @@
 // usePagedList hook so it can also derive extra content from the current
 // page (e.g. the nodes running a workload). Sections with bespoke layouts
 // (group-by, impact analysis) keep their hand-rolled markup.
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { Empty, Paginator, SectionTitle } from '../components';
 import type { ListControls, PagedListState } from '../hooks';
 import { SearchInput } from './SearchInput';

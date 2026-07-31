@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router';
 import * as api from '../api';
 import { useResource, usePagedList, useListControls, useDebouncedValue } from '../hooks';
 import { isAdmin, useMe } from '../me';
