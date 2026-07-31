@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 — the REST and database contracts may still change incompatibly before
 `v1.0.0`.
 
+## [1.12.1](https://github.com/sthalbert/Longue-Vue/compare/v1.12.0...v1.12.1) (2026-07-31)
+
+
+### Bug Fixes
+
+* **ui:** upgrade to react 19 and react-router 8 ([0b9ee0c](https://github.com/sthalbert/Longue-Vue/commit/0b9ee0ca95794e5e1cf8ecb62c53d75e667a6816))
+* **ui:** upgrade to react 19 and react-router 8 ([cc83715](https://github.com/sthalbert/Longue-Vue/commit/cc83715ba63982de0f9430881040491886612f60))
+
 ## [1.12.0](https://github.com/sthalbert/Longue-Vue/compare/v1.11.0...v1.12.0) (2026-07-24)
 
 
