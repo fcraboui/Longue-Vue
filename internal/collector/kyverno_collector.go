@@ -67,16 +67,22 @@ func CollectKyvernoPolicies(
 			slog.Any("err", cpErr))
 		policyCollectErrs++
 	}
-	deleted, err := sweepClusterPolicies(ctx, st, clusterID, clusterName, namespaceIDsByName, cpResult)
-	if err != nil {
-		slog.Warn("collector: sweep kyverno cluster-policies failed",
-			slog.String("cluster", clusterID.String()),
-			slog.Any("err", err))
-		metrics.ObserveError(clusterName, "cluster_policies", "reconcile")
+	if cpResult == nil {
+		slog.Warn("collector: skipping kyverno cluster-policies sweep due to list failure",
+			slog.String("cluster", clusterID.String()))
 		policySweepErrs++
 	} else {
-		metrics.ObserveReconciled(clusterName, "cluster_policies", deleted)
-		metrics.MarkPoll(clusterName, "cluster_policies")
+		deleted, err := sweepClusterPolicies(ctx, st, clusterID, clusterName, namespaceIDsByName, cpResult)
+		if err != nil {
+			slog.Warn("collector: sweep kyverno cluster-policies failed",
+				slog.String("cluster", clusterID.String()),
+				slog.Any("err", err))
+			metrics.ObserveError(clusterName, "cluster_policies", "reconcile")
+			policySweepErrs++
+		} else {
+			metrics.ObserveReconciled(clusterName, "cluster_policies", deleted)
+			metrics.MarkPoll(clusterName, "cluster_policies")
+		}
 	}
 
 	prResult, prErr := collectPolicyReports(ctx, src, st, clusterID, clusterName, namespaceIDsByName)
@@ -86,16 +92,22 @@ func CollectKyvernoPolicies(
 			slog.Any("err", prErr))
 		reportCollectErrs++
 	}
-	deleted, err = sweepPolicyReports(ctx, st, clusterID, clusterName, namespaceIDsByName, prResult)
-	if err != nil {
-		slog.Warn("collector: sweep kyverno policy-reports failed",
-			slog.String("cluster", clusterID.String()),
-			slog.Any("err", err))
-		metrics.ObserveError(clusterName, "policy_reports", "reconcile")
+	if prResult == nil {
+		slog.Warn("collector: skipping kyverno policy-reports sweep due to list failure",
+			slog.String("cluster", clusterID.String()))
 		reportSweepErrs++
 	} else {
-		metrics.ObserveReconciled(clusterName, "policy_reports", deleted)
-		metrics.MarkPoll(clusterName, "policy_reports")
+		deleted, err := sweepPolicyReports(ctx, st, clusterID, clusterName, namespaceIDsByName, prResult)
+		if err != nil {
+			slog.Warn("collector: sweep kyverno policy-reports failed",
+				slog.String("cluster", clusterID.String()),
+				slog.Any("err", err))
+			metrics.ObserveError(clusterName, "policy_reports", "reconcile")
+			reportSweepErrs++
+		} else {
+			metrics.ObserveReconciled(clusterName, "policy_reports", deleted)
+			metrics.MarkPoll(clusterName, "policy_reports")
+		}
 	}
 
 	policyTotal := policyCollectErrs + policySweepErrs
@@ -152,7 +164,6 @@ func sweepClusterPolicies(
 	if !result.clusterScopedDirty {
 		n, err := st.DeleteClusterScopedPoliciesNotIn(ctx, clusterID, result.clusterScoped)
 		if err != nil {
-			metrics.ObserveError(clusterName, "cluster_policies", "reconcile")
 			slog.Error("collector: sweep cluster-scoped policies failed",
 				slog.String("cluster", clusterID.String()),
 				slog.Any("error", err))
@@ -175,7 +186,6 @@ func sweepClusterPolicies(
 		keep := result.byNamespace[nsID]
 		n, err := st.DeleteClusterPoliciesByNamespace(ctx, clusterID, nsID, keep)
 		if err != nil {
-			metrics.ObserveError(clusterName, "cluster_policies", "reconcile")
 			slog.Error("collector: sweep cluster_policies by namespace failed",
 				slog.Any("error", err), slog.String("namespace_id", nsID.String()), slog.String("cluster", clusterName))
 			sweepErrors++
@@ -204,7 +214,6 @@ func sweepPolicyReports(
 	if !result.clusterScopedDirty {
 		n, err := st.DeleteClusterScopedPolicyReportsNotIn(ctx, clusterID, result.clusterScoped)
 		if err != nil {
-			metrics.ObserveError(clusterName, "policy_reports", "reconcile")
 			slog.Error("collector: sweep cluster-scoped policy_reports failed",
 				slog.String("cluster", clusterID.String()),
 				slog.Any("error", err))
@@ -227,7 +236,6 @@ func sweepPolicyReports(
 		keep := result.byNamespace[nsID]
 		n, err := st.DeletePolicyReportsByNamespace(ctx, clusterID, nsID, keep)
 		if err != nil {
-			metrics.ObserveError(clusterName, "policy_reports", "reconcile")
 			slog.Error("collector: sweep policy_reports by namespace failed",
 				slog.Any("error", err), slog.String("namespace_id", nsID.String()), slog.String("cluster", clusterName))
 			sweepErrors++

@@ -2040,3 +2040,65 @@ func (s *Server) clientIP(r *http.Request) string {
 	}
 	return ip.String()
 }
+
+func (s *Server) DeleteClusterPolicy(ctx context.Context, req DeleteClusterPolicyRequestObject) (DeleteClusterPolicyResponseObject, error) {
+	settings, err := s.store.GetSettings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("settings: %w", err)
+	}
+	if !settings.PoliciesEnabled {
+		prob := problemConflict(fmt.Errorf("enable policies_enabled in admin settings to use this endpoint"))
+		return DeleteClusterPolicy409ApplicationProblemPlusJSONResponse{
+			Type:   prob.Type,
+			Title:  prob.Title,
+			Status: prob.Status,
+			Detail: prob.Detail,
+		}, nil
+	}
+	id := uuid.UUID(req.Id)
+	err = s.store.DeleteClusterPolicy(ctx, id)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		prob := problemNotFound()
+		return DeleteClusterPolicy404ApplicationProblemPlusJSONResponse{
+			Type:   prob.Type,
+			Title:  prob.Title,
+			Status: prob.Status,
+			Detail: prob.Detail,
+		}, nil
+	case err != nil:
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return DeleteClusterPolicy204Response{}, nil
+}
+
+func (s *Server) DeletePolicyReport(ctx context.Context, req DeletePolicyReportRequestObject) (DeletePolicyReportResponseObject, error) {
+	settings, err := s.store.GetSettings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("settings: %w", err)
+	}
+	if !settings.PoliciesEnabled {
+		prob := problemConflict(fmt.Errorf("enable policies_enabled in admin settings to use this endpoint"))
+		return DeletePolicyReport409ApplicationProblemPlusJSONResponse{
+			Type:   prob.Type,
+			Title:  prob.Title,
+			Status: prob.Status,
+			Detail: prob.Detail,
+		}, nil
+	}
+	id := uuid.UUID(req.Id)
+	err = s.store.DeletePolicyReport(ctx, id)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		prob := problemNotFound()
+		return DeletePolicyReport404ApplicationProblemPlusJSONResponse{
+			Type:   prob.Type,
+			Title:  prob.Title,
+			Status: prob.Status,
+			Detail: prob.Detail,
+		}, nil
+	case err != nil:
+		return nil, fmt.Errorf("store: %w", err)
+	}
+	return DeletePolicyReport204Response{}, nil
+}

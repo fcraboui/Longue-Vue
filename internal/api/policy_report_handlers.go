@@ -15,17 +15,14 @@ import (
 
 const prListNameMaxLen = 100
 
-var validScopeKinds = map[string]bool{
-	"Namespace":        true,
-	"Deployment":       true,
-	"DaemonSet":        true,
-	"StatefulSet":      true,
-	"ReplicaSet":       true,
-	"Job":              true,
-	"CronJob":          true,
-	"Pod":              true,
-	"Node":             true,
-	"PersistentVolume": true,
+func titleCaseScopeKind(s string) string {
+	parts := strings.Split(strings.ToLower(s), "-")
+	for i := range parts {
+		if len(parts[i]) > 0 {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+	return strings.Join(parts, "")
 }
 
 func HandleCreatePolicyReport(store Store) http.HandlerFunc {
@@ -47,6 +44,11 @@ func HandleCreatePolicyReport(store Store) http.HandlerFunc {
 		var in PolicyReportCreate
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			if strings.Contains(err.Error(), "http: request body too large") {
+				writeProblem(w, http.StatusRequestEntityTooLarge, "Payload Too Large",
+					"request body exceeds 1 MiB limit")
+				return
+			}
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
 			return
 		}
@@ -61,18 +63,13 @@ func HandleCreatePolicyReport(store Store) http.HandlerFunc {
 		if in.ScopeKind != nil {
 			sk := strings.ToLower(*in.ScopeKind)
 			titleCased := titleCaseScopeKind(sk)
-			if !validScopeKinds[titleCased] {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
-					"scope_kind must be a recognized Kubernetes resource kind")
-				return
-			}
 			in.ScopeKind = &titleCased
 		}
 		if in.NamespaceID != nil {
 			ns, nsErr := store.GetNamespace(r.Context(), *in.NamespaceID)
 			if nsErr != nil {
 				if errors.Is(nsErr, ErrNotFound) {
-					writeProblem(w, http.StatusBadRequest, "Bad Request",
+					writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity",
 						"namespace_id does not exist")
 					return
 				}
@@ -81,7 +78,7 @@ func HandleCreatePolicyReport(store Store) http.HandlerFunc {
 				return
 			}
 			if ns.ClusterId != in.ClusterID {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
+				writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity",
 					"namespace_id does not belong to the specified cluster_id")
 				return
 			}
@@ -121,8 +118,12 @@ func HandleCreatePolicyReport(store Store) http.HandlerFunc {
 		id, err := store.UpsertPolicyReport(r.Context(), pr)
 		if err != nil {
 			if errors.Is(err, ErrConflict) {
-				writeProblem(w, http.StatusConflict, "Conflict",
-					"a collector-managed report already exists at this key; delete it first or wait for the next collector tick")
+				writeProblem(
+					w,
+					http.StatusConflict,
+					"Conflict",
+					"a collector-managed report already exists at this key; it will be overwritten on the next collector tick when the report no longer exists in-cluster",
+				)
 				return
 			}
 			if errors.Is(err, ErrNotFound) {
@@ -143,33 +144,6 @@ func HandleCreatePolicyReport(store Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusCreated, created)
-	}
-}
-
-func titleCaseScopeKind(s string) string {
-	switch s {
-	case "namespace":
-		return "Namespace"
-	case "deployment":
-		return "Deployment"
-	case "daemonset":
-		return "DaemonSet"
-	case "statefulset":
-		return "StatefulSet"
-	case "replicaset":
-		return "ReplicaSet"
-	case "job":
-		return "Job"
-	case "cronjob":
-		return "CronJob"
-	case "pod":
-		return "Pod"
-	case "node":
-		return "Node"
-	case "persistentvolume":
-		return "PersistentVolume"
-	default:
-		return s
 	}
 }
 

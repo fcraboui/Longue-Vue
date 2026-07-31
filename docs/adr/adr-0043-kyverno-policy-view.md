@@ -261,13 +261,15 @@ Additional filters for policy-reports: `scope_kind` (exact match on the
 evaluated resource kind, e.g. `Namespace`, `Pod`, `Deployment`) and
 `scope_name` (substring/ILIKE match).
 
-### 3b. POST endpoints (push-collector surface)
+### 3b. POST & DELETE endpoints (push-collector surface)
 
 Two POST endpoints allow external agents (push-collector apiclient,
 automation tooling) to write Kyverno data into the CMDB:
 
 - **`POST /v1/cluster-policies`** — upsert a ClusterPolicy or Policy row
 - **`POST /v1/policy-reports`** — upsert a PolicyReport or ClusterPolicyReport row
+- **`DELETE /v1/cluster-policies/{id}`** — delete an API-authored ClusterPolicy
+- **`DELETE /v1/policy-reports/{id}`** — delete an API-authored PolicyReport
 
 Both are gated by `requireScope(write)` (viewer token → 403) **and**
 `settings.policies_enabled` (disabled → 409 Conflict). The gate aligns
@@ -321,16 +323,33 @@ Unprocessable Entity. This follows the established pattern in
 upsert). If the read-back fails (unlikely but possible), the handler
 logs the error and returns 201 with a plain-text message indicating the
 row was created but read-back failed — it never returns a bare
-`{"id": "..."}` envelope. On conflict (same `cluster_id` +
-`namespace_id` + `name`), the row is updated (idempotent upsert via ON
-CONFLICT DO UPDATE).
+`{"id": "..."}` envelope.
+
+**Collision semantics (same `cluster_id` + `namespace_id` + `name`):**
+
+| Existing row source | Incoming request source  | Behaviour                                                                 | HTTP           |
+| ------------------- | ------------------------ | ------------------------------------------------------------------------- | -------------- |
+| `collector`         | `collector` (in-process) | Upsert (idempotent)                                                       | n/a (internal) |
+| `api`               | `api`                    | Upsert (idempotent)                                                       | 201            |
+| `collector`         | `api`                    | **Rejected** — collector-owned rows cannot be overwritten by API requests | 409            |
+| `api`               | `collector` (in-process) | Upsert (collector wins)                                                   | n/a (internal) |
+
+The collector→api rejection prevents a user POST from silently overwriting a
+live cluster policy. The api→collector overwrite is allowed because the
+collector's reconciliation must be able to update a stale API-authored row
+when it discovers the same key in the live cluster.
+
+**DELETE endpoints:** `DELETE /v1/cluster-policies/{id}` and
+`DELETE /v1/policy-reports/{id}` remove API-authored rows (`source='api'`).
+Collector-managed rows return 404 (the operator should not delete rows the
+collector will re-create on the next tick). Both require `write` scope.
 
 **Sweep durability guarantee:** rows created via POST (`source='api'`)
 are never deleted by the collector's reconcile sweep (§2). The sweep
 targets only `source='collector'` rows. This is a deliberate
 architectural choice: API-authored rows represent operator intent that
 should persist across collector cycles. If an operator needs to remove an
-API-authored row, they must use the REST API directly.
+API-authored row, they must use the DELETE endpoint or REST API directly.
 
 ### 4. UI — Policies view
 

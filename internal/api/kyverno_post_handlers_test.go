@@ -621,7 +621,7 @@ func seedClusterWithNamespace(t *testing.T, store *memStore) (clusterID, nsID uu
 	return
 }
 
-func TestCreateClusterPolicy_400NamespaceNotExist(t *testing.T) {
+func TestCreateClusterPolicy_422NamespaceNotExist(t *testing.T) {
 	store := newMemStore()
 	enablePolicies(t, store)
 	h := buildKyvernoPostMux(t, store, editorCaller())
@@ -635,12 +635,12 @@ func TestCreateClusterPolicy_400NamespaceNotExist(t *testing.T) {
 		"spec_raw":      map[string]any{},
 	}
 	rr := doReq(t, h, http.MethodPost, "/v1/cluster-policies", body)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d, want 400 (namespace does not exist); body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422 (namespace does not exist); body=%s", rr.Code, rr.Body.String())
 	}
 }
 
-func TestCreateClusterPolicy_400NamespaceWrongCluster(t *testing.T) {
+func TestCreateClusterPolicy_422NamespaceWrongCluster(t *testing.T) {
 	store := newMemStore()
 	enablePolicies(t, store)
 	h := buildKyvernoPostMux(t, store, editorCaller())
@@ -660,8 +660,8 @@ func TestCreateClusterPolicy_400NamespaceWrongCluster(t *testing.T) {
 		"spec_raw":      map[string]any{},
 	}
 	rr := doReq(t, h, http.MethodPost, "/v1/cluster-policies", body)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d, want 400 (namespace in wrong cluster); body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422 (namespace in wrong cluster); body=%s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -686,7 +686,7 @@ func TestCreateClusterPolicy_201WithValidNamespace(t *testing.T) {
 	}
 }
 
-func TestCreatePolicyReport_400NamespaceNotExist(t *testing.T) {
+func TestCreatePolicyReport_422NamespaceNotExist(t *testing.T) {
 	store := newMemStore()
 	enablePolicies(t, store)
 	h := buildKyvernoPostMux(t, store, editorCaller())
@@ -698,12 +698,12 @@ func TestCreatePolicyReport_400NamespaceNotExist(t *testing.T) {
 		"summary_pass": 1,
 	}
 	rr := doReq(t, h, http.MethodPost, "/v1/policy-reports", body)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d, want 400 (namespace does not exist); body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422 (namespace does not exist); body=%s", rr.Code, rr.Body.String())
 	}
 }
 
-func TestCreatePolicyReport_400NamespaceWrongCluster(t *testing.T) {
+func TestCreatePolicyReport_422NamespaceWrongCluster(t *testing.T) {
 	store := newMemStore()
 	enablePolicies(t, store)
 	h := buildKyvernoPostMux(t, store, editorCaller())
@@ -721,8 +721,8 @@ func TestCreatePolicyReport_400NamespaceWrongCluster(t *testing.T) {
 		"summary_pass": 1,
 	}
 	rr := doReq(t, h, http.MethodPost, "/v1/policy-reports", body)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d, want 400 (namespace in wrong cluster); body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status: got %d, want 422 (namespace in wrong cluster); body=%s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -751,7 +751,7 @@ func TestCreateClusterPolicy_ScopeNormalisedToLowercase(t *testing.T) {
 	}
 }
 
-func TestCreatePolicyReport_400InvalidScopeKind(t *testing.T) {
+func TestCreatePolicyReport_ScopeKindAnyKindAccepted(t *testing.T) {
 	store := newMemStore()
 	enablePolicies(t, store)
 	h := buildKyvernoPostMux(t, store, editorCaller())
@@ -759,12 +759,20 @@ func TestCreatePolicyReport_400InvalidScopeKind(t *testing.T) {
 	body := map[string]any{
 		"cluster_id":   uuid.New(),
 		"name":         "pr-ns-default",
-		"scope_kind":   "Foobar",
+		"scope_kind":   "custom-resource",
+		"scope_name":   "my-cr",
 		"summary_pass": 1,
 	}
 	rr := doReq(t, h, http.MethodPost, "/v1/policy-reports", body)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status: got %d, want 400 (invalid scope_kind); body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status: got %d, want 201 (any scope_kind is accepted); body=%s", rr.Code, rr.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["scope_kind"] != "CustomResource" {
+		t.Errorf("scope_kind: got %v, want CustomResource", got["scope_kind"])
 	}
 }
 
@@ -855,5 +863,128 @@ func TestCreatePolicyReport_400NegativeSummary(t *testing.T) {
 	rr := doReq(t, h, http.MethodPost, "/v1/policy-reports", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status: got %d, want 400 (negative summary); body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateClusterPolicy_ApiOverApiUpdate_201(t *testing.T) {
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	clusterID := uuid.New()
+
+	body1 := map[string]any{
+		"cluster_id":    clusterID,
+		"name":          "require-labels",
+		"resource_type": "ClusterPolicy",
+		"scope":         "cluster",
+		"spec_raw":      map[string]any{"rules": []any{}},
+	}
+	rr := doReq(t, h, http.MethodPost, "/v1/cluster-policies", body1)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("first create: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+
+	body2 := map[string]any{
+		"cluster_id":    clusterID,
+		"name":          "require-labels",
+		"resource_type": "ClusterPolicy",
+		"scope":         "cluster",
+		"description":   "updated",
+		"spec_raw":      map[string]any{"rules": []any{}},
+	}
+	rr = doReq(t, h, http.MethodPost, "/v1/cluster-policies", body2)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("api→api update: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+	var second map[string]any
+	json.Unmarshal(rr.Body.Bytes(), &second)
+	if second["description"] != "updated" {
+		t.Errorf("api→api update did not apply new description: got %v", second["description"])
+	}
+}
+
+func TestCreateClusterPolicy_CollectorOverApiUpdate_409(t *testing.T) {
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	clusterID := uuid.New()
+
+	body1 := map[string]any{
+		"cluster_id":    clusterID,
+		"name":          "require-labels",
+		"resource_type": "ClusterPolicy",
+		"scope":         "cluster",
+		"spec_raw":      map[string]any{},
+	}
+	rr := doReq(t, h, http.MethodPost, "/v1/cluster-policies", body1)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("api create: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+	var created map[string]any
+	json.Unmarshal(rr.Body.Bytes(), &created)
+	id := created["id"].(string)
+
+	parsedID, _ := uuid.Parse(id)
+	store.mu.Lock()
+	cp := store.clusterPolicies[parsedID]
+	cp.Source = SourceCollector
+	store.clusterPolicies[parsedID] = cp
+	store.mu.Unlock()
+
+	body2 := map[string]any{
+		"cluster_id":    clusterID,
+		"name":          "require-labels",
+		"resource_type": "ClusterPolicy",
+		"scope":         "cluster",
+		"description":   "try collector overwrite",
+		"spec_raw":      map[string]any{},
+	}
+	rr = doReq(t, h, http.MethodPost, "/v1/cluster-policies", body2)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("collector→api flip: got %d, want 409; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateClusterPolicy_413BodyTooLarge(t *testing.T) {
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	clusterID := uuid.New()
+	big := `{"cluster_id":"` + clusterID.String() +
+		`","name":"x","resource_type":"ClusterPolicy","spec_raw":{},"padding":"` +
+		strings.Repeat("A", 1<<20) + `"}`
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/cluster-policies", strings.NewReader(big))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(auth.WithCaller(req.Context(), editorCaller()))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status: got %d, want 413; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreatePolicyReport_413BodyTooLarge(t *testing.T) {
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	clusterID := uuid.New()
+	big := `{"cluster_id":"` + clusterID.String() +
+		`","name":"x","padding":"` +
+		strings.Repeat("A", 1<<20) + `"}`
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/policy-reports", strings.NewReader(big))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(auth.WithCaller(req.Context(), editorCaller()))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status: got %d, want 413; body=%s", rr.Code, rr.Body.String())
 	}
 }

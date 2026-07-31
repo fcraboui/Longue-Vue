@@ -37,6 +37,11 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 		var in ClusterPolicyCreate
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			if strings.Contains(err.Error(), "http: request body too large") {
+				writeProblem(w, http.StatusRequestEntityTooLarge, "Payload Too Large",
+					"request body exceeds 1 MiB limit")
+				return
+			}
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
 			return
 		}
@@ -98,7 +103,7 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 			ns, nsErr := store.GetNamespace(r.Context(), *in.NamespaceID)
 			if nsErr != nil {
 				if errors.Is(nsErr, ErrNotFound) {
-					writeProblem(w, http.StatusBadRequest, "Bad Request",
+					writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity",
 						"namespace_id does not exist")
 					return
 				}
@@ -107,7 +112,7 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 				return
 			}
 			if ns.ClusterId != in.ClusterID {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
+				writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity",
 					"namespace_id does not belong to the specified cluster_id")
 				return
 			}
@@ -155,8 +160,12 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 		id, err := store.UpsertClusterPolicy(r.Context(), cp)
 		if err != nil {
 			if errors.Is(err, ErrConflict) {
-				writeProblem(w, http.StatusConflict, "Conflict",
-					"a collector-managed policy already exists at this key; delete it first or wait for the next collector tick")
+				writeProblem(
+					w,
+					http.StatusConflict,
+					"Conflict",
+					"a collector-managed policy already exists at this key; it will be overwritten on the next collector tick when the policy no longer exists in-cluster",
+				)
 				return
 			}
 			if errors.Is(err, ErrNotFound) {

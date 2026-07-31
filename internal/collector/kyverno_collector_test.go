@@ -323,3 +323,54 @@ func TestCollectKyvernoPolicies_PartialUpsertFailure_SkipsDirtyPerimeter(t *test
 		t.Errorf("report upserts: got %d, want 2 (cpr-good, pr-good; pr-fail injected error)", len(st.upsertedReports))
 	}
 }
+
+func TestCollectKyvernoPolicies_ListFailure_NoPanic(t *testing.T) {
+	ctx := t.Context()
+	clusterID, nsA := uuid.New(), uuid.New()
+
+	src := &fakeSource{
+		listKyvernoClusterPolErr: fmt.Errorf("kube api unreachable"),
+		kyvernoPolicies:          []KyvernoClusterPolicyInfo{},
+		kyvernoClusterReports:    []KyvernoPolicyReportInfo{},
+		kyvernoPolicyReports:     []KyvernoPolicyReportInfo{},
+	}
+
+	st := newFakeKyvernoStore()
+	nsByName := map[string]uuid.UUID{"team-a": nsA}
+
+	err := CollectKyvernoPolicies(ctx, src, st, clusterID, "test-cluster", nsByName)
+	if err == nil {
+		t.Fatal("expected error when list fails")
+	}
+
+	if st.clusterScopedPolicySwept {
+		t.Error("cluster-scoped policy sweep should be skipped when ListKyvernoClusterPolicies fails")
+	}
+	if len(st.upsertedPolicies) != 0 {
+		t.Errorf("policy upserts: got %d, want 0", len(st.upsertedPolicies))
+	}
+}
+
+func TestCollectKyvernoPolicies_ReportListFailure_NoPanic(t *testing.T) {
+	ctx := t.Context()
+	clusterID, nsA := uuid.New(), uuid.New()
+
+	src := &fakeSource{
+		kyvernoClusterPolicies:   []KyvernoClusterPolicyInfo{},
+		kyvernoPolicies:          []KyvernoClusterPolicyInfo{},
+		kyvernoClusterReports:    []KyvernoPolicyReportInfo{},
+		listKyvernoPolReportsErr: fmt.Errorf("kube api unreachable"),
+	}
+
+	st := newFakeKyvernoStore()
+	nsByName := map[string]uuid.UUID{"team-a": nsA}
+
+	err := CollectKyvernoPolicies(ctx, src, st, clusterID, "test-cluster", nsByName)
+	if err == nil {
+		t.Fatal("expected error when policy report list fails")
+	}
+
+	if st.clusterScopedReportSwept {
+		t.Error("cluster-scoped report sweep should be skipped when ListKyvernoPolicyReports fails")
+	}
+}

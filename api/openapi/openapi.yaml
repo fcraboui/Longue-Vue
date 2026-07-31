@@ -4284,7 +4284,12 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
         "409":
-          description: policies_enabled is off
+          description: |
+            Conflict — either (a) policies_enabled is off, or
+            (b) a collector-managed policy already exists at this key
+            and cannot be overwritten by an API request.
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
 
   /v1/cluster-policies/{id}:
     get:
@@ -4318,6 +4323,45 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [cluster-policies]
+      operationId: deleteClusterPolicy
+      summary: Delete an API-authored Kyverno ClusterPolicy
+      description: |
+        Deletes a ClusterPolicy row. Only rows with source='api' can be
+        deleted; collector-managed rows (source='collector') return 404.
+        Requires write scope.
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      parameters:
+        - {
+            in: path,
+            name: id,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or collector-managed (source='collector')
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: policies_enabled is off
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
 
   /v1/policy-reports:
     get:
@@ -4440,7 +4484,12 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
         "409":
-          description: policies_enabled is off
+          description: |
+            Conflict — either (a) policies_enabled is off, or
+            (b) a collector-managed report already exists at this key
+            and cannot be overwritten by an API request.
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
 
   /v1/policy-reports/{id}:
     get:
@@ -4474,6 +4523,45 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [policy-reports]
+      operationId: deletePolicyReport
+      summary: Delete an API-authored Kyverno PolicyReport
+      description: |
+        Deletes a PolicyReport row. Only rows with source='api' can be
+        deleted; collector-managed rows (source='collector') return 404.
+        Requires write scope.
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      parameters:
+        - {
+            in: path,
+            name: id,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or collector-managed (source='collector')
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: policies_enabled is off
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
 
 components:
   securitySchemes:
@@ -4900,6 +4988,12 @@ components:
 
     UnprocessableEntity:
       description: Unprocessable entity (e.g., foreign key not found).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PayloadTooLarge:
+      description: Request body exceeds the 1 MiB size limit.
       content:
         application/problem+json:
           schema:
