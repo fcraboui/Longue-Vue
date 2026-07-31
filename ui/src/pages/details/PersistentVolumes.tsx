@@ -1,6 +1,6 @@
 // PersistentVolume + PersistentVolumeClaim detail pages.
 
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import * as api from '../../api';
 import { useResource } from '../../hooks';
 import { ImpactSection } from '../ImpactGraph';

@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import * as api from '../../api';
 import { useResource, useListControls, usePagedList, type ListControls } from '../../hooks';
 import { Dash, Paginator, SectionTitle } from '../../components';

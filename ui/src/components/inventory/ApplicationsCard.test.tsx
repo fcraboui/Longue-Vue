@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { ApplicationsCard } from './ApplicationsCard';
 import { MeProvider } from '../../me';
 import type { VMApplication } from '../../api';

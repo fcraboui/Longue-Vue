@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router';
 import * as api from '../../api';
 import { useResource, usePagedList, useLocalListControls } from '../../hooks';
 import { AsyncView, Dash, KV, SectionTitle } from '../../components';
