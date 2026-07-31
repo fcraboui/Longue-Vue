@@ -1,7 +1,7 @@
 // Node detail — pods on this node grouped by workload (impact analysis).
 
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import * as api from '../../api';
 import { useClientSort, useResource, usePagedList } from '../../hooks';
 import { SortHeader } from '../../components/SortHeader';

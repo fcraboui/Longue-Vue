@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import * as api from '../api';
 import { useResource } from '../hooks';
 import { canEdit, useMe } from '../me';

@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import * as api from '../api';
 import { useResource } from '../hooks';
 import { AsyncView, Dash } from '../components';

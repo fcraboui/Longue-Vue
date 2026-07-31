@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import ApplicationDetail from './ApplicationDetail';
@@ -190,10 +190,8 @@ describe('ApplicationDetail', () => {
       ),
     );
     renderDetail();
-    await waitFor(() =>
-      expect(screen.getByRole('heading', { name: /End-of-life summary/i })).toBeInTheDocument(),
-    );
-    expect(screen.getByText('vault')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('vault')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: /End-of-life summary/i })).toBeInTheDocument();
     expect(screen.getByText('1.18.2')).toBeInTheDocument();
     expect(screen.getByText('End of Life')).toBeInTheDocument();
     expect(screen.getByText('bastion-eu')).toBeInTheDocument();
@@ -256,10 +254,8 @@ describe('ApplicationDetail', () => {
       ),
     );
     renderDetail();
-    await waitFor(() =>
-      expect(screen.getByRole('heading', { name: /End-of-life summary/i })).toBeInTheDocument(),
-    );
-    expect(screen.getByText('Far behind')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Far behind')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: /End-of-life summary/i })).toBeInTheDocument();
     expect(screen.queryByText('Unknown')).toBeNull();
     expect(screen.getByText('Freshness')).toBeInTheDocument();
   });

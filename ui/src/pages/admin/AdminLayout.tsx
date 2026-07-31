@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router';
 import type { Role } from '../../api';
 
 // AdminLayout wraps the admin sub-pages with a shared tab-style sub-nav.

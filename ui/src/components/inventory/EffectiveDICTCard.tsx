@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import type { EffectiveDICT } from '../../api';
 
 // EffectiveDICTCard renders the read-only inherited DICT classification

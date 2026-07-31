@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { ApiError, changePassword } from '../api';
 
 // Forced-rotation page per ADR-0007. Reached automatically on first

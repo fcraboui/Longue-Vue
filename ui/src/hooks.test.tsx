@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { type ReactNode, useState } from 'react';
 import { ApiError } from './api';
 import { useDebouncedValue, useResource, useResources, usePageSize, PAGE_SIZE_OPTIONS, usePagedList, useListControls, useLocalListControls, useClientSort } from './hooks';
