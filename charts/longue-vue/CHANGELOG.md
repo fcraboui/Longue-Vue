@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.26.1](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.26.0...chart-longue-vue-v0.26.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **build:** rebuild binaries with Go 1.26.6 stdlib security fixes ([457c200](https://github.com/sthalbert/Longue-Vue/commit/457c20012c3be7a4f58ba8c7f5be311f0a8793da))
+* **build:** rebuild binaries with Go 1.26.6 stdlib security fixes ([0ba51a1](https://github.com/sthalbert/Longue-Vue/commit/0ba51a1de8f18fff4816873a2d3a8fad7eec182a))
+
 ## [0.26.0](https://github.com/sthalbert/Longue-Vue/compare/chart-longue-vue-v0.25.0...chart-longue-vue-v0.26.0) (2026-06-10)
 
 
