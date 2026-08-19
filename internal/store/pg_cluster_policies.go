@@ -195,6 +195,7 @@ var clusterPolicySortSpec = sortSpec{
 		sortKeyReconcileSeenAt: {expr: "reconcile_seen_at", kind: sortTime},
 	},
 	defaultKey: sortKeyName,
+	defaultDir: dirAsc,
 }
 
 func clusterPolicySortVal(r *api.ClusterPolicyRow, key string) *string {

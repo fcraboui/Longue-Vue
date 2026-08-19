@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -48,6 +49,14 @@ func (p *PG) GetPolicyReport(ctx context.Context, id uuid.UUID) (api.PolicyRepor
 }
 
 func (p *PG) UpsertPolicyReport(ctx context.Context, pr PolicyReport) (uuid.UUID, error) {
+	// A nil RawMessage would be encoded as SQL NULL (bypassing the
+	// column's NOT NULL DEFAULT '[]' because the INSERT lists the column
+	// explicitly), and the JSON literal "null" would be stored as jsonb
+	// null — both would break consumers expecting an array. Normalise
+	// here so every caller (handler, collector) gets the same contract.
+	if len(pr.ResultsRaw) == 0 || string(pr.ResultsRaw) == "null" {
+		pr.ResultsRaw = json.RawMessage(`[]`)
+	}
 	var id uuid.UUID
 	err := p.pool.QueryRow(ctx, `
 		INSERT INTO policy_reports
@@ -151,6 +160,7 @@ var policyReportSortSpec = sortSpec{
 		sortKeyReconcileSeenAt: {expr: "reconcile_seen_at", kind: sortTime},
 	},
 	defaultKey: sortKeyName,
+	defaultDir: dirAsc,
 }
 
 func policyReportSortVal(r *api.PolicyReportRow, key string) *string {
@@ -212,7 +222,7 @@ func (p *PG) ListPolicyReports(
 
 	if filter.ScopeKind != nil {
 		args = append(args, *filter.ScopeKind)
-		conds = append(conds, fmt.Sprintf("scope_kind = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("LOWER(scope_kind) = LOWER($%d)", len(args)))
 	}
 
 	if filter.ScopeName != nil {

@@ -330,25 +330,32 @@ type sortColumn struct {
 
 // sortSpec is a per-entity allowlist of sortable columns. defaultKey
 // names the column used when the request carries no sort parameter,
-// preserving the entity's historical implicit order.
+// preserving the entity's historical implicit order. defaultDir sets
+// that implicit order's direction; empty means "desc", which fits the
+// timestamp defaultKeys most entities use — name-keyed entities set
+// "asc" so an unsorted list reads A→Z.
 type sortSpec struct {
 	columns    map[string]sortColumn
 	defaultKey string
+	defaultDir string
 }
 
 // resolve validates page.Sort/page.Order against the allowlist.
-// "" Sort → (defaultKey, "desc"): unsorted requests keep the
-// historical order. "" Order with an explicit Sort → "asc".
+// "" Sort → (defaultKey, defaultDir): unsorted requests keep the
+// entity's implicit order. "" Order with an explicit Sort → "asc".
 func (s sortSpec) resolve(page api.ListPage) (key string, col sortColumn, dir string, err error) {
 	key = page.Sort
 	dir = page.Order
 	if key == "" {
 		key = s.defaultKey
 		// order= is documented as ignored when sort= is absent — the
-		// historical implicit order (DESC) always applies. This also
+		// entity's implicit order always applies. This also
 		// deliberately skips order validation: ?order=garbage without
 		// sort= is ignored, not a 400.
-		dir = dirDesc
+		dir = s.defaultDir
+		if dir == "" {
+			dir = dirDesc
+		}
 	} else if dir == "" {
 		dir = dirAsc
 	}
