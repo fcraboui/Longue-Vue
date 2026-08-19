@@ -312,10 +312,21 @@ else
         -X PATCH -H "$CT" \
         -d '{"policies_enabled":true}' \
         "${BASE}/v1/admin/settings")
-    if [ "$STATUS" = "403" ]; then
-        echo "policies_enabled → 403 (set LONGUE_VUE_POLICIES_ENABLED=true at boot, or use an admin token)" >&2
+    case "$STATUS" in
+    2*)
+        echo "policies_enabled → $STATUS (enabled)"
+        ;;
+    *)
+        # Any failed enable (403 non-admin, 401 expired session, 404
+        # older server, 000 connection error, ...) leaves the feature
+        # off: every policy POST below would 409 silently, so skip to
+        # the summary instead of pretending the seed succeeded.
+        if [ "$STATUS" = "403" ]; then
+            echo "policies_enabled → 403 (set LONGUE_VUE_POLICIES_ENABLED=true at boot, or use an admin token)" >&2
+        else
+            echo "policies_enabled → $STATUS (enable failed)" >&2
+        fi
         echo "skipping policy seeding" >&2
-        # Skip to summary — data would be invisible while policies_enabled is off.
         echo
         echo "=== summary ==="
         for kind in clusters nodes namespaces workloads pods services ingresses persistentvolumes persistentvolumeclaims cluster-policies policy-reports; do
@@ -323,9 +334,8 @@ else
             printf "  %-25s %s\n" "$kind" "$count"
         done
         exit 0
-    else
-        echo "policies_enabled → $STATUS"
-    fi
+        ;;
+    esac
 fi
 
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
