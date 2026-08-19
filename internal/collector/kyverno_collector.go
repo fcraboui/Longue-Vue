@@ -14,7 +14,16 @@ import (
 	"github.com/sthalbert/longue-vue/internal/metrics"
 )
 
-var errKyvernoTickFailed = errors.New("kyverno tick: one or more operations failed")
+var (
+	errKyvernoTickFailed   = errors.New("kyverno tick: one or more operations failed")
+	errKyvernoSweepFailed  = errors.New("kyverno sweep failed")
+	errKyvernoUpsertFailed = errors.New("kyverno upsert failed")
+)
+
+// jsonNullLiteral is the 4-byte payload json.Marshal produces for a
+// missing value; a json.RawMessage holding it is valid JSON but carries
+// no data.
+const jsonNullLiteral = "null"
 
 // SettingsGetter is the minimal settings interface the Kyverno collector
 // needs to gate itself behind policies_enabled. Satisfied by *store.PG
@@ -146,7 +155,7 @@ func (r *kyvernoSweepResult) markClusterScopedDirty() {
 	r.clusterScopedDirty = true
 }
 
-func (r *kyvernoSweepResult) addNamespaced(nsID uuid.UUID, id uuid.UUID) {
+func (r *kyvernoSweepResult) addNamespaced(nsID, id uuid.UUID) {
 	r.byNamespace[nsID] = append(r.byNamespace[nsID], id)
 }
 
@@ -199,7 +208,7 @@ func sweepClusterPolicies(
 	}
 
 	if sweepErrors > 0 {
-		return total, fmt.Errorf("%d sweep errors", sweepErrors)
+		return total, fmt.Errorf("%w: %d sweep errors", errKyvernoSweepFailed, sweepErrors)
 	}
 	return total, nil
 }
@@ -249,7 +258,7 @@ func sweepPolicyReports(
 	}
 
 	if sweepErrors > 0 {
-		return total, fmt.Errorf("%d sweep errors", sweepErrors)
+		return total, fmt.Errorf("%w: %d sweep errors", errKyvernoSweepFailed, sweepErrors)
 	}
 	return total, nil
 }
@@ -328,7 +337,7 @@ func collectClusterPolicies(
 	}
 	metrics.ObserveUpserts(clusterName, "cluster_policies", totalUpserted)
 	if listErrors > 0 {
-		return result, fmt.Errorf("%d cluster-policy upsert errors", listErrors)
+		return result, fmt.Errorf("%w: %d cluster-policy upsert errors", errKyvernoUpsertFailed, listErrors)
 	}
 	return result, nil
 }
@@ -407,7 +416,7 @@ func collectPolicyReports(
 	}
 	metrics.ObserveUpserts(clusterName, "policy_reports", totalUpserted)
 	if listErrors > 0 {
-		return result, fmt.Errorf("%d policy-report upsert errors", listErrors)
+		return result, fmt.Errorf("%w: %d policy-report upsert errors", errKyvernoUpsertFailed, listErrors)
 	}
 	return result, nil
 }
@@ -421,10 +430,10 @@ func kyvernoPolicyToRow(info *KyvernoClusterPolicyInfo, clusterID uuid.UUID, nam
 	// annotations column, {} for the NOT NULL spec_raw column.
 	annotations := json.RawMessage(info.Annotations)
 	specRaw := json.RawMessage(info.SpecRaw)
-	if len(annotations) == 0 || !json.Valid(annotations) || string(annotations) == "null" {
+	if len(annotations) == 0 || !json.Valid(annotations) || string(annotations) == jsonNullLiteral {
 		annotations = nil
 	}
-	if len(specRaw) == 0 || !json.Valid(specRaw) || string(specRaw) == "null" {
+	if len(specRaw) == 0 || !json.Valid(specRaw) || string(specRaw) == jsonNullLiteral {
 		specRaw = json.RawMessage(`{}`)
 	}
 	row := api.ClusterPolicyRow{
@@ -462,7 +471,7 @@ func kyvernoReportToRow(info *KyvernoPolicyReportInfo, clusterID uuid.UUID, name
 	// normalise to nil so the store's nil→[] default applies instead of
 	// persisting jsonb null where the schema promises an array.
 	resultsRaw := json.RawMessage(info.ResultsRaw)
-	if len(resultsRaw) == 0 || !json.Valid(resultsRaw) || string(resultsRaw) == "null" {
+	if len(resultsRaw) == 0 || !json.Valid(resultsRaw) || string(resultsRaw) == jsonNullLiteral {
 		resultsRaw = nil
 	}
 	return api.PolicyReportRow{

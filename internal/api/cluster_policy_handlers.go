@@ -15,10 +15,130 @@ import (
 
 const cpListNameMaxLen = 100
 
-var validScopes = map[string]bool{"cluster": true, "namespace": true}
-var validResourceTypes = map[string]bool{"ClusterPolicy": true, "Policy": true}
-var validSeverities = map[string]bool{"critical": true, "high": true, "medium": true, "low": true, "info": true}
-var validActions = map[string]bool{"enforce": true, "audit": true}
+// Enum values from the OpenAPI contract (ClusterPolicyCreate).
+const (
+	resourceTypeClusterPolicy = "ClusterPolicy"
+	resourceTypePolicy        = "Policy"
+	policyScopeCluster        = "cluster"
+	policyScopeNamespace      = "namespace"
+	failurePolicyFail         = "Fail"
+	failurePolicyIgnore       = "Ignore"
+)
+
+// jsonNullLiteral is the 4-byte payload json.Marshal produces for a
+// missing value; a json.RawMessage holding it is valid JSON but carries
+// no data.
+const jsonNullLiteral = "null"
+
+var (
+	validScopes        = map[string]bool{policyScopeCluster: true, policyScopeNamespace: true}
+	validResourceTypes = map[string]bool{resourceTypeClusterPolicy: true, resourceTypePolicy: true}
+	validSeverities    = map[string]bool{"critical": true, "high": true, "medium": true, "low": true, "info": true}
+	validActions       = map[string]bool{"enforce": true, "audit": true}
+)
+
+// normalizeClusterPolicyEnums lowercases/title-cases the optional enum
+// fields in place and validates them against the OpenAPI contract.
+// Returns the RFC 7807 detail for a 400, or "" when valid.
+func normalizeClusterPolicyEnums(in *ClusterPolicyCreate) string {
+	if in.Action != nil {
+		a := strings.ToLower(*in.Action)
+		if !validActions[a] {
+			return "action must be enforce or audit"
+		}
+		in.Action = &a
+	}
+	if in.Severity != nil {
+		s := strings.ToLower(*in.Severity)
+		if !validSeverities[s] {
+			return "severity must be one of critical, high, medium, low, info"
+		}
+		in.Severity = &s
+	}
+	if in.RulesCount != nil && *in.RulesCount < 0 {
+		return "rules_count must be non-negative"
+	}
+	if in.FailurePolicy != nil {
+		fp := titleCaseFailurePolicy(*in.FailurePolicy)
+		if fp != failurePolicyFail && fp != failurePolicyIgnore {
+			return "failure_policy must be Fail or Ignore"
+		}
+		in.FailurePolicy = &fp
+	}
+	return ""
+}
+
+// validateClusterPolicyCreate normalises and validates the decoded POST
+// body in place (scope defaulting, action/severity/failure_policy
+// casing). Returns the RFC 7807 detail for a 400, or "" when valid.
+// Referential checks that need the store (namespace lookup) stay in the
+// handler.
+//
+//nolint:gocyclo // sequential field validation; each check is trivial
+func validateClusterPolicyCreate(in *ClusterPolicyCreate) string {
+	if in.Name == "" {
+		return "name required"
+	}
+	if in.ClusterID == uuid.Nil {
+		return "cluster_id required"
+	}
+	if in.ResourceType == "" {
+		return "resource_type required"
+	}
+	if !validResourceTypes[in.ResourceType] {
+		return "resource_type must be ClusterPolicy or Policy"
+	}
+	if in.Scope == "" {
+		if in.ResourceType == resourceTypePolicy {
+			in.Scope = policyScopeNamespace
+		} else {
+			in.Scope = policyScopeCluster
+		}
+	}
+	in.Scope = strings.ToLower(in.Scope)
+	if !validScopes[in.Scope] {
+		return "scope must be cluster or namespace"
+	}
+	if in.ResourceType == resourceTypePolicy && in.Scope != policyScopeNamespace {
+		return "scope must be namespace when resource_type is Policy"
+	}
+	if in.ResourceType == resourceTypeClusterPolicy && in.Scope != policyScopeCluster {
+		return "scope must be cluster when resource_type is ClusterPolicy"
+	}
+	if len(in.SpecRaw) == 0 || string(in.SpecRaw) == jsonNullLiteral {
+		return "spec_raw required"
+	}
+	if in.ResourceType == resourceTypePolicy && in.NamespaceID == nil {
+		return "namespace_id required when resource_type is Policy"
+	}
+	if in.ResourceType == resourceTypeClusterPolicy && in.NamespaceID != nil {
+		return "namespace_id must be omitted when resource_type is ClusterPolicy"
+	}
+	return normalizeClusterPolicyEnums(in)
+}
+
+// checkNamespaceBelongsToCluster validates that nsID exists and belongs
+// to clusterID; writes the 422/500 problem and returns false otherwise.
+// Shared by the two Kyverno POST handlers.
+func checkNamespaceBelongsToCluster(w http.ResponseWriter, r *http.Request, store Store, nsID, clusterID uuid.UUID) bool {
+	ns, err := store.GetNamespace(r.Context(), nsID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity",
+				"namespace_id does not exist")
+			return false
+		}
+		slog.Error("lookup namespace for policy write", slog.Any("error", err))
+		writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+		return false
+	}
+	if ns.ClusterId != clusterID {
+		writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity",
+			"namespace_id does not belong to the specified cluster_id")
+		return false
+	}
+	return true
+}
 
 // requirePoliciesEnabled gates every Kyverno policy-view endpoint on the
 // policies_enabled settings toggle (ADR-0043). Writes 500 when the settings
@@ -39,6 +159,10 @@ func requirePoliciesEnabled(w http.ResponseWriter, r *http.Request, store Store)
 	return true
 }
 
+// HandleCreateClusterPolicy serves POST /v1/cluster-policies: upsert by
+// (cluster_id, namespace_id, name), source='api' (ADR-0043 §3b).
+//
+//nolint:gocyclo // sequential decode→validate→upsert error handling
 func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeWrite) {
@@ -58,111 +182,13 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
 			return
 		}
-		if in.Name == "" {
-			writeProblem(w, http.StatusBadRequest, "Bad Request", "name required")
+		if detail := validateClusterPolicyCreate(&in); detail != "" {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", detail)
 			return
 		}
-		if in.ClusterID == uuid.Nil {
-			writeProblem(w, http.StatusBadRequest, "Bad Request", "cluster_id required")
+		if in.NamespaceID != nil && !checkNamespaceBelongsToCluster(w, r, store, *in.NamespaceID, in.ClusterID) {
 			return
 		}
-		if in.ResourceType == "" {
-			writeProblem(w, http.StatusBadRequest, "Bad Request", "resource_type required")
-			return
-		}
-		if !validResourceTypes[in.ResourceType] {
-			writeProblem(w, http.StatusBadRequest, "Bad Request",
-				"resource_type must be ClusterPolicy or Policy")
-			return
-		}
-		if in.Scope == "" {
-			if in.ResourceType == "Policy" {
-				in.Scope = "namespace"
-			} else {
-				in.Scope = "cluster"
-			}
-		}
-		in.Scope = strings.ToLower(in.Scope)
-		if !validScopes[in.Scope] {
-			writeProblem(w, http.StatusBadRequest, "Bad Request",
-				"scope must be cluster or namespace")
-			return
-		}
-		if in.ResourceType == "Policy" && in.Scope != "namespace" {
-			writeProblem(w, http.StatusBadRequest, "Bad Request",
-				"scope must be namespace when resource_type is Policy")
-			return
-		}
-		if in.ResourceType == "ClusterPolicy" && in.Scope != "cluster" {
-			writeProblem(w, http.StatusBadRequest, "Bad Request",
-				"scope must be cluster when resource_type is ClusterPolicy")
-			return
-		}
-		if len(in.SpecRaw) == 0 || string(in.SpecRaw) == "null" {
-			writeProblem(w, http.StatusBadRequest, "Bad Request", "spec_raw required")
-			return
-		}
-		if in.ResourceType == "Policy" && in.NamespaceID == nil {
-			writeProblem(w, http.StatusBadRequest, "Bad Request",
-				"namespace_id required when resource_type is Policy")
-			return
-		}
-		if in.ResourceType == "ClusterPolicy" && in.NamespaceID != nil {
-			writeProblem(w, http.StatusBadRequest, "Bad Request",
-				"namespace_id must be omitted when resource_type is ClusterPolicy")
-			return
-		}
-		if in.NamespaceID != nil {
-			ns, nsErr := store.GetNamespace(r.Context(), *in.NamespaceID)
-			if nsErr != nil {
-				if errors.Is(nsErr, ErrNotFound) {
-					writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity",
-						"namespace_id does not exist")
-					return
-				}
-				slog.Error("lookup namespace for cluster-policy", slog.Any("error", nsErr))
-				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
-				return
-			}
-			if ns.ClusterId != in.ClusterID {
-				writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity",
-					"namespace_id does not belong to the specified cluster_id")
-				return
-			}
-		}
-		if in.Action != nil {
-			a := strings.ToLower(*in.Action)
-			if !validActions[a] {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
-					"action must be enforce or audit")
-				return
-			}
-			in.Action = &a
-		}
-		if in.Severity != nil {
-			s := strings.ToLower(*in.Severity)
-			if !validSeverities[s] {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
-					"severity must be one of critical, high, medium, low, info")
-				return
-			}
-			in.Severity = &s
-		}
-		if in.RulesCount != nil && *in.RulesCount < 0 {
-			writeProblem(w, http.StatusBadRequest, "Bad Request",
-				"rules_count must be non-negative")
-			return
-		}
-		if in.FailurePolicy != nil {
-			fp := titleCaseFailurePolicy(*in.FailurePolicy)
-			if fp != "Fail" && fp != "Ignore" {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
-					"failure_policy must be Fail or Ignore")
-				return
-			}
-			in.FailurePolicy = &fp
-		}
-
 		cp := ClusterPolicyRow{
 			ClusterID:       in.ClusterID,
 			NamespaceID:     in.NamespaceID,
@@ -210,6 +236,7 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 			slog.Error("read back created cluster policy", slog.String("id", id.String()), slog.Any("error", err))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
+			//nolint:errcheck // response write; nothing to handle
 			fmt.Fprintf(w, `{"id":"%s","warning":"cluster policy created but read-back failed"}`, id)
 			return
 		}
@@ -220,14 +247,18 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 func titleCaseFailurePolicy(s string) string {
 	switch strings.ToLower(s) {
 	case "fail":
-		return "Fail"
+		return failurePolicyFail
 	case "ignore":
-		return "Ignore"
+		return failurePolicyIgnore
 	default:
 		return s
 	}
 }
 
+// HandleListClusterPolicies serves GET /v1/cluster-policies with the
+// cursor-paginated, filterable policy inventory (ADR-0043).
+//
+//nolint:gocognit,gocyclo // eight optional filters; each branch is trivial
 func HandleListClusterPolicies(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
@@ -291,6 +322,7 @@ func HandleListClusterPolicies(store Store) http.HandlerFunc {
 	}
 }
 
+// HandleGetClusterPolicy serves GET /v1/cluster-policies/{id}.
 func HandleGetClusterPolicy(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
@@ -317,6 +349,9 @@ func HandleGetClusterPolicy(store Store) http.HandlerFunc {
 	}
 }
 
+// HandleDeleteClusterPolicy serves DELETE /v1/cluster-policies/{id}.
+// Only API-authored rows (source='api') can be deleted; collector-managed
+// rows return 404 (ADR-0043 §3b).
 func HandleDeleteClusterPolicy(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeWrite) {

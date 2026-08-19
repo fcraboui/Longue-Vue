@@ -995,7 +995,10 @@ func (k *KubeClient) ListKyvernoClusterPolicyReports(ctx context.Context) ([]Kyv
 // KyvernoClusterPolicyInfo, extracting all fields per ADR-0043 §5.
 func convertKyvernoPolicy(obj *unstructured.Unstructured, resourceType, scope string) (KyvernoClusterPolicyInfo, error) {
 	ann := obj.GetAnnotations()
-	spec, _ := json.Marshal(obj.Object["spec"])
+	spec, err := json.Marshal(obj.Object["spec"])
+	if err != nil {
+		return KyvernoClusterPolicyInfo{}, fmt.Errorf("marshal spec: %w", err)
+	}
 	annotations, _ := json.Marshal(ann)
 
 	info := KyvernoClusterPolicyInfo{
@@ -1045,6 +1048,9 @@ func convertKyvernoPolicy(obj *unstructured.Unstructured, resourceType, scope st
 // semantics at all (mutate-/generate-only): the kubebuilder default
 // "audit" would fabricate an enforcement posture such a policy doesn't
 // have. Result is lowercased. ADR-0043 §5.
+const kyvernoActionEnforce = "enforce"
+
+//nolint:gocyclo // most-restrictive-wins scan across three override sources
 func kyvernoAction(obj *unstructured.Unstructured) *string {
 	spec, ok := obj.Object["spec"].(map[string]interface{})
 	if !ok {
@@ -1076,18 +1082,12 @@ func kyvernoAction(obj *unstructured.Unstructured) *string {
 	}
 	action := strings.ToLower(vfa)
 
-	if action == "enforce" {
+	if action == kyvernoActionEnforce {
 		return &action
 	}
 
-	for _, o := range overrides {
-		om, ok := o.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if a, ok := om["action"].(string); ok && strings.ToLower(a) == "enforce" {
-			return ptrLower("enforce")
-		}
+	if kyvernoOverridesEnforce(overrides) {
+		return ptrLower(kyvernoActionEnforce)
 	}
 
 	for _, r := range rules {
@@ -1095,26 +1095,41 @@ func kyvernoAction(obj *unstructured.Unstructured) *string {
 		if !ok {
 			continue
 		}
-		v, ok := rm["validate"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if fa, ok := v["failureAction"].(string); ok && strings.ToLower(fa) == "enforce" {
-			return ptrLower("enforce")
-		}
-		faOverrides, _ := v["failureActionOverrides"].([]interface{})
-		for _, o := range faOverrides {
-			om, ok := o.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if a, ok := om["action"].(string); ok && strings.ToLower(a) == "enforce" {
-				return ptrLower("enforce")
-			}
+		if kyvernoValidateRuleEnforces(rm) {
+			return ptrLower(kyvernoActionEnforce)
 		}
 	}
 
 	return &action
+}
+
+// kyvernoOverridesEnforce reports whether any entry of a
+// validationFailureActionOverrides-style list carries an enforce action.
+func kyvernoOverridesEnforce(overrides []interface{}) bool {
+	for _, o := range overrides {
+		om, ok := o.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if a, ok := om["action"].(string); ok && strings.EqualFold(a, kyvernoActionEnforce) {
+			return true
+		}
+	}
+	return false
+}
+
+// kyvernoValidateRuleEnforces reports whether one rule's validate block
+// enforces — via failureAction or failureActionOverrides (Kyverno >=1.13).
+func kyvernoValidateRuleEnforces(rm map[string]interface{}) bool {
+	v, ok := rm["validate"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	if fa, ok := v["failureAction"].(string); ok && strings.EqualFold(fa, kyvernoActionEnforce) {
+		return true
+	}
+	faOverrides, _ := v["failureActionOverrides"].([]interface{})
+	return kyvernoOverridesEnforce(faOverrides)
 }
 
 func ptrLower(s string) *string {
@@ -1202,6 +1217,8 @@ func kyvernoRulesCount(obj *unstructured.Unstructured) int {
 // kyvernoTargetResources returns distinct union of
 // spec.rules[].match.any[].resources.kinds[] and
 // spec.rules[].match.all[].resources.kinds[]. ADR-0043 §5.
+//
+//nolint:gocognit,gocyclo // nested unstructured-map walk; each level is one trivial type assertion
 func kyvernoTargetResources(obj *unstructured.Unstructured) []string {
 	spec, ok := obj.Object["spec"].(map[string]interface{})
 	if !ok {
@@ -1258,6 +1275,8 @@ func kyvernoTargetResources(obj *unstructured.Unstructured) []string {
 // kyvernoKeyExclusions returns distinct exclusion entries (capped at 10),
 // sorted for deterministic output. Prefixes: "kind:" for resource kinds,
 // "ns:" for namespaces. ADR-0043 §5.
+//
+//nolint:gocognit,gocyclo // nested unstructured-map walk; each level is one trivial type assertion
 func kyvernoKeyExclusions(obj *unstructured.Unstructured) []string {
 	spec, ok := obj.Object["spec"].(map[string]interface{})
 	if !ok {
@@ -1378,7 +1397,10 @@ func kyvernoDescriptionFallback(obj *unstructured.Unstructured) *string {
 // convertKyvernoPolicyReport maps an Unstructured PolicyReport/ClusterPolicyReport
 // to KyvernoPolicyReportInfo. ADR-0043 §5.
 func convertKyvernoPolicyReport(obj *unstructured.Unstructured) (KyvernoPolicyReportInfo, error) {
-	results, _ := json.Marshal(obj.Object["results"])
+	results, err := json.Marshal(obj.Object["results"])
+	if err != nil {
+		return KyvernoPolicyReportInfo{}, fmt.Errorf("marshal results: %w", err)
+	}
 
 	info := KyvernoPolicyReportInfo{
 		Name:       obj.GetName(),
@@ -1440,7 +1462,7 @@ func splitLines(s string) []string {
 	}
 	var lines []string
 	start := 0
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		if s[i] == '\n' {
 			lines = append(lines, s[start:i])
 			start = i + 1

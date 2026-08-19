@@ -34,6 +34,7 @@ func newFakeKyvernoStore() *fakeKyvernoStore {
 	}
 }
 
+//nolint:gocritic // hugeParam: KyvernoStore interface mandates the value param
 func (f *fakeKyvernoStore) UpsertClusterPolicy(_ context.Context, cp api.ClusterPolicyRow) (uuid.UUID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -82,6 +83,7 @@ func (f *fakeKyvernoStore) DeletePolicyReport(_ context.Context, _ uuid.UUID) er
 	return nil
 }
 
+//nolint:gocritic // hugeParam: KyvernoStore interface mandates the value param
 func (f *fakeKyvernoStore) UpsertPolicyReport(_ context.Context, pr api.PolicyReportRow) (uuid.UUID, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -129,6 +131,7 @@ func (f *fakeKyvernoStore) sweepClusterID(key string) (uuid.UUID, bool) {
 	return id, ok
 }
 
+//nolint:gocyclo // multi-namespace sweep scenario; assertions are inherent to the contract under test
 func TestCollectKyvernoPolicies_PerNamespaceSweep(t *testing.T) {
 	ctx := t.Context()
 	clusterID, nsA, nsB := uuid.New(), uuid.New(), uuid.New()

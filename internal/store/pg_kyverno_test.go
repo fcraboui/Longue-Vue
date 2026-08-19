@@ -13,7 +13,9 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
-func seedClusterForKyverno(t *testing.T, pg *PG) (clusterID uuid.UUID, nsID uuid.UUID) {
+const testKyvernoSeverityHigh = "high"
+
+func seedClusterForKyverno(t *testing.T, pg *PG) (clusterID, nsID uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
 	cluster, _, err := pg.EnsureCluster(ctx, api.ClusterCreate{Name: "kyv-" + uuid.New().String()[:8]})
@@ -31,7 +33,7 @@ func makeCP(clusterID, nsID uuid.UUID, name string) api.ClusterPolicyRow {
 	bg := true
 	rdy := true
 	rc := 3
-	sev := "high"
+	sev := testKyvernoSeverityHigh
 	act := "enforce"
 	fp := "Fail"
 	cat := "Best Practices"
@@ -55,6 +57,17 @@ func makeCP(clusterID, nsID uuid.UUID, name string) api.ClusterPolicyRow {
 		SpecRaw:       json.RawMessage(`{}`),
 		Source:        api.SourceCollector,
 	}
+}
+
+// asClusterScoped rewrites a makeCP row into a cluster-scoped
+// ClusterPolicy (no namespace).
+//
+//nolint:gocritic // hugeParam: by-value on purpose — returns a modified copy
+func asClusterScoped(cp api.ClusterPolicyRow) api.ClusterPolicyRow {
+	cp.NamespaceID = nil
+	cp.ResourceType = "ClusterPolicy"
+	cp.Scope = "cluster"
+	return cp
 }
 
 func makePR(clusterID, nsID uuid.UUID, name string) api.PolicyReportRow {
@@ -111,6 +124,7 @@ func TestKyverno_GetClusterPolicy_NotFound(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // sequential filter assertions; each check is trivial
 func TestKyverno_ListClusterPolicies_Filters(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()
@@ -137,7 +151,7 @@ func TestKyverno_ListClusterPolicies_Filters(t *testing.T) {
 		t.Fatalf("want 3, got %d", len(items))
 	}
 
-	sev := "high"
+	sev := testKyvernoSeverityHigh
 	high, _, err := pg.ListClusterPolicies(ctx, api.ClusterPolicyListFilter{Severity: &sev}, api.ListPage{Limit: 50})
 	if err != nil {
 		t.Fatalf("filter severity: %v", err)
@@ -179,19 +193,11 @@ func TestKyverno_SweepClusterScopedPolicies_DeletesUnseen(t *testing.T) {
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
 
-	clusterScopedKept := makeCP(cid, nsID, "kept")
-	clusterScopedKept.NamespaceID = nil
-	clusterScopedKept.ResourceType = "ClusterPolicy"
-	clusterScopedKept.Scope = "cluster"
-	kept, err := pg.UpsertClusterPolicy(ctx, clusterScopedKept)
+	kept, err := pg.UpsertClusterPolicy(ctx, asClusterScoped(makeCP(cid, nsID, testStoreNameKept)))
 	if err != nil {
 		t.Fatalf("upsert kept: %v", err)
 	}
-	clusterScopedGone := makeCP(cid, nsID, "gone")
-	clusterScopedGone.NamespaceID = nil
-	clusterScopedGone.ResourceType = "ClusterPolicy"
-	clusterScopedGone.Scope = "cluster"
-	_, err = pg.UpsertClusterPolicy(ctx, clusterScopedGone)
+	_, err = pg.UpsertClusterPolicy(ctx, asClusterScoped(makeCP(cid, nsID, "gone")))
 	if err != nil {
 		t.Fatalf("upsert gone: %v", err)
 	}
@@ -208,7 +214,7 @@ func TestKyverno_SweepClusterScopedPolicies_DeletesUnseen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list after sweep: %v", err)
 	}
-	if len(items) != 1 || items[0].Name != "kept" {
+	if len(items) != 1 || items[0].Name != testStoreNameKept {
 		t.Fatalf("want only 'kept', got %+v", items)
 	}
 }
@@ -218,7 +224,7 @@ func TestKyverno_SweepClusterPoliciesByNamespace_DeletesUnseen(t *testing.T) {
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
 
-	kept, err := pg.UpsertClusterPolicy(ctx, makeCP(cid, nsID, "kept"))
+	kept, err := pg.UpsertClusterPolicy(ctx, makeCP(cid, nsID, testStoreNameKept))
 	if err != nil {
 		t.Fatalf("upsert kept: %v", err)
 	}
@@ -239,7 +245,7 @@ func TestKyverno_SweepClusterPoliciesByNamespace_DeletesUnseen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list after sweep: %v", err)
 	}
-	if len(items) != 1 || items[0].Name != "kept" {
+	if len(items) != 1 || items[0].Name != testStoreNameKept {
 		t.Fatalf("want only 'kept', got %+v", items)
 	}
 }
@@ -284,19 +290,12 @@ func TestKyverno_SweepClusterScopedPoliciesNotIn(t *testing.T) {
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
 
-	clusterScoped := makeCP(cid, nsID, "cluster-wide")
-	clusterScoped.NamespaceID = nil
-	clusterScoped.ResourceType = "ClusterPolicy"
-	clusterScoped.Scope = "cluster"
-	kept, err := pg.UpsertClusterPolicy(ctx, clusterScoped)
+	kept, err := pg.UpsertClusterPolicy(ctx, asClusterScoped(makeCP(cid, nsID, "cluster-wide")))
 	if err != nil {
 		t.Fatalf("upsert cluster-scoped kept: %v", err)
 	}
 
-	gone := makeCP(cid, nsID, "cluster-wide-gone")
-	gone.NamespaceID = nil
-	gone.ResourceType = "ClusterPolicy"
-	gone.Scope = "cluster"
+	gone := asClusterScoped(makeCP(cid, nsID, "cluster-wide-gone"))
 	_, err = pg.UpsertClusterPolicy(ctx, gone)
 	if err != nil {
 		t.Fatalf("upsert cluster-scoped gone: %v", err)
@@ -513,7 +512,7 @@ func TestKyverno_SweepClusterScopedPolicyReports_DeletesUnseen(t *testing.T) {
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
 
-	clusterScopedKept := makePR(cid, nsID, "kept")
+	clusterScopedKept := makePR(cid, nsID, testStoreNameKept)
 	clusterScopedKept.NamespaceID = nil
 	kept, err := pg.UpsertPolicyReport(ctx, clusterScopedKept)
 	if err != nil {
@@ -541,7 +540,7 @@ func TestKyverno_SweepClusterScopedPolicyReports_DeletesUnseen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list after sweep: %v", err)
 	}
-	if len(items) != 1 || items[0].Name != "kept" {
+	if len(items) != 1 || items[0].Name != testStoreNameKept {
 		t.Fatalf("want only 'kept', got %+v", items)
 	}
 }
@@ -551,7 +550,7 @@ func TestKyverno_SweepPolicyReportsByNamespace_DeletesUnseen(t *testing.T) {
 	ctx := context.Background()
 	cid, nsID := seedClusterForKyverno(t, pg)
 
-	kept, err := pg.UpsertPolicyReport(ctx, makePR(cid, nsID, "kept"))
+	kept, err := pg.UpsertPolicyReport(ctx, makePR(cid, nsID, testStoreNameKept))
 	if err != nil {
 		t.Fatalf("upsert kept: %v", err)
 	}
@@ -575,7 +574,7 @@ func TestKyverno_SweepPolicyReportsByNamespace_DeletesUnseen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list after sweep: %v", err)
 	}
-	if len(items) != 1 || items[0].Name != "kept" {
+	if len(items) != 1 || items[0].Name != testStoreNameKept {
 		t.Fatalf("want only 'kept', got %+v", items)
 	}
 }

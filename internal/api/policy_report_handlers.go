@@ -15,6 +15,37 @@ import (
 
 const prListNameMaxLen = 100
 
+// validatePolicyReportCreate validates the decoded POST body. Returns
+// the RFC 7807 detail for a 400, or "" when valid. The namespace
+// referential check stays in the handler (it needs the store).
+func validatePolicyReportCreate(in *PolicyReportCreate) string {
+	if in.Name == "" {
+		return "name required"
+	}
+	if in.ClusterID == uuid.Nil {
+		return "cluster_id required"
+	}
+	for _, f := range []struct {
+		name  string
+		value int
+	}{
+		{"summary_pass", in.SummaryPass},
+		{"summary_fail", in.SummaryFail},
+		{"summary_warn", in.SummaryWarn},
+		{"summary_error", in.SummaryError},
+		{"summary_skip", in.SummarySkip},
+	} {
+		if f.value < 0 {
+			return f.name + " must be non-negative"
+		}
+	}
+	return ""
+}
+
+// HandleCreatePolicyReport serves POST /v1/policy-reports: upsert by
+// (cluster_id, namespace_id, name), source='api' (ADR-0043 §3b).
+//
+//nolint:gocyclo // sequential decode→validate→upsert error handling
 func HandleCreatePolicyReport(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeWrite) {
@@ -34,53 +65,17 @@ func HandleCreatePolicyReport(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON body")
 			return
 		}
-		if in.Name == "" {
-			writeProblem(w, http.StatusBadRequest, "Bad Request", "name required")
-			return
-		}
-		if in.ClusterID == uuid.Nil {
-			writeProblem(w, http.StatusBadRequest, "Bad Request", "cluster_id required")
+		if detail := validatePolicyReportCreate(&in); detail != "" {
+			writeProblem(w, http.StatusBadRequest, "Bad Request", detail)
 			return
 		}
 		// scope_kind is stored verbatim: the collector writes K8s kinds
 		// as-is and the list filter compares case-insensitively, so
 		// normalising here would only split the same kind across two
 		// spellings (ReplicaSet vs Replicaset).
-		if in.NamespaceID != nil {
-			ns, nsErr := store.GetNamespace(r.Context(), *in.NamespaceID)
-			if nsErr != nil {
-				if errors.Is(nsErr, ErrNotFound) {
-					writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity",
-						"namespace_id does not exist")
-					return
-				}
-				slog.Error("lookup namespace for policy-report", slog.Any("error", nsErr))
-				writeProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
-				return
-			}
-			if ns.ClusterId != in.ClusterID {
-				writeProblem(w, http.StatusUnprocessableEntity, "Unprocessable Entity",
-					"namespace_id does not belong to the specified cluster_id")
-				return
-			}
+		if in.NamespaceID != nil && !checkNamespaceBelongsToCluster(w, r, store, *in.NamespaceID, in.ClusterID) {
+			return
 		}
-		for _, f := range []struct {
-			name  string
-			value int
-		}{
-			{"summary_pass", in.SummaryPass},
-			{"summary_fail", in.SummaryFail},
-			{"summary_warn", in.SummaryWarn},
-			{"summary_error", in.SummaryError},
-			{"summary_skip", in.SummarySkip},
-		} {
-			if f.value < 0 {
-				writeProblem(w, http.StatusBadRequest, "Bad Request",
-					f.name+" must be non-negative")
-				return
-			}
-		}
-
 		pr := PolicyReportRow{
 			ClusterID:    in.ClusterID,
 			NamespaceID:  in.NamespaceID,
@@ -121,6 +116,7 @@ func HandleCreatePolicyReport(store Store) http.HandlerFunc {
 			slog.Error("read back created policy report", slog.String("id", id.String()), slog.Any("error", err))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
+			//nolint:errcheck // response write; nothing to handle
 			fmt.Fprintf(w, `{"id":"%s","warning":"policy report created but read-back failed"}`, id)
 			return
 		}
@@ -128,6 +124,10 @@ func HandleCreatePolicyReport(store Store) http.HandlerFunc {
 	}
 }
 
+// HandleListPolicyReports serves GET /v1/policy-reports with the
+// cursor-paginated, filterable report inventory (ADR-0043).
+//
+//nolint:gocognit,gocyclo // five optional filters; each branch is trivial
 func HandleListPolicyReports(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
@@ -190,6 +190,7 @@ func HandleListPolicyReports(store Store) http.HandlerFunc {
 	}
 }
 
+// HandleGetPolicyReport serves GET /v1/policy-reports/{id}.
 func HandleGetPolicyReport(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeRead) {
@@ -216,6 +217,9 @@ func HandleGetPolicyReport(store Store) http.HandlerFunc {
 	}
 }
 
+// HandleDeletePolicyReport serves DELETE /v1/policy-reports/{id}.
+// Only API-authored rows (source='api') can be deleted; collector-managed
+// rows return 404 (ADR-0043 §3b).
 func HandleDeletePolicyReport(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeWrite) {

@@ -403,7 +403,7 @@ func TestCreateClusterPolicy_InvalidJSON(t *testing.T) {
 	enablePolicies(t, store)
 	h := buildKyvernoPostMux(t, store, editorCaller())
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/cluster-policies", strings.NewReader("not-json"))
+	req := httptest.NewRequest(http.MethodPost, "/v1/cluster-policies", strings.NewReader("not-json")) //nolint:noctx // in-process handler test
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -417,7 +417,7 @@ func TestCreatePolicyReport_InvalidJSON(t *testing.T) {
 	enablePolicies(t, store)
 	h := buildKyvernoPostMux(t, store, editorCaller())
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/policy-reports", strings.NewReader("not-json"))
+	req := httptest.NewRequest(http.MethodPost, "/v1/policy-reports", strings.NewReader("not-json")) //nolint:noctx // in-process handler test
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -446,7 +446,10 @@ func TestDeleteClusterPolicy_204(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode create: %v", err)
 	}
-	id := created["id"].(string)
+	id, ok := created["id"].(string)
+	if !ok {
+		t.Fatalf("created id missing or not a string: %v", created["id"])
+	}
 
 	rr = doReq(t, h, http.MethodDelete, "/v1/cluster-policies/"+id, nil)
 	if rr.Code != http.StatusNoContent {
@@ -520,7 +523,10 @@ func TestDeletePolicyReport_204(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode create: %v", err)
 	}
-	id := created["id"].(string)
+	id, ok := created["id"].(string)
+	if !ok {
+		t.Fatalf("created id missing or not a string: %v", created["id"])
+	}
 
 	rr = doReq(t, h, http.MethodDelete, "/v1/policy-reports/"+id, nil)
 	if rr.Code != http.StatusNoContent {
@@ -987,7 +993,9 @@ func TestCreateClusterPolicy_ApiOverApiUpdate_201(t *testing.T) {
 		t.Fatalf("api→api update: got %d, want 201; body=%s", rr.Code, rr.Body.String())
 	}
 	var second map[string]any
-	json.Unmarshal(rr.Body.Bytes(), &second)
+	if err := json.Unmarshal(rr.Body.Bytes(), &second); err != nil {
+		t.Fatalf("decode update: %v", err)
+	}
 	if second["description"] != "updated" {
 		t.Errorf("api→api update did not apply new description: got %v", second["description"])
 	}
@@ -1012,8 +1020,13 @@ func TestCreateClusterPolicy_CollectorOverApiUpdate_409(t *testing.T) {
 		t.Fatalf("api create: got %d, want 201; body=%s", rr.Code, rr.Body.String())
 	}
 	var created map[string]any
-	json.Unmarshal(rr.Body.Bytes(), &created)
-	id := created["id"].(string)
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	id, ok := created["id"].(string)
+	if !ok {
+		t.Fatalf("created id missing or not a string: %v", created["id"])
+	}
 
 	parsedID, _ := uuid.Parse(id)
 	store.mu.Lock()
@@ -1046,7 +1059,7 @@ func TestCreateClusterPolicy_413BodyTooLarge(t *testing.T) {
 		`","name":"x","resource_type":"ClusterPolicy","spec_raw":{},"padding":"` +
 		strings.Repeat("A", 1<<20) + `"}`
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/cluster-policies", strings.NewReader(big))
+	req := httptest.NewRequest(http.MethodPost, "/v1/cluster-policies", strings.NewReader(big)) //nolint:noctx // in-process handler test
 	req.Header.Set("Content-Type", "application/json")
 	req = req.WithContext(auth.WithCaller(req.Context(), editorCaller()))
 	rr := httptest.NewRecorder()
@@ -1067,7 +1080,7 @@ func TestCreatePolicyReport_413BodyTooLarge(t *testing.T) {
 		`","name":"x","padding":"` +
 		strings.Repeat("A", 1<<20) + `"}`
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/policy-reports", strings.NewReader(big))
+	req := httptest.NewRequest(http.MethodPost, "/v1/policy-reports", strings.NewReader(big)) //nolint:noctx // in-process handler test
 	req.Header.Set("Content-Type", "application/json")
 	req = req.WithContext(auth.WithCaller(req.Context(), editorCaller()))
 	rr := httptest.NewRecorder()

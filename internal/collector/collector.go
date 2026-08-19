@@ -423,7 +423,8 @@ func New(st CmdbStore, source KubeSource, clusterName string, interval, fetchTim
 	if kys, ok := st.(KyvernoStore); ok {
 		c.kyvernoStore = kys
 	} else {
-		slog.Info("collector: kyverno policy collection disabled — store does not implement KyvernoStore (expected in push mode, deferred per ADR-0043)",
+		slog.Info(
+			"collector: kyverno policy collection disabled — store does not implement KyvernoStore (expected in push mode, deferred per ADR-0043)",
 			slog.String("cluster_name", clusterName))
 	}
 	if sg, ok := st.(SettingsGetter); ok {

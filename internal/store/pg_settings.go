@@ -34,6 +34,8 @@ func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 }
 
 // UpdateSettings applies the merge-patch on the settings row.
+//
+//nolint:gocyclo // merge-patch nil checks are inherently repetitive
 func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Settings, error) {
 	sets := make([]string, 0, 6)
 	args := make([]any, 0, 6)

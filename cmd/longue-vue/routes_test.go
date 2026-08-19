@@ -9,6 +9,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
@@ -49,6 +50,6 @@ func TestBuildHTTPServerRegistersAllRoutes(t *testing.T) {
 	// Exercise the mux dispatcher once so a lazily-detected routing
 	// problem would also surface here, not just registration panics.
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody) //nolint:noctx // in-process handler test
 	srv.Handler.ServeHTTP(rec, req)
 }

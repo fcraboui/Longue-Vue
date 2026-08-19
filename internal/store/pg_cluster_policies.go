@@ -13,6 +13,8 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+// ClusterPolicy aliases the shared row type so store methods read
+// naturally (matches the NetworkPolicy alias pattern).
 type ClusterPolicy = api.ClusterPolicyRow
 
 const cpSelect = `
@@ -22,6 +24,8 @@ const cpSelect = `
 	rule_types, rules_count, target_resources, key_exclusions,
 	ready, annotations, spec_raw, source, reconcile_seen_at`
 
+// GetClusterPolicy returns one policy row by id; api.ErrNotFound when
+// absent.
 func (p *PG) GetClusterPolicy(ctx context.Context, id uuid.UUID) (api.ClusterPolicyRow, error) {
 	const q = `SELECT ` + cpSelect + ` FROM cluster_policies WHERE id = $1`
 	var cp api.ClusterPolicyRow
@@ -43,6 +47,13 @@ func (p *PG) GetClusterPolicy(ctx context.Context, id uuid.UUID) (api.ClusterPol
 	return cp, nil
 }
 
+// UpsertClusterPolicy inserts or updates a policy keyed on
+// (cluster_id, namespace_id, name) and returns the stable row UUID.
+// The guarded ON CONFLICT means an API write never overwrites a
+// collector-managed row (api.ErrConflict instead); the collector
+// overwrites anything.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertClusterPolicy(ctx context.Context, cp ClusterPolicy) (uuid.UUID, error) {
 	var id uuid.UUID
 	err := p.pool.QueryRow(ctx, `
@@ -96,7 +107,9 @@ func (p *PG) UpsertClusterPolicy(ctx context.Context, cp ClusterPolicy) (uuid.UU
 	return id, nil
 }
 
-func (p *PG) DeleteClusterPoliciesByNamespace(ctx context.Context, clusterID uuid.UUID, namespaceID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
+// DeleteClusterPoliciesByNamespace sweeps collector-managed policy rows
+// of one namespace, keeping keepIDs (reconcile per ADR-0043 §5).
+func (p *PG) DeleteClusterPoliciesByNamespace(ctx context.Context, clusterID, namespaceID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
 	var ct pgconn.CommandTag
 	var err error
 	if len(keepIDs) == 0 {
@@ -114,6 +127,8 @@ func (p *PG) DeleteClusterPoliciesByNamespace(ctx context.Context, clusterID uui
 	return ct.RowsAffected(), nil
 }
 
+// DeleteClusterScopedPoliciesNotIn sweeps collector-managed
+// cluster-scoped policy rows, keeping keepIDs (reconcile per ADR-0043 §5).
 func (p *PG) DeleteClusterScopedPoliciesNotIn(ctx context.Context, clusterID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
 	var ct pgconn.CommandTag
 	var err error
@@ -131,6 +146,8 @@ func (p *PG) DeleteClusterScopedPoliciesNotIn(ctx context.Context, clusterID uui
 	return ct.RowsAffected(), nil
 }
 
+// DeleteClusterPolicy deletes one API-authored row (source='api');
+// api.ErrNotFound when the row is absent or collector-managed.
 func (p *PG) DeleteClusterPolicy(ctx context.Context, id uuid.UUID) error {
 	ct, err := p.pool.Exec(ctx,
 		`DELETE FROM cluster_policies WHERE id = $1 AND source = $2`,
@@ -198,6 +215,7 @@ var clusterPolicySortSpec = sortSpec{
 	defaultDir: dirAsc,
 }
 
+//nolint:gocyclo // per-sort-key dispatch; each case is trivial
 func clusterPolicySortVal(r *api.ClusterPolicyRow, key string) *string {
 	switch key {
 	case sortKeyName:
@@ -245,6 +263,10 @@ func severityRank(s *string) *int {
 	}
 }
 
+// ListClusterPolicies returns a cursor-paginated page of policy rows
+// matching the filter (ADR-0042 sort/cursor semantics).
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListClusterPolicies(
 	ctx context.Context,
 	filter api.ClusterPolicyListFilter,
@@ -365,7 +387,7 @@ func classifyClusterPolicyFKError(err error, clusterID uuid.UUID, namespaceID *u
 		return nil
 	}
 	if strings.Contains(pgErr.ConstraintName, "namespace_id") {
-		target := "<nil>"
+		target := nilUUIDDisplay
 		if namespaceID != nil {
 			target = namespaceID.String()
 		}

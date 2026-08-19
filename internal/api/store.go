@@ -1223,14 +1223,14 @@ type Settings struct {
 // SettingsPatch is the merge-patch for UpdateSettings. Nil fields are
 // left unchanged.
 type SettingsPatch struct {
-	EOLEnabled              *bool   `json:"eol_enabled,omitempty"`
-	MCPEnabled              *bool   `json:"mcp_enabled,omitempty"`
-	TimeTravelEnabled       *bool   `json:"time_travel_enabled,omitempty"`
-	TimeTravelRetentionDays *int    `json:"time_travel_retention_days,omitempty"`
-	TimeTravelReaperEnabled *bool   `json:"time_travel_reaper_enabled,omitempty"`
-	ImageVersionsEnabled    *bool   `json:"image_versions_enabled,omitempty"`
-	FlowMatrixEnabled       *bool   `json:"flow_matrix_enabled,omitempty"`
-	PoliciesEnabled         *bool   `json:"policies_enabled,omitempty"`
+	EOLEnabled              *bool `json:"eol_enabled,omitempty"`
+	MCPEnabled              *bool `json:"mcp_enabled,omitempty"`
+	TimeTravelEnabled       *bool `json:"time_travel_enabled,omitempty"`
+	TimeTravelRetentionDays *int  `json:"time_travel_retention_days,omitempty"`
+	TimeTravelReaperEnabled *bool `json:"time_travel_reaper_enabled,omitempty"`
+	ImageVersionsEnabled    *bool `json:"image_versions_enabled,omitempty"`
+	FlowMatrixEnabled       *bool `json:"flow_matrix_enabled,omitempty"`
+	PoliciesEnabled         *bool `json:"policies_enabled,omitempty"`
 }
 
 // ImageVersionRow is a row from image_versions — one (image_repo, variant) pair

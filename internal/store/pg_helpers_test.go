@@ -313,6 +313,9 @@ func TestSortVals(t *testing.T) {
 	if got := sortValTime(&ts); got == nil || *got != "2026-01-02T03:04:05.000000006Z" {
 		t.Errorf("sortValTime = %v, want RFC3339Nano string", got)
 	}
+}
+
+func TestBoolToIntPtr(t *testing.T) {
 	if got := sortValInt(nil); got != nil {
 		t.Errorf("sortValInt(nil) = %v, want nil", got)
 	}
@@ -331,6 +334,9 @@ func TestSortVals(t *testing.T) {
 	if got := boolToIntPtr(&fBool); got == nil || *got != 0 {
 		t.Errorf("boolToIntPtr(false) = %v, want 0", got)
 	}
+}
+
+func TestSeverityRank(t *testing.T) {
 	if got := severityRank(nil); got == nil || *got != -1 {
 		t.Errorf("severityRank(nil) = %v, want -1", got)
 	}
@@ -338,9 +344,15 @@ func TestSortVals(t *testing.T) {
 		in   string
 		want int
 	}{
-		{"critical", 4}, {"high", 3}, {"medium", 2},
-		{"low", 1}, {"info", 0}, {"unknown", -1}, {"", -1},
-		{"CRITICAL", 4}, {"High", 3},
+		{"critical", 4},
+		{"high", 3},
+		{"medium", 2},
+		{"low", 1},
+		{"info", 0},
+		{"unknown", -1},
+		{"", -1},
+		{"CRITICAL", 4},
+		{"High", 3},
 	} {
 		got := severityRank(&tc.in)
 		if got == nil || *got != tc.want {

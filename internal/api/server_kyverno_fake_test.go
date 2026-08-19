@@ -37,6 +37,7 @@ func (m *memStore) ListClusterPolicies(_ context.Context, _ ClusterPolicyListFil
 	return nil, "", nil
 }
 
+//nolint:gocritic // hugeParam: Store interface mandates the value param
 func (m *memStore) UpsertClusterPolicy(_ context.Context, cp ClusterPolicyRow) (uuid.UUID, error) {
 	if cp.Source == "" {
 		cp.Source = SourceAPI
@@ -44,7 +45,7 @@ func (m *memStore) UpsertClusterPolicy(_ context.Context, cp ClusterPolicyRow) (
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	uk := clusterPolicyUniqueKey(cp.ClusterID, cp.NamespaceID, cp.Name)
-	for id, existing := range m.clusterPolicies {
+	for id, existing := range m.clusterPolicies { //nolint:gocritic // rangeValCopy: small test fake; clarity over micro-optimisation
 		existingUK := clusterPolicyUniqueKey(existing.ClusterID, existing.NamespaceID, existing.Name)
 		if existingUK == uk {
 			if cp.Source == SourceAPI && existing.Source == SourceCollector {
@@ -64,7 +65,7 @@ func (m *memStore) DeleteClusterScopedPoliciesNotIn(_ context.Context, _ uuid.UU
 	return 0, nil
 }
 
-func (m *memStore) DeleteClusterPoliciesByNamespace(_ context.Context, _ uuid.UUID, _ uuid.UUID, _ []uuid.UUID) (int64, error) {
+func (m *memStore) DeleteClusterPoliciesByNamespace(_ context.Context, _, _ uuid.UUID, _ []uuid.UUID) (int64, error) {
 	return 0, nil
 }
 
@@ -93,6 +94,7 @@ func (m *memStore) ListPolicyReports(_ context.Context, _ PolicyReportListFilter
 	return nil, "", nil
 }
 
+//nolint:gocritic // hugeParam: Store interface mandates the value param
 func (m *memStore) UpsertPolicyReport(_ context.Context, pr PolicyReportRow) (uuid.UUID, error) {
 	if pr.Source == "" {
 		pr.Source = SourceAPI
@@ -100,7 +102,7 @@ func (m *memStore) UpsertPolicyReport(_ context.Context, pr PolicyReportRow) (uu
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	uk := policyReportUniqueKey(pr.ClusterID, pr.NamespaceID, pr.Name)
-	for id, existing := range m.policyReports {
+	for id, existing := range m.policyReports { //nolint:gocritic // rangeValCopy: small test fake; clarity over micro-optimisation
 		existingUK := policyReportUniqueKey(existing.ClusterID, existing.NamespaceID, existing.Name)
 		if existingUK == uk {
 			if pr.Source == SourceAPI && existing.Source == SourceCollector {
@@ -120,7 +122,7 @@ func (m *memStore) DeleteClusterScopedPolicyReportsNotIn(_ context.Context, _ uu
 	return 0, nil
 }
 
-func (m *memStore) DeletePolicyReportsByNamespace(_ context.Context, _ uuid.UUID, _ uuid.UUID, _ []uuid.UUID) (int64, error) {
+func (m *memStore) DeletePolicyReportsByNamespace(_ context.Context, _, _ uuid.UUID, _ []uuid.UUID) (int64, error) {
 	return 0, nil
 }
 

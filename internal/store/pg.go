@@ -430,6 +430,10 @@ func keysetCond(col sortColumn, idExpr, dir string, val *string, id uuid.UUID, c
 	return nil
 }
 
+// nilUUIDDisplay renders an absent optional UUID FK in the
+// classify*FKError messages.
+const nilUUIDDisplay = "<nil>"
+
 // clampLimit applies the package-wide limit defaults (default 50,
 // entity-specific hard cap).
 func clampLimit(limit, maxLimit int) int {

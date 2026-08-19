@@ -2040,4 +2040,3 @@ func (s *Server) clientIP(r *http.Request) string {
 	}
 	return ip.String()
 }
-

@@ -14,6 +14,8 @@ import (
 	"github.com/sthalbert/longue-vue/internal/api"
 )
 
+// PolicyReport aliases the shared row type so store methods read
+// naturally (matches the NetworkPolicy alias pattern).
 type PolicyReport = api.PolicyReportRow
 
 const prSelect = `
@@ -28,6 +30,8 @@ const prListSelect = `
 	summary_pass, summary_fail, summary_warn, summary_error, summary_skip,
 	source, reconcile_seen_at`
 
+// GetPolicyReport returns one report row by id; api.ErrNotFound when
+// absent.
 func (p *PG) GetPolicyReport(ctx context.Context, id uuid.UUID) (api.PolicyReportRow, error) {
 	const q = `SELECT ` + prSelect + ` FROM policy_reports WHERE id = $1`
 	var pr api.PolicyReportRow
@@ -48,6 +52,13 @@ func (p *PG) GetPolicyReport(ctx context.Context, id uuid.UUID) (api.PolicyRepor
 	return pr, nil
 }
 
+// UpsertPolicyReport inserts or updates a report keyed on
+// (cluster_id, namespace_id, name) and returns the stable row UUID.
+// The guarded ON CONFLICT means an API write never overwrites a
+// collector-managed row (api.ErrConflict instead); the collector
+// overwrites anything.
+//
+//nolint:gocritic // hugeParam: Store interface requires value param
 func (p *PG) UpsertPolicyReport(ctx context.Context, pr PolicyReport) (uuid.UUID, error) {
 	// A nil RawMessage would be encoded as SQL NULL (bypassing the
 	// column's NOT NULL DEFAULT '[]' because the INSERT lists the column
@@ -99,7 +110,9 @@ func (p *PG) UpsertPolicyReport(ctx context.Context, pr PolicyReport) (uuid.UUID
 	return id, nil
 }
 
-func (p *PG) DeletePolicyReportsByNamespace(ctx context.Context, clusterID uuid.UUID, namespaceID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
+// DeletePolicyReportsByNamespace sweeps collector-managed report rows
+// of one namespace, keeping keepIDs (reconcile per ADR-0043 §5).
+func (p *PG) DeletePolicyReportsByNamespace(ctx context.Context, clusterID, namespaceID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
 	var ct pgconn.CommandTag
 	var err error
 	if len(keepIDs) == 0 {
@@ -117,6 +130,8 @@ func (p *PG) DeletePolicyReportsByNamespace(ctx context.Context, clusterID uuid.
 	return ct.RowsAffected(), nil
 }
 
+// DeleteClusterScopedPolicyReportsNotIn sweeps collector-managed
+// cluster-scoped report rows, keeping keepIDs (reconcile per ADR-0043 §5).
 func (p *PG) DeleteClusterScopedPolicyReportsNotIn(ctx context.Context, clusterID uuid.UUID, keepIDs []uuid.UUID) (int64, error) {
 	var ct pgconn.CommandTag
 	var err error
@@ -134,6 +149,8 @@ func (p *PG) DeleteClusterScopedPolicyReportsNotIn(ctx context.Context, clusterI
 	return ct.RowsAffected(), nil
 }
 
+// DeletePolicyReport deletes one API-authored row (source='api');
+// api.ErrNotFound when the row is absent or collector-managed.
 func (p *PG) DeletePolicyReport(ctx context.Context, id uuid.UUID) error {
 	ct, err := p.pool.Exec(ctx,
 		`DELETE FROM policy_reports WHERE id = $1 AND source = $2`,
@@ -186,6 +203,10 @@ func policyReportSortVal(r *api.PolicyReportRow, key string) *string {
 	}
 }
 
+// ListPolicyReports returns a cursor-paginated page of report rows
+// matching the filter (ADR-0042 sort/cursor semantics).
+//
+//nolint:gocyclo // cursor-paginated query builder with optional filters
 func (p *PG) ListPolicyReports(
 	ctx context.Context,
 	filter api.PolicyReportListFilter,
@@ -288,7 +309,7 @@ func classifyPolicyReportFKError(err error, clusterID uuid.UUID, namespaceID *uu
 		return nil
 	}
 	if strings.Contains(pgErr.ConstraintName, "namespace_id") {
-		target := "<nil>"
+		target := nilUUIDDisplay
 		if namespaceID != nil {
 			target = namespaceID.String()
 		}
