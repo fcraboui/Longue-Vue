@@ -17,21 +17,34 @@ const cpListNameMaxLen = 100
 
 var validScopes = map[string]bool{"cluster": true, "namespace": true}
 var validResourceTypes = map[string]bool{"ClusterPolicy": true, "Policy": true}
+var validSeverities = map[string]bool{"critical": true, "high": true, "medium": true, "low": true, "info": true}
+var validActions = map[string]bool{"enforce": true, "audit": true}
+
+// requirePoliciesEnabled gates every Kyverno policy-view endpoint on the
+// policies_enabled settings toggle (ADR-0043). Writes 500 when the settings
+// read fails, 409 when the feature is off; returns true only when enabled.
+// Mirrors checkTimeTravelEnabled in history_handlers.go.
+func requirePoliciesEnabled(w http.ResponseWriter, r *http.Request, store Store) bool {
+	settings, err := store.GetSettings(r.Context())
+	if err != nil {
+		slog.Error("settings unavailable", slog.Any("error", err))
+		writeProblem(w, http.StatusInternalServerError, "settings unavailable", "")
+		return false
+	}
+	if !settings.PoliciesEnabled {
+		writeProblem(w, http.StatusConflict, "policies disabled",
+			"enable policies_enabled in admin settings to use this endpoint")
+		return false
+	}
+	return true
+}
 
 func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeWrite) {
 			return
 		}
-		settings, err := store.GetSettings(r.Context())
-		if err != nil {
-			slog.Error("settings unavailable", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "settings unavailable", "")
-			return
-		}
-		if !settings.PoliciesEnabled {
-			writeProblem(w, http.StatusConflict, "policies disabled",
-				"enable policies_enabled in admin settings to use this endpoint")
+		if !requirePoliciesEnabled(w, r, store) {
 			return
 		}
 		var in ClusterPolicyCreate
@@ -119,11 +132,26 @@ func HandleCreateClusterPolicy(store Store) http.HandlerFunc {
 		}
 		if in.Action != nil {
 			a := strings.ToLower(*in.Action)
+			if !validActions[a] {
+				writeProblem(w, http.StatusBadRequest, "Bad Request",
+					"action must be enforce or audit")
+				return
+			}
 			in.Action = &a
 		}
 		if in.Severity != nil {
 			s := strings.ToLower(*in.Severity)
+			if !validSeverities[s] {
+				writeProblem(w, http.StatusBadRequest, "Bad Request",
+					"severity must be one of critical, high, medium, low, info")
+				return
+			}
 			in.Severity = &s
+		}
+		if in.RulesCount != nil && *in.RulesCount < 0 {
+			writeProblem(w, http.StatusBadRequest, "Bad Request",
+				"rules_count must be non-negative")
+			return
 		}
 		if in.FailurePolicy != nil {
 			fp := titleCaseFailurePolicy(*in.FailurePolicy)
@@ -205,15 +233,7 @@ func HandleListClusterPolicies(store Store) http.HandlerFunc {
 		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
-		settings, err := store.GetSettings(r.Context())
-		if err != nil {
-			slog.Error("settings unavailable", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "settings unavailable", "")
-			return
-		}
-		if !settings.PoliciesEnabled {
-			writeProblem(w, http.StatusConflict, "policies disabled",
-				"enable policies_enabled in admin settings to use this endpoint")
+		if !requirePoliciesEnabled(w, r, store) {
 			return
 		}
 		q := r.URL.Query()
@@ -276,15 +296,7 @@ func HandleGetClusterPolicy(store Store) http.HandlerFunc {
 		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
-		settings, err := store.GetSettings(r.Context())
-		if err != nil {
-			slog.Error("settings unavailable", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "settings unavailable", "")
-			return
-		}
-		if !settings.PoliciesEnabled {
-			writeProblem(w, http.StatusConflict, "policies disabled",
-				"enable policies_enabled in admin settings to use this endpoint")
+		if !requirePoliciesEnabled(w, r, store) {
 			return
 		}
 		id, ok := pathUUID(w, r, "id")
@@ -310,15 +322,7 @@ func HandleDeleteClusterPolicy(store Store) http.HandlerFunc {
 		if !requireScope(w, r, auth.ScopeWrite) {
 			return
 		}
-		settings, err := store.GetSettings(r.Context())
-		if err != nil {
-			slog.Error("settings unavailable", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "settings unavailable", "")
-			return
-		}
-		if !settings.PoliciesEnabled {
-			writeProblem(w, http.StatusConflict, "policies disabled",
-				"enable policies_enabled in admin settings to use this endpoint")
+		if !requirePoliciesEnabled(w, r, store) {
 			return
 		}
 		id, ok := pathUUID(w, r, "id")

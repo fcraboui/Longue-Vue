@@ -367,28 +367,34 @@ func TestCreatePolicyReport_409PoliciesDisabled(t *testing.T) {
 	}
 }
 
-func TestCreatePolicyReport_ScopeKindNormalisation(t *testing.T) {
+func TestCreatePolicyReport_ScopeKindStoredVerbatim(t *testing.T) {
+	// scope_kind keeps the client's casing: the collector stores K8s kinds
+	// verbatim, and title-casing here mangled CamelCase kinds
+	// (ReplicaSet -> Replicaset), splitting the same kind across two
+	// spellings. Filtering is case-insensitive instead (store layer).
 	store := newMemStore()
 	enablePolicies(t, store)
 	h := buildKyvernoPostMux(t, store, editorCaller())
 
-	body := map[string]any{
-		"cluster_id":   uuid.New(),
-		"name":         "pr-deploy",
-		"scope_kind":   "deployment",
-		"scope_name":   "web",
-		"summary_pass": 3,
-	}
-	rr := doReq(t, h, http.MethodPost, "/v1/policy-reports", body)
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("status: got %d, want 201; body=%s", rr.Code, rr.Body.String())
-	}
-	var got map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if got["scope_kind"] != "Deployment" {
-		t.Errorf("scope_kind: got %v, want Deployment", got["scope_kind"])
+	for _, kind := range []string{"ReplicaSet", "DaemonSet", "deployment"} {
+		body := map[string]any{
+			"cluster_id":   uuid.New(),
+			"name":         "pr-" + strings.ToLower(kind),
+			"scope_kind":   kind,
+			"scope_name":   "web",
+			"summary_pass": 3,
+		}
+		rr := doReq(t, h, http.MethodPost, "/v1/policy-reports", body)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("status: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+		}
+		var got map[string]any
+		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if got["scope_kind"] != kind {
+			t.Errorf("scope_kind: got %v, want %s (verbatim)", got["scope_kind"], kind)
+		}
 	}
 }
 
@@ -771,8 +777,91 @@ func TestCreatePolicyReport_ScopeKindAnyKindAccepted(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got["scope_kind"] != "CustomResource" {
-		t.Errorf("scope_kind: got %v, want CustomResource", got["scope_kind"])
+	if got["scope_kind"] != "custom-resource" {
+		t.Errorf("scope_kind: got %v, want custom-resource (verbatim)", got["scope_kind"])
+	}
+}
+
+func TestCreateClusterPolicy_400InvalidSeverity(t *testing.T) {
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	body := map[string]any{
+		"cluster_id":    uuid.New(),
+		"name":          "require-labels",
+		"resource_type": "ClusterPolicy",
+		"spec_raw":      map[string]any{},
+		"severity":      "banana",
+	}
+	rr := doReq(t, h, http.MethodPost, "/v1/cluster-policies", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateClusterPolicy_400InvalidAction(t *testing.T) {
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	body := map[string]any{
+		"cluster_id":    uuid.New(),
+		"name":          "require-labels",
+		"resource_type": "ClusterPolicy",
+		"spec_raw":      map[string]any{},
+		"action":        "block",
+	}
+	rr := doReq(t, h, http.MethodPost, "/v1/cluster-policies", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateClusterPolicy_400NegativeRulesCount(t *testing.T) {
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	body := map[string]any{
+		"cluster_id":    uuid.New(),
+		"name":          "require-labels",
+		"resource_type": "ClusterPolicy",
+		"spec_raw":      map[string]any{},
+		"rules_count":   -5,
+	}
+	rr := doReq(t, h, http.MethodPost, "/v1/cluster-policies", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateClusterPolicy_ValidSeverityAndActionNormalised(t *testing.T) {
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	body := map[string]any{
+		"cluster_id":    uuid.New(),
+		"name":          "require-labels",
+		"resource_type": "ClusterPolicy",
+		"spec_raw":      map[string]any{},
+		"severity":      "HIGH",
+		"action":        "Enforce",
+	}
+	rr := doReq(t, h, http.MethodPost, "/v1/cluster-policies", body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status: got %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["severity"] != "high" {
+		t.Errorf("severity: got %v, want high", got["severity"])
+	}
+	if got["action"] != "enforce" {
+		t.Errorf("action: got %v, want enforce", got["action"])
 	}
 }
 

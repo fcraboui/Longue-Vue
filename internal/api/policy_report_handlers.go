@@ -15,30 +15,12 @@ import (
 
 const prListNameMaxLen = 100
 
-func titleCaseScopeKind(s string) string {
-	parts := strings.Split(strings.ToLower(s), "-")
-	for i := range parts {
-		if len(parts[i]) > 0 {
-			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
-		}
-	}
-	return strings.Join(parts, "")
-}
-
 func HandleCreatePolicyReport(store Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !requireScope(w, r, auth.ScopeWrite) {
 			return
 		}
-		settings, err := store.GetSettings(r.Context())
-		if err != nil {
-			slog.Error("settings unavailable", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "settings unavailable", "")
-			return
-		}
-		if !settings.PoliciesEnabled {
-			writeProblem(w, http.StatusConflict, "policies disabled",
-				"enable policies_enabled in admin settings to use this endpoint")
+		if !requirePoliciesEnabled(w, r, store) {
 			return
 		}
 		var in PolicyReportCreate
@@ -60,11 +42,10 @@ func HandleCreatePolicyReport(store Store) http.HandlerFunc {
 			writeProblem(w, http.StatusBadRequest, "Bad Request", "cluster_id required")
 			return
 		}
-		if in.ScopeKind != nil {
-			sk := strings.ToLower(*in.ScopeKind)
-			titleCased := titleCaseScopeKind(sk)
-			in.ScopeKind = &titleCased
-		}
+		// scope_kind is stored verbatim: the collector writes K8s kinds
+		// as-is and the list filter compares case-insensitively, so
+		// normalising here would only split the same kind across two
+		// spellings (ReplicaSet vs Replicaset).
 		if in.NamespaceID != nil {
 			ns, nsErr := store.GetNamespace(r.Context(), *in.NamespaceID)
 			if nsErr != nil {
@@ -152,15 +133,7 @@ func HandleListPolicyReports(store Store) http.HandlerFunc {
 		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
-		settings, err := store.GetSettings(r.Context())
-		if err != nil {
-			slog.Error("settings unavailable", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "settings unavailable", "")
-			return
-		}
-		if !settings.PoliciesEnabled {
-			writeProblem(w, http.StatusConflict, "policies disabled",
-				"enable policies_enabled in admin settings to use this endpoint")
+		if !requirePoliciesEnabled(w, r, store) {
 			return
 		}
 		q := r.URL.Query()
@@ -222,15 +195,7 @@ func HandleGetPolicyReport(store Store) http.HandlerFunc {
 		if !requireScope(w, r, auth.ScopeRead) {
 			return
 		}
-		settings, err := store.GetSettings(r.Context())
-		if err != nil {
-			slog.Error("settings unavailable", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "settings unavailable", "")
-			return
-		}
-		if !settings.PoliciesEnabled {
-			writeProblem(w, http.StatusConflict, "policies disabled",
-				"enable policies_enabled in admin settings to use this endpoint")
+		if !requirePoliciesEnabled(w, r, store) {
 			return
 		}
 		id, ok := pathUUID(w, r, "id")
@@ -256,15 +221,7 @@ func HandleDeletePolicyReport(store Store) http.HandlerFunc {
 		if !requireScope(w, r, auth.ScopeWrite) {
 			return
 		}
-		settings, err := store.GetSettings(r.Context())
-		if err != nil {
-			slog.Error("settings unavailable", slog.Any("error", err))
-			writeProblem(w, http.StatusInternalServerError, "settings unavailable", "")
-			return
-		}
-		if !settings.PoliciesEnabled {
-			writeProblem(w, http.StatusConflict, "policies disabled",
-				"enable policies_enabled in admin settings to use this endpoint")
+		if !requirePoliciesEnabled(w, r, store) {
 			return
 		}
 		id, ok := pathUUID(w, r, "id")
