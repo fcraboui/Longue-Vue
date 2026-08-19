@@ -3,7 +3,7 @@
 // pagination come for free. Adding a new kind means adding one config here.
 
 import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import * as api from '../api';
 import { useResource } from '../hooks';
 import { Dash, IdLink, LayerPill, LoadBalancerAddresses, NamespaceLink } from '../components';

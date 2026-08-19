@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { NodeCuratedCard } from './node_curated';
 import { fixtureNode, fixtureMe } from '../test/fixtures';
 import { MeProvider } from '../me';
