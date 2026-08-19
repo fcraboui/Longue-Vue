@@ -4147,7 +4147,8 @@ paths:
 
         Sortable keys: name, resource_type, scope, action, severity,
         failure_policy, category, background, ready, rules_count,
-        reconcile_seen_at
+        reconcile_seen_at. Without sort=, rows are ordered by name
+        ascending (A→Z).
       security:
         - BearerAuth: [read]
         - SessionCookie: [read]
@@ -4255,10 +4256,10 @@ paths:
         reconcile sweep (which only deletes source='collector' rows). Gated
         behind settings.policies_enabled (returns 409 when disabled).
 
-        Normalisation: action and severity are lowercased; failure_policy is
-        title-cased (Fail, Ignore); scope_kind is title-cased per K8s
-        convention. Resource_type=Policy requires namespace_id;
-        resource_type=ClusterPolicy forbids it.
+        Normalisation: action and severity are lowercased and validated
+        against their enums; failure_policy is title-cased (Fail, Ignore);
+        rules_count must be non-negative. Resource_type=Policy requires
+        namespace_id; resource_type=ClusterPolicy forbids it.
       security:
         - BearerAuth: [write]
         - SessionCookie: [write]
@@ -4284,7 +4285,12 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
         "409":
-          description: policies_enabled is off
+          description: |
+            Conflict — either (a) policies_enabled is off, or
+            (b) a collector-managed policy already exists at this key
+            and cannot be overwritten by an API request.
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
 
   /v1/cluster-policies/{id}:
     get:
@@ -4318,6 +4324,45 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [cluster-policies]
+      operationId: deleteClusterPolicy
+      summary: Delete an API-authored Kyverno ClusterPolicy
+      description: |
+        Deletes a ClusterPolicy row. Only rows with source='api' can be
+        deleted; collector-managed rows (source='collector') return 404.
+        Requires write scope.
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      parameters:
+        - {
+            in: path,
+            name: id,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or collector-managed (source='collector')
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: policies_enabled is off
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
 
   /v1/policy-reports:
     get:
@@ -4331,7 +4376,9 @@ paths:
 
         Sortable keys: name, scope_kind, scope_name, summary_pass,
         summary_fail, summary_warn, summary_error, summary_skip,
-        reconcile_seen_at
+        reconcile_seen_at. Without sort=, rows are ordered by name
+        ascending (A→Z). The scope_kind filter matches
+        case-insensitively.
       security:
         - BearerAuth: [read]
         - SessionCookie: [read]
@@ -4413,8 +4460,9 @@ paths:
         reconcile sweep (which only deletes source='collector' rows). Gated
         behind settings.policies_enabled (returns 409 when disabled).
 
-        Normalisation: scope_kind is title-cased per K8s convention
-        (Namespace, Deployment, DaemonSet, …).
+        scope_kind is stored verbatim (the collector writes K8s kinds
+        as-is, e.g. Namespace, Deployment, DaemonSet); the scope_kind
+        list filter matches case-insensitively.
       security:
         - BearerAuth: [write]
         - SessionCookie: [write]
@@ -4440,7 +4488,12 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
         "409":
-          description: policies_enabled is off
+          description: |
+            Conflict — either (a) policies_enabled is off, or
+            (b) a collector-managed report already exists at this key
+            and cannot be overwritten by an API request.
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
 
   /v1/policy-reports/{id}:
     get:
@@ -4474,6 +4527,45 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [policy-reports]
+      operationId: deletePolicyReport
+      summary: Delete an API-authored Kyverno PolicyReport
+      description: |
+        Deletes a PolicyReport row. Only rows with source='api' can be
+        deleted; collector-managed rows (source='collector') return 404.
+        Requires write scope.
+      security:
+        - BearerAuth: [write]
+        - SessionCookie: [write]
+      parameters:
+        - {
+            in: path,
+            name: id,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not found, or collector-managed (source='collector')
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: policies_enabled is off
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
 
 components:
   securitySchemes:
@@ -4900,6 +4992,12 @@ components:
 
     UnprocessableEntity:
       description: Unprocessable entity (e.g., foreign key not found).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PayloadTooLarge:
+      description: Request body exceeds the 1 MiB size limit.
       content:
         application/problem+json:
           schema:
@@ -5759,7 +5857,7 @@ components:
         failure_policy: { type: string, nullable: true, enum: [Fail, Ignore] }
         background: { type: boolean, nullable: true }
         rule_types: { type: array, items: { type: string }, nullable: true }
-        rules_count: { type: integer, nullable: true }
+        rules_count: { type: integer, minimum: 0, nullable: true }
         target_resources:
           { type: array, items: { type: string }, nullable: true }
         key_exclusions: { type: array, items: { type: string }, nullable: true }
@@ -5836,16 +5934,17 @@ components:
             description: "Kind of the evaluated resource per .scope.kind (e.g. Namespace, Pod, Deployment)",
           }
         scope_name: { type: string, nullable: true }
-        summary_pass: { type: integer }
-        summary_fail: { type: integer }
-        summary_warn: { type: integer }
-        summary_error: { type: integer }
-        summary_skip: { type: integer }
+        summary_pass: { type: integer, minimum: 0 }
+        summary_fail: { type: integer, minimum: 0 }
+        summary_warn: { type: integer, minimum: 0 }
+        summary_error: { type: integer, minimum: 0 }
+        summary_skip: { type: integer, minimum: 0 }
         results_raw:
           {
             type: array,
             items: { type: object, additionalProperties: true },
             nullable: true,
+            description: "Omitted or null defaults to [].",
           }
 
     ContainerList:
