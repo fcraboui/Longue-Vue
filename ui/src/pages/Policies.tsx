@@ -25,6 +25,16 @@ function SeverityPill({ severity }: { severity?: string | null }) {
   return <span className={`pill ${cls[severity.toLowerCase()] || ''}`}>{severity}</span>;
 }
 
+// PoliciesDisabledError marks the 409 the API answers while
+// policies_enabled is off, so errorRenderer can swap the generic error
+// for the banner. Same pattern as FlowMatrixDisabledError in api/flows.ts.
+class PoliciesDisabledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PoliciesDisabledError';
+  }
+}
+
 function withDisabledCatch<T>(
   fetcher: (params: api.ListControlParams, cursor: string | undefined, limit: number) => Promise<api.PagedResponse<T>>,
 ): (params: api.ListControlParams, cursor: string | undefined, limit: number) => Promise<api.PagedResponse<T>> {
@@ -33,7 +43,7 @@ function withDisabledCatch<T>(
       return await fetcher(params, cursor, limit);
     } catch (err) {
       if (err instanceof api.ApiError && err.status === 409) {
-        throw Object.assign(new Error(err.message), { isFeatureDisabled: true });
+        throw new PoliciesDisabledError(err.message);
       }
       throw err;
     }
@@ -41,7 +51,7 @@ function withDisabledCatch<T>(
 }
 
 function isFeatureDisabledError(err: unknown): boolean {
-  return err instanceof Error && 'isFeatureDisabled' in err && (err as any).isFeatureDisabled === true;
+  return err instanceof PoliciesDisabledError;
 }
 
 function FeatureDisabledBanner() {

@@ -70,7 +70,12 @@ export function EntityListPage<T>({
       {list.loading ? (
         <p className="loading">Loading…</p>
       ) : list.error ? (
-        errorRenderer?.(list.error) ?? <div className="error">Failed to load: {list.error}</div>
+        // errorRenderer receives the original thrown value (errorCause)
+        // so it can branch on typed errors; the fallback div shows the
+        // flattened message.
+        errorRenderer?.(list.errorCause ?? list.error) ?? (
+          <div className="error">Failed to load: {list.error}</div>
+        )
       ) : list.items.length === 0 ? (
         <Empty message={emptyMessage} />
       ) : (
