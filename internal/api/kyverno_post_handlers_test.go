@@ -842,6 +842,75 @@ func TestCreateClusterPolicy_400NegativeRulesCount(t *testing.T) {
 	}
 }
 
+func TestCreateClusterPolicy_400SpecRawNotObject(t *testing.T) {
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	body := map[string]any{
+		"cluster_id":    uuid.New(),
+		"name":          "require-labels",
+		"resource_type": "ClusterPolicy",
+		"spec_raw":      []any{1, 2},
+	}
+	rr := doReq(t, h, http.MethodPost, "/v1/cluster-policies", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400 (spec_raw must be an object); body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreatePolicyReport_400ResultsRawNotArray(t *testing.T) {
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	body := map[string]any{
+		"cluster_id":  uuid.New(),
+		"name":        "pr-bad-results",
+		"results_raw": map[string]any{"a": 1},
+	}
+	rr := doReq(t, h, http.MethodPost, "/v1/policy-reports", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400 (results_raw must be an array); body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreatePolicyReport_400SummaryTooLarge(t *testing.T) {
+	// The columns are INTEGER; a count past MaxInt32 would fail the
+	// INSERT with a generic 500 instead of a 400.
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	body := map[string]any{
+		"cluster_id":   uuid.New(),
+		"name":         "pr-huge",
+		"summary_pass": int64(3_000_000_000),
+	}
+	rr := doReq(t, h, http.MethodPost, "/v1/policy-reports", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCreateClusterPolicy_400RulesCountTooLarge(t *testing.T) {
+	store := newMemStore()
+	enablePolicies(t, store)
+	h := buildKyvernoPostMux(t, store, editorCaller())
+
+	body := map[string]any{
+		"cluster_id":    uuid.New(),
+		"name":          "require-labels",
+		"resource_type": "ClusterPolicy",
+		"spec_raw":      map[string]any{},
+		"rules_count":   int64(3_000_000_000),
+	}
+	rr := doReq(t, h, http.MethodPost, "/v1/cluster-policies", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestCreateClusterPolicy_ValidSeverityAndActionNormalised(t *testing.T) {
 	store := newMemStore()
 	enablePolicies(t, store)

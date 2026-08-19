@@ -81,6 +81,29 @@ func TestKyverno_ListPolicyReports_ScopeKindFilterCaseInsensitive(t *testing.T) 
 	}
 }
 
+func TestKyverno_ListClusterPolicies_ResourceTypeFilterCaseInsensitive(t *testing.T) {
+	pg := newTestPG(t)
+	ctx := context.Background()
+	cid, nsID := seedClusterForKyverno(t, pg)
+
+	if _, err := pg.UpsertClusterPolicy(ctx, makeCP(cid, nsID, "ns-policy")); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	for _, q := range []string{"Policy", "policy", "POLICY"} {
+		items, _, err := pg.ListClusterPolicies(ctx,
+			api.ClusterPolicyListFilter{ClusterID: &cid, ResourceType: &q},
+			api.ListPage{Limit: 10},
+		)
+		if err != nil {
+			t.Fatalf("list resource_type=%s: %v", q, err)
+		}
+		if len(items) != 1 {
+			t.Errorf("resource_type=%s: got %d items, want 1", q, len(items))
+		}
+	}
+}
+
 func TestKyverno_ListClusterPolicies_DefaultSortNameAscending(t *testing.T) {
 	pg := newTestPG(t)
 	ctx := context.Background()

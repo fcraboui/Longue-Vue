@@ -18,6 +18,12 @@ var (
 	errKyvernoTickFailed   = errors.New("kyverno tick: one or more operations failed")
 	errKyvernoSweepFailed  = errors.New("kyverno sweep failed")
 	errKyvernoUpsertFailed = errors.New("kyverno upsert failed")
+	// errKyvernoListForbidden marks an RBAC-denied Kyverno list. Unlike a
+	// missing CRD (empty success — Kyverno uninstalled, rows legitimately
+	// disappear), a 403 means the policies still exist but are invisible:
+	// the tick must skip BOTH collection and sweep, or the reconcile
+	// would wipe the whole collector-managed inventory.
+	errKyvernoListForbidden = errors.New("kyverno list forbidden by RBAC")
 )
 
 // jsonNullLiteral is the 4-byte payload json.Marshal produces for a
@@ -62,6 +68,8 @@ type KyvernoStore interface {
 //
 // MUST only be called after the kube list calls succeed — transient API
 // errors must never wipe the store (reconcile contract per CLAUDE.md).
+//
+//nolint:gocyclo // forbidden-vs-failed classification for two resource families
 func CollectKyvernoPolicies(
 	ctx context.Context,
 	src KubeSource,
@@ -74,16 +82,27 @@ func CollectKyvernoPolicies(
 	var reportCollectErrs, reportSweepErrs int
 
 	cpResult, cpErr := collectClusterPolicies(ctx, src, st, clusterID, clusterName, namespaceIDsByName)
-	if cpErr != nil {
+	cpForbidden := errors.Is(cpErr, errKyvernoListForbidden)
+	switch {
+	case cpForbidden:
+		// Expected on installs whose collector credentials predate the
+		// Kyverno clusterrole rules: skip collection AND sweep without
+		// failing the tick — sweeping would wipe the inventory.
+		slog.Warn("collector: kyverno cluster-policies list forbidden by RBAC; skipping collection and sweep this tick",
+			slog.String("cluster", clusterID.String()),
+			slog.Any("err", cpErr))
+	case cpErr != nil:
 		slog.Warn("collector: kyverno cluster-policies tick partially failed",
 			slog.String("cluster", clusterID.String()),
 			slog.Any("err", cpErr))
 		policyCollectErrs++
 	}
 	if cpResult == nil {
-		slog.Warn("collector: skipping kyverno cluster-policies sweep due to list failure",
-			slog.String("cluster", clusterID.String()))
-		policySweepErrs++
+		if !cpForbidden {
+			slog.Warn("collector: skipping kyverno cluster-policies sweep due to list failure",
+				slog.String("cluster", clusterID.String()))
+			policySweepErrs++
+		}
 	} else {
 		deleted, err := sweepClusterPolicies(ctx, st, clusterID, clusterName, namespaceIDsByName, cpResult)
 		if err != nil {
@@ -99,16 +118,24 @@ func CollectKyvernoPolicies(
 	}
 
 	prResult, prErr := collectPolicyReports(ctx, src, st, clusterID, clusterName, namespaceIDsByName)
-	if prErr != nil {
+	prForbidden := errors.Is(prErr, errKyvernoListForbidden)
+	switch {
+	case prForbidden:
+		slog.Warn("collector: kyverno policy-reports list forbidden by RBAC; skipping collection and sweep this tick",
+			slog.String("cluster", clusterID.String()),
+			slog.Any("err", prErr))
+	case prErr != nil:
 		slog.Warn("collector: kyverno policy-reports tick partially failed",
 			slog.String("cluster", clusterID.String()),
 			slog.Any("err", prErr))
 		reportCollectErrs++
 	}
 	if prResult == nil {
-		slog.Warn("collector: skipping kyverno policy-reports sweep due to list failure",
-			slog.String("cluster", clusterID.String()))
-		reportSweepErrs++
+		if !prForbidden {
+			slog.Warn("collector: skipping kyverno policy-reports sweep due to list failure",
+				slog.String("cluster", clusterID.String()))
+			reportSweepErrs++
+		}
 	} else {
 		deleted, err := sweepPolicyReports(ctx, st, clusterID, clusterName, namespaceIDsByName, prResult)
 		if err != nil {
@@ -266,6 +293,8 @@ func sweepPolicyReports(
 // collectClusterPolicies upserts all Kyverno ClusterPolicy + Policy rows
 // and returns the sweep result (cluster-scoped IDs + IDs grouped by
 // namespace) for per-namespace reconcile.
+//
+//nolint:gocyclo // two list+upsert loops with per-row dirty tracking
 func collectClusterPolicies(
 	ctx context.Context,
 	src KubeSource,
@@ -279,7 +308,9 @@ func collectClusterPolicies(
 
 	clusterPol, err := src.ListKyvernoClusterPolicies(ctx)
 	if err != nil {
-		metrics.ObserveError(clusterName, "cluster_policies", "list")
+		if !errors.Is(err, errKyvernoListForbidden) {
+			metrics.ObserveError(clusterName, "cluster_policies", "list")
+		}
 		return nil, fmt.Errorf("list kyverno clusterpolicies: %w", err)
 	}
 	for i := range clusterPol {
@@ -301,7 +332,9 @@ func collectClusterPolicies(
 
 	namespacedPol, err := src.ListKyvernoPolicies(ctx)
 	if err != nil {
-		metrics.ObserveError(clusterName, "cluster_policies", "list")
+		if !errors.Is(err, errKyvernoListForbidden) {
+			metrics.ObserveError(clusterName, "cluster_policies", "list")
+		}
 		return nil, fmt.Errorf("list kyverno policies: %w", err)
 	}
 	for i := range namespacedPol {
@@ -345,6 +378,8 @@ func collectClusterPolicies(
 // collectPolicyReports upserts all PolicyReport + ClusterPolicyReport rows
 // and returns the sweep result (cluster-scoped IDs + IDs grouped by
 // namespace) for per-namespace reconcile.
+//
+//nolint:gocyclo // two list+upsert loops with per-row dirty tracking
 func collectPolicyReports(
 	ctx context.Context,
 	src KubeSource,
@@ -358,7 +393,9 @@ func collectPolicyReports(
 
 	clusterReports, err := src.ListKyvernoClusterPolicyReports(ctx)
 	if err != nil {
-		metrics.ObserveError(clusterName, "policy_reports", "list")
+		if !errors.Is(err, errKyvernoListForbidden) {
+			metrics.ObserveError(clusterName, "policy_reports", "list")
+		}
 		return nil, fmt.Errorf("list kyverno clusterpolicyreports: %w", err)
 	}
 	for i := range clusterReports {
@@ -380,7 +417,9 @@ func collectPolicyReports(
 
 	namespacedReports, err := src.ListKyvernoPolicyReports(ctx)
 	if err != nil {
-		metrics.ObserveError(clusterName, "policy_reports", "list")
+		if !errors.Is(err, errKyvernoListForbidden) {
+			metrics.ObserveError(clusterName, "policy_reports", "list")
+		}
 		return nil, fmt.Errorf("list kyverno policyreports: %w", err)
 	}
 	for i := range namespacedReports {

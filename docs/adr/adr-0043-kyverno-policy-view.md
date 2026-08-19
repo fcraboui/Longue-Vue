@@ -304,7 +304,10 @@ policies must reach the public listener directly.
 handler (matching the collector's ingestion-time normalisation in §5).
 `failure_policy` is **title-cased** (`Fail` / `Ignore`) to match the
 Kyverno CRD spec and the collector's raw K8s API output (§5).
-`scope_kind` is title-cased.
+`scope_kind` is stored **verbatim** — the collector writes K8s kinds
+as-is (CamelCase, e.g. `ReplicaSet`) and normalising would split the
+same kind across two spellings; the list filter compares
+case-insensitively instead.
 
 **Source discriminator:** the handler sets `source='api'` on every row
 created via POST. The in-process collector sets `source='collector'`.
@@ -485,11 +488,15 @@ versions. There is no object form with an `.action` sub-field.
   `spec.rules[].validate.failureAction`, which can differ across rules
   within the same policy. `spec.validationFailureActionOverrides`
   allows namespace-level overrides. **Aggregation rule for the `action`
-  column:** if any rule has `Enforce` (case-insensitive), the
-  policy-level `action` is `enforce`; otherwise `audit`. This is a
-  conservative display choice — operators see `enforce` if any rule
-  blocks. The per-rule breakdown is available in `spec_raw` for
-  drill-down.
+  column:** if any rule has `Enforce` (case-insensitive — including
+  per-entry `verifyImages[].failureAction`/`failureActionOverrides`),
+  the policy-level `action` is `enforce`; otherwise `audit` for any
+  policy with validation semantics (`validate` or `verifyImages`
+  rules). A mutate-/generate-only policy has no enforcement posture and
+  the column is NULL — reporting the kubebuilder default `audit` there
+  would fabricate one. This is a conservative display choice —
+  operators see `enforce` if any rule blocks. The per-rule breakdown is
+  available in `spec_raw` for drill-down.
 
 Field extraction from a `PolicyReport` / `ClusterPolicyReport`:
 

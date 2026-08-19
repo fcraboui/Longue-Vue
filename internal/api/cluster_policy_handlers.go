@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 
@@ -40,6 +42,8 @@ var (
 // normalizeClusterPolicyEnums lowercases/title-cases the optional enum
 // fields in place and validates them against the OpenAPI contract.
 // Returns the RFC 7807 detail for a 400, or "" when valid.
+//
+//nolint:gocyclo // sequential field validation; each check is trivial
 func normalizeClusterPolicyEnums(in *ClusterPolicyCreate) string {
 	if in.Action != nil {
 		a := strings.ToLower(*in.Action)
@@ -55,8 +59,8 @@ func normalizeClusterPolicyEnums(in *ClusterPolicyCreate) string {
 		}
 		in.Severity = &s
 	}
-	if in.RulesCount != nil && *in.RulesCount < 0 {
-		return "rules_count must be non-negative"
+	if in.RulesCount != nil && (*in.RulesCount < 0 || *in.RulesCount > math.MaxInt32) {
+		return "rules_count must be between 0 and 2147483647"
 	}
 	if in.FailurePolicy != nil {
 		fp := titleCaseFailurePolicy(*in.FailurePolicy)
@@ -107,6 +111,9 @@ func validateClusterPolicyCreate(in *ClusterPolicyCreate) string {
 	}
 	if len(in.SpecRaw) == 0 || string(in.SpecRaw) == jsonNullLiteral {
 		return "spec_raw required"
+	}
+	if b := bytes.TrimSpace(in.SpecRaw); len(b) == 0 || b[0] != '{' {
+		return "spec_raw must be a JSON object"
 	}
 	if in.ResourceType == resourceTypePolicy && in.NamespaceID == nil {
 		return "namespace_id required when resource_type is Policy"

@@ -858,24 +858,31 @@ var (
 	gvrClusterPolicyReport = schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "clusterpolicyreports"}
 )
 
-// kyvernoListSkip classifies list errors that disable Kyverno collection
-// for this tick instead of failing it: the CRD is absent (Kyverno not
-// installed on the cluster) or RBAC denies the list verb — the state of
-// any collector ServiceAccount or kubeconfig that predates the Kyverno
-// clusterrole rules. Both get an actionable log instead of an error
-// metric every tick.
+// kyvernoListSkip reports whether a list error means the CRD is absent
+// (Kyverno not installed on the cluster) — the only case where an empty
+// success is correct: rows legitimately disappear on the next sweep.
+// An RBAC 403 must NOT take this path (the policies still exist, we
+// just cannot see them); kyvernoListError maps it to
+// errKyvernoListForbidden so the tick skips both collection and sweep.
 func kyvernoListSkip(err error, gvr schema.GroupVersionResource) bool {
-	switch {
-	case apierrors.IsNotFound(err):
+	if apierrors.IsNotFound(err) {
 		slog.Debug("collector: kyverno CRD not found; skipping",
-			slog.String("gvr", gvr.String()))
-		return true
-	case apierrors.IsForbidden(err):
-		slog.Warn("collector: kyverno list forbidden by RBAC; skipping — grant the collector credentials the list verb on this resource",
 			slog.String("gvr", gvr.String()))
 		return true
 	}
 	return false
+}
+
+// kyvernoListError wraps a non-skippable Kyverno list error: a 403
+// becomes errKyvernoListForbidden (the state of any collector
+// ServiceAccount or kubeconfig that predates the Kyverno clusterrole
+// rules), anything else is wrapped verbatim.
+func kyvernoListError(err error, gvr schema.GroupVersionResource) error {
+	if apierrors.IsForbidden(err) {
+		return fmt.Errorf("%w: %s — grant the collector credentials the list verb: %v",
+			errKyvernoListForbidden, gvr.String(), err)
+	}
+	return fmt.Errorf("list %s: %w", gvr.String(), err)
 }
 
 // ListKyvernoClusterPolicies returns every Kyverno ClusterPolicy (cluster-scoped)
@@ -890,7 +897,7 @@ func (k *KubeClient) ListKyvernoClusterPolicies(ctx context.Context) ([]KyvernoC
 			if kyvernoListSkip(err, gvrClusterPolicy) {
 				return out, nil
 			}
-			return nil, fmt.Errorf("list kyverno clusterpolicies: %w", err)
+			return nil, kyvernoListError(err, gvrClusterPolicy)
 		}
 		for i := range list.Items {
 			info, err := convertKyvernoPolicy(&list.Items[i], "ClusterPolicy", "cluster")
@@ -918,7 +925,7 @@ func (k *KubeClient) ListKyvernoPolicies(ctx context.Context) ([]KyvernoClusterP
 			if kyvernoListSkip(err, gvrPolicy) {
 				return out, nil
 			}
-			return nil, fmt.Errorf("list kyverno policies: %w", err)
+			return nil, kyvernoListError(err, gvrPolicy)
 		}
 		for i := range list.Items {
 			info, err := convertKyvernoPolicy(&list.Items[i], "Policy", "namespace")
@@ -946,7 +953,7 @@ func (k *KubeClient) ListKyvernoPolicyReports(ctx context.Context) ([]KyvernoPol
 			if kyvernoListSkip(err, gvrPolicyReport) {
 				return out, nil
 			}
-			return nil, fmt.Errorf("list kyverno policyreports: %w", err)
+			return nil, kyvernoListError(err, gvrPolicyReport)
 		}
 		for i := range list.Items {
 			info, err := convertKyvernoPolicyReport(&list.Items[i])
@@ -974,7 +981,7 @@ func (k *KubeClient) ListKyvernoClusterPolicyReports(ctx context.Context) ([]Kyv
 			if kyvernoListSkip(err, gvrClusterPolicyReport) {
 				return out, nil
 			}
-			return nil, fmt.Errorf("list kyverno clusterpolicyreports: %w", err)
+			return nil, kyvernoListError(err, gvrClusterPolicyReport)
 		}
 		for i := range list.Items {
 			info, err := convertKyvernoPolicyReport(&list.Items[i])
@@ -1039,17 +1046,22 @@ func convertKyvernoPolicy(obj *unstructured.Unstructured, resourceType, scope st
 	return info, nil
 }
 
+const (
+	kyvernoActionEnforce = "enforce"
+	kyvernoActionAudit   = "audit"
+)
+
 // kyvernoAction extracts spec.validationFailureAction (always a string in
 // Kyverno >=1.10: "enforce" or "audit"). If any rule overrides to "enforce"
 // (via spec-level validationFailureActionOverrides, per-rule
-// validate.failureAction, or per-rule validate.failureActionOverrides in
-// Kyverno >=1.13), the policy-level action is promoted to "enforce"
-// (most restrictive wins). Returns nil for a policy with no validation
-// semantics at all (mutate-/generate-only): the kubebuilder default
-// "audit" would fabricate an enforcement posture such a policy doesn't
-// have. Result is lowercased. ADR-0043 §5.
-const kyvernoActionEnforce = "enforce"
-
+// validate.failureAction/failureActionOverrides, or per-entry
+// verifyImages failureAction/failureActionOverrides in Kyverno >=1.13),
+// the policy-level action is promoted to "enforce" (most restrictive
+// wins). Returns nil for a policy with no validation semantics at all
+// (mutate-/generate-only — verifyImages counts as validation): the
+// kubebuilder default "audit" would fabricate an enforcement posture
+// such a policy doesn't have. Result is lowercased. ADR-0043 §5.
+//
 //nolint:gocyclo // most-restrictive-wins scan across three override sources
 func kyvernoAction(obj *unstructured.Unstructured) *string {
 	spec, ok := obj.Object["spec"].(map[string]interface{})
@@ -1060,25 +1072,32 @@ func kyvernoAction(obj *unstructured.Unstructured) *string {
 	overrides, _ := spec["validationFailureActionOverrides"].([]interface{})
 	rules, _ := spec["rules"].([]interface{})
 
-	hasValidateRule := false
+	// validate AND verifyImages rules are both governed by
+	// validationFailureAction; only a policy with neither (mutate-/
+	// generate-only) has no enforcement posture at all.
+	hasValidationSemantics := false
 	for _, r := range rules {
 		rm, ok := r.(map[string]interface{})
 		if !ok {
 			continue
 		}
 		if _, ok := rm["validate"]; ok {
-			hasValidateRule = true
+			hasValidationSemantics = true
+			break
+		}
+		if _, ok := rm["verifyImages"]; ok {
+			hasValidationSemantics = true
 			break
 		}
 	}
-	if vfa == "" && len(overrides) == 0 && !hasValidateRule {
+	if vfa == "" && len(overrides) == 0 && !hasValidationSemantics {
 		return nil
 	}
 	if vfa == "" {
 		// Kyverno <1.10 doesn't set validationFailureAction in the spec;
 		// the kubebuilder default is "audit". Fall through to check
 		// overrides/per-rule actions before returning.
-		vfa = "audit"
+		vfa = kyvernoActionAudit
 	}
 	action := strings.ToLower(vfa)
 
@@ -1095,12 +1114,33 @@ func kyvernoAction(obj *unstructured.Unstructured) *string {
 		if !ok {
 			continue
 		}
-		if kyvernoValidateRuleEnforces(rm) {
+		if kyvernoValidateRuleEnforces(rm) || kyvernoVerifyImagesEnforces(rm) {
 			return ptrLower(kyvernoActionEnforce)
 		}
 	}
 
 	return &action
+}
+
+// kyvernoVerifyImagesEnforces reports whether one rule's verifyImages
+// entries enforce — via per-entry failureAction or
+// failureActionOverrides (Kyverno >=1.13).
+func kyvernoVerifyImagesEnforces(rm map[string]interface{}) bool {
+	entries, _ := rm["verifyImages"].([]interface{})
+	for _, e := range entries {
+		em, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if fa, ok := em["failureAction"].(string); ok && strings.EqualFold(fa, kyvernoActionEnforce) {
+			return true
+		}
+		faOverrides, _ := em["failureActionOverrides"].([]interface{})
+		if kyvernoOverridesEnforce(faOverrides) {
+			return true
+		}
+	}
+	return false
 }
 
 // kyvernoOverridesEnforce reports whether any entry of a

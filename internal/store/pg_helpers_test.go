@@ -315,7 +315,7 @@ func TestSortVals(t *testing.T) {
 	}
 }
 
-func TestBoolToIntPtr(t *testing.T) {
+func TestSortValInt(t *testing.T) {
 	if got := sortValInt(nil); got != nil {
 		t.Errorf("sortValInt(nil) = %v, want nil", got)
 	}
@@ -323,6 +323,9 @@ func TestBoolToIntPtr(t *testing.T) {
 	if got := sortValInt(&n); got == nil || *got != "42" {
 		t.Errorf("sortValInt = %v, want 42", got)
 	}
+}
+
+func TestBoolToIntPtr(t *testing.T) {
 	if got := boolToIntPtr(nil); got != nil {
 		t.Errorf("boolToIntPtr(nil) = %v, want nil", got)
 	}

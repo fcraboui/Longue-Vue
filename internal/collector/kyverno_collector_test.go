@@ -327,6 +327,40 @@ func TestCollectKyvernoPolicies_PartialUpsertFailure_SkipsDirtyPerimeter(t *test
 	}
 }
 
+func TestCollectKyvernoPolicies_ForbiddenSkipsCollectionAndSweep(t *testing.T) {
+	// A transient RBAC 403 must never look like an empty cluster: the
+	// sweep would delete every collector-managed row (reconcile contract
+	// per CLAUDE.md). It is also expected on installs whose credentials
+	// predate the Kyverno clusterrole rules, so it must not fail the tick.
+	ctx := t.Context()
+	clusterID, nsA := uuid.New(), uuid.New()
+
+	forbidden := fmt.Errorf("%w: clusterpolicies.kyverno.io", errKyvernoListForbidden)
+	src := &fakeSource{
+		listKyvernoClusterPolErr: forbidden,
+		listKyvernoPoliciesErr:   forbidden,
+		listKyvernoPolReportsErr: forbidden,
+		listKyvernoClusterRepErr: forbidden,
+	}
+	st := newFakeKyvernoStore()
+	nsByName := map[string]uuid.UUID{"team-a": nsA}
+
+	err := CollectKyvernoPolicies(ctx, src, st, clusterID, "test-cluster", nsByName)
+	if err != nil {
+		t.Fatalf("RBAC-forbidden tick should not be a failure: %v", err)
+	}
+	if st.clusterScopedPolicySwept || st.clusterScopedReportSwept {
+		t.Error("sweep must be suppressed when RBAC denies the list — sweeping would wipe the inventory")
+	}
+	if len(st.policySweepsByNS) != 0 || len(st.reportSweepsByNS) != 0 {
+		t.Error("per-namespace sweeps must be suppressed on RBAC-forbidden lists")
+	}
+	if len(st.upsertedPolicies) != 0 || len(st.upsertedReports) != 0 {
+		t.Errorf("no upserts expected, got %d policies / %d reports",
+			len(st.upsertedPolicies), len(st.upsertedReports))
+	}
+}
+
 func TestCollectKyvernoPolicies_ListFailure_NoPanic(t *testing.T) {
 	ctx := t.Context()
 	clusterID, nsA := uuid.New(), uuid.New()

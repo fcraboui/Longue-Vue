@@ -49,7 +49,11 @@ func TestBuildHTTPServerRegistersAllRoutes(t *testing.T) {
 	}
 	// Exercise the mux dispatcher once so a lazily-detected routing
 	// problem would also surface here, not just registration panics.
+	// /metrics is registered unauthenticated in buildHTTPServer.
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody) //nolint:noctx // in-process handler test
+	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody) //nolint:noctx // in-process handler test
 	srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /metrics through the built mux: got %d, want 200", rec.Code)
+	}
 }

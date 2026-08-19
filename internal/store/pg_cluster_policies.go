@@ -303,7 +303,7 @@ func (p *PG) ListClusterPolicies(
 
 	if filter.ResourceType != nil {
 		args = append(args, *filter.ResourceType)
-		conds = append(conds, fmt.Sprintf("resource_type = $%d", len(args)))
+		conds = append(conds, fmt.Sprintf("LOWER(resource_type) = LOWER($%d)", len(args)))
 	}
 
 	if filter.Action != nil {

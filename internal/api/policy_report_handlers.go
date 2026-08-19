@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 
@@ -35,8 +37,15 @@ func validatePolicyReportCreate(in *PolicyReportCreate) string {
 		{"summary_error", in.SummaryError},
 		{"summary_skip", in.SummarySkip},
 	} {
-		if f.value < 0 {
-			return f.name + " must be non-negative"
+		// The columns are INTEGER: bound the counts so an oversized
+		// value is a 400, not a failed INSERT surfacing as a 500.
+		if f.value < 0 || f.value > math.MaxInt32 {
+			return f.name + " must be between 0 and 2147483647"
+		}
+	}
+	if len(in.ResultsRaw) > 0 && string(in.ResultsRaw) != jsonNullLiteral {
+		if b := bytes.TrimSpace(in.ResultsRaw); len(b) == 0 || b[0] != '[' {
+			return "results_raw must be a JSON array"
 		}
 	}
 	return ""

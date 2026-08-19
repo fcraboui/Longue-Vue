@@ -4289,6 +4289,10 @@ paths:
             Conflict — either (a) policies_enabled is off, or
             (b) a collector-managed policy already exists at this key
             and cannot be overwritten by an API request.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
 
@@ -4492,6 +4496,10 @@ paths:
             Conflict — either (a) policies_enabled is off, or
             (b) a collector-managed report already exists at this key
             and cannot be overwritten by an API request.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
 
@@ -5857,7 +5865,7 @@ components:
         failure_policy: { type: string, nullable: true, enum: [Fail, Ignore] }
         background: { type: boolean, nullable: true }
         rule_types: { type: array, items: { type: string }, nullable: true }
-        rules_count: { type: integer, minimum: 0, nullable: true }
+        rules_count: { type: integer, minimum: 0, maximum: 2147483647, nullable: true }
         target_resources:
           { type: array, items: { type: string }, nullable: true }
         key_exclusions: { type: array, items: { type: string }, nullable: true }
@@ -5934,11 +5942,11 @@ components:
             description: "Kind of the evaluated resource per .scope.kind (e.g. Namespace, Pod, Deployment)",
           }
         scope_name: { type: string, nullable: true }
-        summary_pass: { type: integer, minimum: 0 }
-        summary_fail: { type: integer, minimum: 0 }
-        summary_warn: { type: integer, minimum: 0 }
-        summary_error: { type: integer, minimum: 0 }
-        summary_skip: { type: integer, minimum: 0 }
+        summary_pass: { type: integer, minimum: 0, maximum: 2147483647 }
+        summary_fail: { type: integer, minimum: 0, maximum: 2147483647 }
+        summary_warn: { type: integer, minimum: 0, maximum: 2147483647 }
+        summary_error: { type: integer, minimum: 0, maximum: 2147483647 }
+        summary_skip: { type: integer, minimum: 0, maximum: 2147483647 }
         results_raw:
           {
             type: array,

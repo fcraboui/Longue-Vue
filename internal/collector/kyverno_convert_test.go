@@ -18,7 +18,10 @@ import (
 	"github.com/google/uuid"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func kyvernoPolicyObj(spec map[string]interface{}) *unstructured.Unstructured {
@@ -69,7 +72,7 @@ func TestKyvernoAction_ValidateRuleDefaultsToAudit(t *testing.T) {
 		},
 	})
 	got := kyvernoAction(obj)
-	if got == nil || *got != "audit" {
+	if got == nil || *got != kyvernoActionAudit {
 		t.Errorf("action: got %v, want audit", got)
 	}
 }
@@ -90,8 +93,63 @@ func TestKyvernoAction_PerRuleFailureActionOverridesEnforce(t *testing.T) {
 		},
 	})
 	got := kyvernoAction(obj)
-	if got == nil || *got != "enforce" {
+	if got == nil || *got != kyvernoActionEnforce {
 		t.Errorf("action: got %v, want enforce (per-rule failureActionOverrides)", got)
+	}
+}
+
+func TestKyvernoAction_VerifyImagesOnlyDefaultsToAudit(t *testing.T) {
+	// verifyImages rules are governed by validationFailureAction just
+	// like validate rules (unverified images blocked in enforce mode,
+	// reported in audit mode) — a verifyImages-only policy has a real
+	// enforcement posture and must not be classified as action-less.
+	obj := kyvernoPolicyObj(map[string]interface{}{
+		"rules": []interface{}{
+			map[string]interface{}{
+				"name": "check-signatures",
+				"verifyImages": []interface{}{
+					map[string]interface{}{"imageReferences": []interface{}{"ghcr.io/*"}},
+				},
+			},
+		},
+	})
+	got := kyvernoAction(obj)
+	if got == nil || *got != kyvernoActionAudit {
+		t.Errorf("action: got %v, want audit for verifyImages-only policy", got)
+	}
+}
+
+func TestKyvernoAction_VerifyImagesFailureActionEnforce(t *testing.T) {
+	// Kyverno >=1.13: per-entry verifyImages[].failureAction can be the
+	// only enforce signal.
+	obj := kyvernoPolicyObj(map[string]interface{}{
+		"rules": []interface{}{
+			map[string]interface{}{
+				"name": "check-signatures",
+				"verifyImages": []interface{}{
+					map[string]interface{}{"failureAction": "Enforce"},
+				},
+			},
+		},
+	})
+	got := kyvernoAction(obj)
+	if got == nil || *got != kyvernoActionEnforce {
+		t.Errorf("action: got %v, want enforce (verifyImages failureAction)", got)
+	}
+}
+
+func TestKyvernoAction_PerRuleValidateFailureActionEnforce(t *testing.T) {
+	obj := kyvernoPolicyObj(map[string]interface{}{
+		"rules": []interface{}{
+			map[string]interface{}{
+				"name":     "check-labels",
+				"validate": map[string]interface{}{"failureAction": "Enforce"},
+			},
+		},
+	})
+	got := kyvernoAction(obj)
+	if got == nil || *got != kyvernoActionEnforce {
+		t.Errorf("action: got %v, want enforce (per-rule validate.failureAction)", got)
 	}
 }
 
@@ -106,7 +164,7 @@ func TestKyvernoAction_SpecLevelEnforceStillWins(t *testing.T) {
 		},
 	})
 	got := kyvernoAction(obj)
-	if got == nil || *got != "enforce" {
+	if got == nil || *got != kyvernoActionEnforce {
 		t.Errorf("action: got %v, want enforce", got)
 	}
 }
@@ -176,16 +234,37 @@ func TestNew_LogsWhenStoreLacksKyvernoSupport(t *testing.T) {
 	}
 }
 
-func TestKyvernoListSkip_NotFoundAndForbiddenSkip(t *testing.T) {
+func TestKyvernoListSkip_OnlyCRDAbsentSkips(t *testing.T) {
+	// Only a missing CRD may become an empty success (Kyverno
+	// uninstalled → rows legitimately swept away). Forbidden must NOT:
+	// an empty success there would wipe the inventory on a transient
+	// RBAC denial. It maps to errKyvernoListForbidden instead.
 	gr := schema.GroupResource{Group: "kyverno.io", Resource: "clusterpolicies"}
 	gvr := gvrClusterPolicy
 	if !kyvernoListSkip(apierrors.NewNotFound(gr, ""), gvr) {
 		t.Error("NotFound (CRD absent): want skip=true")
 	}
-	if !kyvernoListSkip(apierrors.NewForbidden(gr, "", errors.New("rbac denied")), gvr) {
-		t.Error("Forbidden (RBAC): want skip=true")
+	if kyvernoListSkip(apierrors.NewForbidden(gr, "", errors.New("rbac denied")), gvr) {
+		t.Error("Forbidden (RBAC): want skip=false — must surface as errKyvernoListForbidden")
 	}
 	if kyvernoListSkip(fmt.Errorf("connection refused"), gvr) {
 		t.Error("generic error: want skip=false (hard list failure)")
+	}
+}
+
+func TestListKyvernoClusterPolicies_ForbiddenMapsToSentinel(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvrClusterPolicy: "ClusterPolicyList"})
+	dyn.PrependReactor("list", "clusterpolicies",
+		func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewForbidden(
+				schema.GroupResource{Group: "kyverno.io", Resource: "clusterpolicies"},
+				"", errors.New("rbac denied"))
+		})
+	k := &KubeClient{dynamicClient: dyn}
+	_, err := k.ListKyvernoClusterPolicies(t.Context())
+	if !errors.Is(err, errKyvernoListForbidden) {
+		t.Fatalf("want errKyvernoListForbidden, got %v", err)
 	}
 }
