@@ -19,15 +19,11 @@ const (
 	SourceAPI       = "api"
 )
 
-// AuditSource discriminators for audit_events.source (ADR-0016).
-// Separate from the Kyverno reconcilable-source constants to avoid
-// cross-domain coupling — the values happen to overlap but the
-// domains are distinct.
-const (
-	AuditSourceAPI      = "api"
-	AuditSourceIngestGw = "ingest_gw"
-	AuditSourceSystem   = "system"
-)
+// AuditSourceAPI discriminates API-originated audit_events.source rows
+// (ADR-0016; the column also admits "ingest_gw" and "system"). Separate
+// from the Kyverno reconcilable-source constants to avoid cross-domain
+// coupling — the values happen to overlap but the domains are distinct.
+const AuditSourceAPI = "api"
 
 // Sentinel errors returned by Store implementations. Handlers translate these
 // into RFC 7807 responses with the matching HTTP status.
@@ -1221,7 +1217,6 @@ type Settings struct {
 	ImageVersionsEnabled    bool      `json:"image_versions_enabled"`
 	FlowMatrixEnabled       bool      `json:"flow_matrix_enabled"`
 	PoliciesEnabled         bool      `json:"policies_enabled"`
-	PolicyPrometheusURL     string    `json:"policy_prometheus_url"`
 	UpdatedAt               time.Time `json:"updated_at"`
 }
 
@@ -1236,7 +1231,6 @@ type SettingsPatch struct {
 	ImageVersionsEnabled    *bool   `json:"image_versions_enabled,omitempty"`
 	FlowMatrixEnabled       *bool   `json:"flow_matrix_enabled,omitempty"`
 	PoliciesEnabled         *bool   `json:"policies_enabled,omitempty"`
-	PolicyPrometheusURL     *string `json:"policy_prometheus_url,omitempty"`
 }
 
 // ImageVersionRow is a row from image_versions — one (image_repo, variant) pair

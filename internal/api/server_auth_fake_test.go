@@ -770,9 +770,6 @@ func (m *memStore) UpdateSettings(_ context.Context, patch SettingsPatch) (Setti
 	if patch.PoliciesEnabled != nil {
 		m.settings.PoliciesEnabled = *patch.PoliciesEnabled
 	}
-	if patch.PolicyPrometheusURL != nil {
-		m.settings.PolicyPrometheusURL = *patch.PolicyPrometheusURL
-	}
 	return m.settings, nil
 }
 

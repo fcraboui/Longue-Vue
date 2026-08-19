@@ -18,7 +18,6 @@ func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 		image_versions_enabled,
 		flow_matrix_enabled,
 		policies_enabled,
-		policy_prometheus_url,
 		updated_at FROM settings WHERE id = 1`
 	var s api.Settings
 	if err := p.pool.QueryRow(ctx, q).Scan(
@@ -27,7 +26,6 @@ func (p *PG) GetSettings(ctx context.Context) (api.Settings, error) {
 		&s.ImageVersionsEnabled,
 		&s.FlowMatrixEnabled,
 		&s.PoliciesEnabled,
-		&s.PolicyPrometheusURL,
 		&s.UpdatedAt,
 	); err != nil {
 		return api.Settings{}, fmt.Errorf("get settings: %w", err)
@@ -81,12 +79,6 @@ func (p *PG) UpdateSettings(ctx context.Context, in api.SettingsPatch) (api.Sett
 		args = append(args, *in.PoliciesEnabled)
 		idx++
 	}
-	if in.PolicyPrometheusURL != nil {
-		sets = append(sets, fmt.Sprintf("policy_prometheus_url=$%d", idx))
-		args = append(args, *in.PolicyPrometheusURL)
-		idx++
-	}
-
 	if len(sets) == 0 {
 		return p.GetSettings(ctx)
 	}

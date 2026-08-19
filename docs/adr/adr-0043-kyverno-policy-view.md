@@ -806,9 +806,10 @@ histograms).
 - **IMP-002**: Add `policies_enabled` boolean to the `settings` table
   (migration `00060`). Seed from `LONGUE_VUE_POLICIES_ENABLED`. Expose
   at `GET /v1/admin/settings`.
-- **IMP-003**: Add `policy_prometheus_url` text column to the `settings`
-  table (same migration). Default: empty (disabled). Expose at
-  `GET /v1/admin/settings`.
+- **IMP-003**: *Deferred to the metrics follow-up.* The
+  `policy_prometheus_url` setting ships together with the Prometheus
+  proxy that consumes it (IMP-008): landing the column ahead of its
+  consumer means an admin-set value silently does nothing.
 - **IMP-004**: Collector: add `ingestClusterPolicies` and
   `ingestPolicyReports` methods in `internal/collector/`. Gate behind
   `policies_enabled`. Add the four Kyverno CRDs to the in-process
@@ -841,7 +842,8 @@ histograms).
 - **IMP-007**: API handlers: `internal/api/cluster_policy_*.go` and
   `internal/api/policy_report_*.go` — hand-written handlers per the
   established pattern (cf. `internal/api/application_*`).
-- **IMP-008**: Prometheus proxy: add a server-side proxy endpoint
+- **IMP-008**: *Deferred to the metrics follow-up (with IMP-003 and the
+  IMP-009 async cells).* Prometheus proxy: add a server-side proxy endpoint
   `GET /v1/cluster-policies/metrics` (requires `read` scope, consistent
   with all other GET endpoints) that forwards batched PromQL queries to
   the configured `policy_prometheus_url` and returns the result indexed

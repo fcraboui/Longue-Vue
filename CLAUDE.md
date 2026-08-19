@@ -108,8 +108,6 @@ Single-row `settings` table (`id=1 CHECK`). Runtime toggles `eol_enabled`, `mcp_
 
 **Image versions enricher (`image_versions_enabled`, ADR-0022):** queries public registries for the latest tag of each container image used in workloads/pods. Default interval 24h (`LONGUE_VUE_IMAGE_VERSIONS_INTERVAL`). Allowlist of registries is in `image_versions_registries` (DB-backed, admin CRUD). Computes a `freshness` field (`up_to_date` / `outdated` / `far_behind` / `unknown`) based on minor/major version distance — see ADR-0041. This replaces the former `eol_status` field on `ContainerVersionInfo`. Freshness is surfaced via `GET /v1/container-freshness` and the Container Freshness UI page (`/container-freshness`); it does **not** appear in the EOL dashboard or extract.
 
-**Policy Prometheus URL (`policy_prometheus_url`):** optional URL shown in the UI Policies page to deep-link to a Prometheus instance for Kyverno policy metrics. Set via `PATCH /v1/admin/settings`.
-
 **Manual origin mappings (ADR-0030, table `image_origin_mappings`).**
 Operator-curated `image_name → public_registry` dictionary consulted by
 the mirror resolver before OCI annotation fetch. CRUD via
