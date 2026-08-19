@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strings"
 
@@ -857,6 +858,26 @@ var (
 	gvrClusterPolicyReport = schema.GroupVersionResource{Group: "wgpolicyk8s.io", Version: "v1alpha2", Resource: "clusterpolicyreports"}
 )
 
+// kyvernoListSkip classifies list errors that disable Kyverno collection
+// for this tick instead of failing it: the CRD is absent (Kyverno not
+// installed on the cluster) or RBAC denies the list verb — the state of
+// any collector ServiceAccount or kubeconfig that predates the Kyverno
+// clusterrole rules. Both get an actionable log instead of an error
+// metric every tick.
+func kyvernoListSkip(err error, gvr schema.GroupVersionResource) bool {
+	switch {
+	case apierrors.IsNotFound(err):
+		slog.Debug("collector: kyverno CRD not found; skipping",
+			slog.String("gvr", gvr.String()))
+		return true
+	case apierrors.IsForbidden(err):
+		slog.Warn("collector: kyverno list forbidden by RBAC; skipping — grant the collector credentials the list verb on this resource",
+			slog.String("gvr", gvr.String()))
+		return true
+	}
+	return false
+}
+
 // ListKyvernoClusterPolicies returns every Kyverno ClusterPolicy (cluster-scoped)
 // visible through the configured kubeconfig. Paginates via Limit/Continue to
 // handle clusters with many policies. ADR-0043.
@@ -866,9 +887,7 @@ func (k *KubeClient) ListKyvernoClusterPolicies(ctx context.Context) ([]KyvernoC
 	for {
 		list, err := k.dynamicClient.Resource(gvrClusterPolicy).List(ctx, opts)
 		if err != nil {
-			if apierrors.IsNotFound(err) {
-				slog.Debug("collector: kyverno clusterpolicies CRD not found; skipping",
-					slog.String("gvr", gvrClusterPolicy.String()))
+			if kyvernoListSkip(err, gvrClusterPolicy) {
 				return out, nil
 			}
 			return nil, fmt.Errorf("list kyverno clusterpolicies: %w", err)
@@ -896,9 +915,7 @@ func (k *KubeClient) ListKyvernoPolicies(ctx context.Context) ([]KyvernoClusterP
 	for {
 		list, err := k.dynamicClient.Resource(gvrPolicy).List(ctx, opts)
 		if err != nil {
-			if apierrors.IsNotFound(err) {
-				slog.Debug("collector: kyverno policies CRD not found; skipping",
-					slog.String("gvr", gvrPolicy.String()))
+			if kyvernoListSkip(err, gvrPolicy) {
 				return out, nil
 			}
 			return nil, fmt.Errorf("list kyverno policies: %w", err)
@@ -926,9 +943,7 @@ func (k *KubeClient) ListKyvernoPolicyReports(ctx context.Context) ([]KyvernoPol
 	for {
 		list, err := k.dynamicClient.Resource(gvrPolicyReport).List(ctx, opts)
 		if err != nil {
-			if apierrors.IsNotFound(err) {
-				slog.Debug("collector: kyverno policyreports CRD not found; skipping",
-					slog.String("gvr", gvrPolicyReport.String()))
+			if kyvernoListSkip(err, gvrPolicyReport) {
 				return out, nil
 			}
 			return nil, fmt.Errorf("list kyverno policyreports: %w", err)
@@ -956,9 +971,7 @@ func (k *KubeClient) ListKyvernoClusterPolicyReports(ctx context.Context) ([]Kyv
 	for {
 		list, err := k.dynamicClient.Resource(gvrClusterPolicyReport).List(ctx, opts)
 		if err != nil {
-			if apierrors.IsNotFound(err) {
-				slog.Debug("collector: kyverno clusterpolicyreports CRD not found; skipping",
-					slog.String("gvr", gvrClusterPolicyReport.String()))
+			if kyvernoListSkip(err, gvrClusterPolicyReport) {
 				return out, nil
 			}
 			return nil, fmt.Errorf("list kyverno clusterpolicyreports: %w", err)
@@ -1025,16 +1038,36 @@ func convertKyvernoPolicy(obj *unstructured.Unstructured, resourceType, scope st
 
 // kyvernoAction extracts spec.validationFailureAction (always a string in
 // Kyverno >=1.10: "enforce" or "audit"). If any rule overrides to "enforce"
-// (via validationFailureActionOverrides or per-rule
-// spec.rules[].validate.failureAction in Kyverno >=1.13), the policy-level
-// action is promoted to "enforce" (most restrictive wins). Result is
-// lowercased. ADR-0043 §5.
+// (via spec-level validationFailureActionOverrides, per-rule
+// validate.failureAction, or per-rule validate.failureActionOverrides in
+// Kyverno >=1.13), the policy-level action is promoted to "enforce"
+// (most restrictive wins). Returns nil for a policy with no validation
+// semantics at all (mutate-/generate-only): the kubebuilder default
+// "audit" would fabricate an enforcement posture such a policy doesn't
+// have. Result is lowercased. ADR-0043 §5.
 func kyvernoAction(obj *unstructured.Unstructured) *string {
 	spec, ok := obj.Object["spec"].(map[string]interface{})
 	if !ok {
 		return nil
 	}
 	vfa, _ := spec["validationFailureAction"].(string)
+	overrides, _ := spec["validationFailureActionOverrides"].([]interface{})
+	rules, _ := spec["rules"].([]interface{})
+
+	hasValidateRule := false
+	for _, r := range rules {
+		rm, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if _, ok := rm["validate"]; ok {
+			hasValidateRule = true
+			break
+		}
+	}
+	if vfa == "" && len(overrides) == 0 && !hasValidateRule {
+		return nil
+	}
 	if vfa == "" {
 		// Kyverno <1.10 doesn't set validationFailureAction in the spec;
 		// the kubebuilder default is "audit". Fall through to check
@@ -1047,7 +1080,6 @@ func kyvernoAction(obj *unstructured.Unstructured) *string {
 		return &action
 	}
 
-	overrides, _ := spec["validationFailureActionOverrides"].([]interface{})
 	for _, o := range overrides {
 		om, ok := o.(map[string]interface{})
 		if !ok {
@@ -1058,7 +1090,6 @@ func kyvernoAction(obj *unstructured.Unstructured) *string {
 		}
 	}
 
-	rules, _ := spec["rules"].([]interface{})
 	for _, r := range rules {
 		rm, ok := r.(map[string]interface{})
 		if !ok {
@@ -1068,9 +1099,18 @@ func kyvernoAction(obj *unstructured.Unstructured) *string {
 		if !ok {
 			continue
 		}
-		fa, ok := v["failureAction"].(string)
-		if ok && strings.ToLower(fa) == "enforce" {
+		if fa, ok := v["failureAction"].(string); ok && strings.ToLower(fa) == "enforce" {
 			return ptrLower("enforce")
+		}
+		faOverrides, _ := v["failureActionOverrides"].([]interface{})
+		for _, o := range faOverrides {
+			om, ok := o.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if a, ok := om["action"].(string); ok && strings.ToLower(a) == "enforce" {
+				return ptrLower("enforce")
+			}
 		}
 	}
 
@@ -1367,15 +1407,27 @@ func convertKyvernoPolicyReport(obj *unstructured.Unstructured) (KyvernoPolicyRe
 }
 
 // jsonInt extracts an int from a map[string]interface{} key, tolerating
-// both float64 (JSON default) and int.
+// both float64 (JSON default) and int. Values are clamped to
+// [0, math.MaxInt32]: summary counts are non-negative by contract (the
+// POST handler enforces the same rule), the columns are INTEGER, and an
+// out-of-range float64→int conversion is implementation-defined in Go.
 func jsonInt(m map[string]interface{}, key string) int {
+	clamp := func(v float64) int {
+		if v < 0 {
+			return 0
+		}
+		if v > math.MaxInt32 {
+			return math.MaxInt32
+		}
+		return int(v)
+	}
 	switch v := m[key].(type) {
 	case int:
-		return v
+		return clamp(float64(v))
 	case int64:
-		return int(v)
+		return clamp(float64(v))
 	case float64:
-		return int(v)
+		return clamp(v)
 	}
 	return 0
 }

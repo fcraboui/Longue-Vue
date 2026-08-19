@@ -17,16 +17,20 @@ import (
 var errKyvernoTickFailed = errors.New("kyverno tick: one or more operations failed")
 
 // SettingsGetter is the minimal settings interface the Kyverno collector
-// needs to gate itself behind policies_enabled. Both *store.PG and
-// apiclient.Store can satisfy it.
+// needs to gate itself behind policies_enabled. Satisfied by *store.PG
+// (in-process mode). The push-mode apiclient.Store does not implement it
+// — push-mode Kyverno collection is deferred (ADR-0043 NEG-008).
 type SettingsGetter interface {
 	GetSettings(ctx context.Context) (api.Settings, error)
 }
 
 // KyvernoStore is the slice of the store interface the Kyverno collector
-// uses. Both *store.PG (direct, in-process) and apiclient.Store (HTTP
-// push via the ingest GW) can satisfy this interface. Defined here so a
-// test fake can stub without dragging the full store. ADR-0043.
+// uses. Satisfied by *store.PG (direct, in-process). The push-mode
+// apiclient.Store does not implement it and the ingest listener exposes
+// no Kyverno routes — push-mode collection is deferred (ADR-0043
+// NEG-008); collector.New logs once at startup when the store lacks
+// support. Defined here so a test fake can stub without dragging the
+// full store. ADR-0043.
 type KyvernoStore interface {
 	UpsertClusterPolicy(ctx context.Context, cp api.ClusterPolicyRow) (uuid.UUID, error)
 	DeleteClusterScopedPoliciesNotIn(ctx context.Context, clusterID uuid.UUID, keepIDs []uuid.UUID) (int64, error)
@@ -412,13 +416,16 @@ func collectPolicyReports(
 // api.ClusterPolicyRow for upsert.
 func kyvernoPolicyToRow(info *KyvernoClusterPolicyInfo, clusterID uuid.UUID, namespaceID *uuid.UUID) api.ClusterPolicyRow {
 	now := time.Now().UTC()
+	// json.Marshal of a missing field yields the literal "null", which is
+	// valid JSON — treat it like absent data: SQL NULL for the nullable
+	// annotations column, {} for the NOT NULL spec_raw column.
 	annotations := json.RawMessage(info.Annotations)
 	specRaw := json.RawMessage(info.SpecRaw)
-	if len(annotations) == 0 || !json.Valid(annotations) {
+	if len(annotations) == 0 || !json.Valid(annotations) || string(annotations) == "null" {
 		annotations = nil
 	}
-	if len(specRaw) == 0 || !json.Valid(specRaw) {
-		specRaw = nil
+	if len(specRaw) == 0 || !json.Valid(specRaw) || string(specRaw) == "null" {
+		specRaw = json.RawMessage(`{}`)
 	}
 	row := api.ClusterPolicyRow{
 		ClusterID:       clusterID,
@@ -451,8 +458,11 @@ func kyvernoPolicyToRow(info *KyvernoClusterPolicyInfo, clusterID uuid.UUID, nam
 // kyvernoReportToRow converts a KyvernoPolicyReportInfo to an
 // api.PolicyReportRow for upsert.
 func kyvernoReportToRow(info *KyvernoPolicyReportInfo, clusterID uuid.UUID, namespaceID *uuid.UUID) api.PolicyReportRow {
+	// A report with no results field marshals to the literal "null" —
+	// normalise to nil so the store's nil→[] default applies instead of
+	// persisting jsonb null where the schema promises an array.
 	resultsRaw := json.RawMessage(info.ResultsRaw)
-	if len(resultsRaw) == 0 || !json.Valid(resultsRaw) {
+	if len(resultsRaw) == 0 || !json.Valid(resultsRaw) || string(resultsRaw) == "null" {
 		resultsRaw = nil
 	}
 	return api.PolicyReportRow{
